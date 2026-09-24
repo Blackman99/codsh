@@ -1,7 +1,7 @@
 /**
  * Keyless LLM adapter at the dsh provider boundary for Rust ACP turn tests.
  * Modes: echo (default), reasoning, empty, fail-stream, file-edit, file-write,
- * file-missing, file-error, markdown, huge-read, control-output, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
+ * file-missing, file-error, markdown, huge-read, control-output, plain-steps, bash-rm, bash-timeout-rm, bash-nice-rm, bash-brace-rm,
  * bash-ansi-c-rm, bash-quoted-rm, bash-eval-rm, bash-path-rm, bash-sudo-rm,
  * bash-nohup-rm, bash-xargs-rm, bash-sort-prefix,
  * bash-sort-output, bash-git-branch, bash-git-upstream, bash-git-track,
@@ -400,10 +400,10 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockMarkdown()
       return
     }
-    if (MODE === 'huge-read' || MODE === 'control-output') {
+    if (MODE === 'huge-read' || MODE === 'control-output' || MODE === 'plain-read') {
       const done = toolResults(options)
-      const path = MODE === 'huge-read' ? 'huge.txt' : 'ctrl.txt'
-      const id = MODE === 'huge-read' ? 'rust-acp-huge' : 'rust-acp-ctrl'
+      const path = MODE === 'huge-read' ? 'huge.txt' : MODE === 'plain-read' ? 'note.txt' : 'ctrl.txt'
+      const id = MODE === 'huge-read' ? 'rust-acp-huge' : MODE === 'plain-read' ? 'rust-acp-plain-read' : 'rust-acp-ctrl'
       if (done.length === 0) {
         yield* mockToolCall(id, 'read', { file_path: path })
         return
@@ -413,7 +413,16 @@ class RustAcpMockAdapter extends LlmAdapter {
         yield* mockText(`RUST_ACP_FILE_ERROR ${resultText(last)}`)
         return
       }
-      yield* mockText(MODE === 'huge-read' ? 'RUST_ACP_HUGE_DONE' : 'RUST_ACP_CTRL_DONE')
+      yield* mockText(MODE === 'control-output' ? 'RUST_ACP_CTRL_DONE' : 'RUST_ACP_HUGE_DONE')
+      return
+    }
+    if (MODE === 'plain-steps') {
+      const done = toolResults(options)
+      if (done.length < 4) {
+        yield* mockToolCall(`rust-acp-step-${done.length + 1}`, 'read', { file_path: 'note.txt' })
+        return
+      }
+      yield* mockText(`RUST_ACP_STEPS_DONE calls=${done.length}`)
       return
     }
     if (MODE === 'web-search' || MODE === 'web-search-hang' || MODE === 'web-fetch' || MODE === 'web-missing') {

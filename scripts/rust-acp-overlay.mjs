@@ -18,7 +18,11 @@ export function rustAcpWebUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-web.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl()) {
+export function rustAcpPlainUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-plain.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -70,6 +74,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     '- insert:',
     '    - id: rust-acp-mock-llm',
     `      name: '${mockUrl}'`,
+    '    - id: rust-acp-plain',
+    `      name: '${plainUrl}'`,
     '    - id: rust-acp-file-approval',
     `      name: '${approvalUrl}'`,
     '    - id: rust-acp-compact',

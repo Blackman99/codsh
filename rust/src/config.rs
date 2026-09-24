@@ -2433,9 +2433,17 @@ pub fn apply_to_dsh(
         ))
     })?;
     if !config.errors.is_empty() || !config.ready {
+        // The mock seam has no configured model, but its overlay still has to
+        // reach dsh. A real missing model keeps the existing refusal.
+        if is_test_execution_seam_env(env) {
+            return write_test_seam_patch(config, env);
+        }
         return Ok(None);
     }
     let Some(model) = config.active_model() else {
+        if is_test_execution_seam_env(env) {
+            return write_test_seam_patch(config, env);
+        }
         return Ok(None);
     };
     let yaml = generated_settings_yaml(config)?;
@@ -2507,6 +2515,27 @@ pub fn apply_to_dsh(
         )
     };
     fs::write(&patch_path, combined)?;
+    Ok(Some(patch_path))
+}
+
+fn write_test_seam_patch(
+    config: &EffectiveConfig,
+    env: &BTreeMap<String, String>,
+) -> io::Result<Option<PathBuf>> {
+    let existing = env
+        .get("CODSH_ACP_PATCH")
+        .cloned()
+        .or_else(|| std::env::var("CODSH_ACP_PATCH").ok())
+        .and_then(|path| fs::read_to_string(path).ok())
+        .unwrap_or_default();
+    if existing.trim().is_empty() {
+        return Ok(None);
+    }
+    let patch_path = config.dsh_home.join("rust-effective.yml");
+    if let Some(parent) = patch_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&patch_path, existing)?;
     Ok(Some(patch_path))
 }
 

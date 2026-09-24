@@ -348,6 +348,36 @@ enum LaunchMode {
         json: bool,
     },
     Memory(Vec<String>),
+    /// One non-interactive prompt. dsh executes it; stdout is the final answer.
+    Plain {
+        prompt: PlainPrompt,
+        cwd: Option<PathBuf>,
+        max_turns: Option<u64>,
+        tools: Option<PlainTools>,
+        resume: Option<PlainResume>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PlainResume {
+    Continue,
+    Id(String),
+}
+
+/// Where a plain prompt comes from. Stdin is not a prompt source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PlainPrompt {
+    Text(String),
+    File(PathBuf),
+    Json(String),
+}
+
+/// `--tools` keeps named dsh tools. `--disallowed-tools` removes them.
+/// A name dsh does not register is an error, not a silent no-op.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PlainTools {
+    Allow(Vec<String>),
+    Deny(Vec<String>),
 }
 
 struct Connection {
@@ -429,6 +459,52 @@ struct Launch {
     sandbox_probe: Option<PathBuf>,
 }
 
+/// Flags the frozen client accepts, but a later ticket owns their behavior.
+fn deferred_plain_flag(arg: &str) -> Option<&'static str> {
+    let name = arg.split('=').next().unwrap_or(arg);
+    match name {
+        "--output-format" | "--json-schema" | "--include-partial-messages" => Some(
+            "JSON and streaming output formats belong to a later ticket; this command prints plain text only",
+        ),
+        "--agent" | "--agents" | "--agent-profile" => {
+            Some("agent selection is not available in this plain command; a later ticket owns it")
+        }
+        "--fs-read" | "--fs-write" => Some(
+            "sandbox profiles are not available in this plain command; a later ticket owns them",
+        ),
+        "--no-subagents" => Some(
+            "subagent controls are not available in this plain command; a later ticket owns them",
+        ),
+        "--no-plan" | "--no-ask-user" | "--todo-gate" => {
+            Some("plan controls are not available in this plain command; a later ticket owns them")
+        }
+        "--disable-web-search" => Some(
+            "web-search controls are not available in this plain command; a later ticket owns them",
+        ),
+        "--worktree" | "-w" | "--worktree-ref" | "--ref" => {
+            Some("worktrees are not available in this plain command; a later ticket owns them")
+        }
+        "--experimental-memory" | "--memory-flush" => Some(
+            "memory controls are not available in this plain command; a later ticket owns them",
+        ),
+        "--leader"
+        | "--no-leader"
+        | "--leader-socket"
+        | "--bind"
+        | "--no-exit-on-disconnect"
+        | "--relay-on-demand" => {
+            Some("shared leader controls are not available; dsh owns execution")
+        }
+        "--verbatim" => Some(
+            "verbatim prompt delivery is not a separate dsh mode; the prompt text is sent as given",
+        ),
+        "--no-auto-update" | "--no-alt-screen" => Some(
+            "that flag has no effect on this plain command; update checks and the alternate screen are already off",
+        ),
+        _ => None,
+    }
+}
+
 fn is_subcommand(arg: &str) -> bool {
     matches!(
         arg,
@@ -475,6 +551,24 @@ fn take_flag_value(
     Ok(None)
 }
 
+fn plain_flag_value(args: &[String], index: &mut usize, flag: &str) -> io::Result<Option<String>> {
+    take_flag_value(
+        args,
+        index,
+        flag,
+        &format!("error: a value is required for '{flag}' but none was supplied"),
+    )
+}
+
+fn split_tool_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
     if args.iter().any(|flag| flag == "--restore-code") {
         return Err(io::Error::other(session_fork::restore_code_error()));
@@ -499,6 +593,10 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut sandbox = None;
     let mut sandbox_report = None;
     let mut sandbox_probe = None;
+    let mut plain_prompt: Option<PlainPrompt> = None;
+    let mut plain_cwd = None;
+    let mut max_turns = None;
+    let mut plain_tools: Option<PlainTools> = None;
     let mut index = 0;
     while index < args.len() {
         if let Some(value) = take_flag_value(
@@ -585,8 +683,47 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             "missing --system-prompt text; use codsh --rust --help",
         )? {
             system_prompt_override = Some(value);
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--single")? {
+            plain_prompt = Some(PlainPrompt::Text(value));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "-p")? {
+            plain_prompt = Some(PlainPrompt::Text(value));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--prompt-file")? {
+            plain_prompt = Some(PlainPrompt::File(PathBuf::from(value)));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--prompt-json")? {
+            plain_prompt = Some(PlainPrompt::Json(value));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--cwd")? {
+            plain_cwd = Some(PathBuf::from(value));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--max-turns")? {
+            let parsed = value
+                .parse::<u64>()
+                .map_err(|_| io::Error::other("error: --max-turns requires a positive integer"))?;
+            if parsed == 0 {
+                return Err(io::Error::other(
+                    "error: --max-turns requires a positive integer",
+                ));
+            }
+            max_turns = Some(parsed);
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--tools")? {
+            let names = split_tool_list(&value);
+            if names.is_empty() {
+                return Err(io::Error::other(
+                    "error: --tools requires at least one dsh tool name",
+                ));
+            }
+            plain_tools = Some(PlainTools::Allow(names));
+        } else if let Some(value) = plain_flag_value(args, &mut index, "--disallowed-tools")? {
+            let names = split_tool_list(&value);
+            if names.is_empty() {
+                return Err(io::Error::other(
+                    "error: --disallowed-tools requires at least one dsh tool name",
+                ));
+            }
+            plain_tools = Some(PlainTools::Deny(names));
         } else {
             let arg = &args[index];
+            if let Some(message) = deferred_plain_flag(arg) {
+                return Err(io::Error::other(message));
+            }
             if arg == "--trust" && args.iter().any(|item| item == "plugin") {
                 rest.push(arg.clone());
             } else if arg == "--trust" || arg == "--trust-folder" {
@@ -637,18 +774,12 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                 auto = true;
             } else if matches!(
                 arg.as_str(),
-                "--permission-mode"
-                    | "--allow"
-                    | "--allowedTools"
-                    | "--deny"
-                    | "--disallowedTools"
-                    | "--disallowed-tools"
+                "--permission-mode" | "--allow" | "--allowedTools" | "--deny" | "--disallowedTools"
             ) || arg.starts_with("--permission-mode=")
                 || arg.starts_with("--allow=")
                 || arg.starts_with("--allowedTools=")
                 || arg.starts_with("--deny=")
                 || arg.starts_with("--disallowedTools=")
-                || arg.starts_with("--disallowed-tools=")
             {
                 if rest.iter().any(|item| is_subcommand(item)) {
                     rest.push(arg.clone());
@@ -803,16 +934,57 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         ["memory", flags @ ..] => {
             LaunchMode::Memory(flags.iter().map(|flag| (*flag).to_string()).collect())
         }
+        [prompt] if plain_prompt.is_none() && !prompt.starts_with('-') => {
+            return Err(io::Error::other(
+                "a positional prompt does not start plain mode; use -p/--single, --prompt-file, or --prompt-json",
+            ));
+        }
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
             ));
         }
     };
+    let mode = match plain_prompt {
+        Some(prompt) => {
+            let resume = match mode {
+                LaunchMode::New => None,
+                LaunchMode::Continue => Some(PlainResume::Continue),
+                LaunchMode::Resume(id) => Some(PlainResume::Id(id)),
+                _ => {
+                    return Err(io::Error::other(
+                        "a plain prompt cannot be combined with that command",
+                    ));
+                }
+            };
+            LaunchMode::Plain {
+                prompt,
+                cwd: plain_cwd,
+                max_turns,
+                tools: plain_tools,
+                resume,
+            }
+        }
+        None => {
+            if plain_cwd.is_some() || max_turns.is_some() || plain_tools.is_some() {
+                return Err(io::Error::other(
+                    "--cwd, --max-turns, and --tools/--disallowed-tools require -p/--single, --prompt-file, or --prompt-json",
+                ));
+            }
+            mode
+        }
+    };
     if fork_session
         && !matches!(
             mode,
-            LaunchMode::Resume(_) | LaunchMode::Continue | LaunchMode::Help | LaunchMode::Version
+            LaunchMode::Resume(_)
+                | LaunchMode::Continue
+                | LaunchMode::Help
+                | LaunchMode::Version
+                | LaunchMode::Plain {
+                    resume: Some(_),
+                    ..
+                }
         )
     {
         return Err(io::Error::other(
@@ -1583,6 +1755,20 @@ fn open_live_session(
     Ok(())
 }
 
+fn session_mode(mode: &LaunchMode) -> LaunchMode {
+    match mode {
+        LaunchMode::Plain {
+            resume: Some(PlainResume::Continue),
+            ..
+        } => LaunchMode::Continue,
+        LaunchMode::Plain {
+            resume: Some(PlainResume::Id(id)),
+            ..
+        } => LaunchMode::Resume(id.clone()),
+        other => other.clone(),
+    }
+}
+
 fn resolve_resume(
     client: &mut AcpClient,
     mode: &LaunchMode,
@@ -1642,7 +1828,7 @@ fn connect(
     client
         .initialize(Duration::from_secs(20))
         .map_err(|error| error.message)?;
-    let resume_id = resolve_resume(&mut client, mode, &cwd, &dsh_home, previous)?;
+    let resume_id = resolve_resume(&mut client, &session_mode(mode), &cwd, &dsh_home, previous)?;
     let resume_id = if fork_session {
         let source = resume_id
             .ok_or_else(|| "--fork-session requires --resume or --continue".to_string())?;
@@ -4658,6 +4844,299 @@ fn activate_filesystem_sandbox(
     Ok(prepared)
 }
 
+fn plain_blocks(prompt: &PlainPrompt) -> io::Result<Vec<Value>> {
+    match prompt {
+        PlainPrompt::Text(text) => {
+            if text.trim().is_empty() {
+                return Err(io::Error::other("plain prompt is empty"));
+            }
+            Ok(vec![serde_json::json!({ "type": "text", "text": text })])
+        }
+        PlainPrompt::File(path) => {
+            let text = std::fs::read_to_string(path).map_err(|error| {
+                io::Error::other(format!(
+                    "couldn't read prompt file {}: {error}",
+                    path.display()
+                ))
+            })?;
+            if text.trim().is_empty() {
+                return Err(io::Error::other(format!(
+                    "prompt file {} is empty",
+                    path.display()
+                )));
+            }
+            Ok(vec![serde_json::json!({ "type": "text", "text": text })])
+        }
+        PlainPrompt::Json(raw) => {
+            let parsed: Value = serde_json::from_str(raw).map_err(|error| {
+                io::Error::other(format!("--prompt-json is not JSON content blocks: {error}"))
+            })?;
+            let blocks = match parsed {
+                Value::Array(items) => items,
+                Value::Object(_) => vec![parsed],
+                _ => {
+                    return Err(io::Error::other(
+                        "--prompt-json must be one content block or an array of content blocks",
+                    ));
+                }
+            };
+            if blocks.is_empty() {
+                return Err(io::Error::other("--prompt-json has no content blocks"));
+            }
+            for block in &blocks {
+                let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
+                if kind != "text" || !block.get("text").and_then(Value::as_str).is_some() {
+                    return Err(io::Error::other(
+                        "--prompt-json only accepts text content blocks on this plain command",
+                    ));
+                }
+            }
+            Ok(blocks)
+        }
+    }
+}
+
+fn plain_tool_env(tools: &Option<PlainTools>) -> Option<(String, String)> {
+    let Some(tools) = tools else {
+        return None;
+    };
+    let (mode, names) = match tools {
+        PlainTools::Allow(names) => ("allow", names),
+        PlainTools::Deny(names) => ("deny", names),
+    };
+    Some((
+        "CODSH_PLAIN_TOOLS".into(),
+        format!("{mode}:{}", names.join(",")),
+    ))
+}
+
+struct PlainStop {
+    code: i32,
+    message: String,
+}
+
+fn plain_failure_message(dsh_home: &Path) -> String {
+    let log = dsh_home.join("acp-stderr.log");
+    let text = std::fs::read_to_string(log).unwrap_or_default();
+    let detail = text
+        .lines()
+        .rev()
+        .find(|line| line.contains("plain tool filter") || line.contains("tools.restrict"))
+        .unwrap_or("dsh cancelled the plain turn before producing an answer");
+    detail.to_string()
+}
+
+fn plain_exit(stop: &PlainStop) -> io::Result<()> {
+    if stop.code == 0 {
+        return Ok(());
+    }
+    if !stop.message.is_empty() {
+        eprintln!("{}", stop.message);
+    }
+    std::process::exit(stop.code);
+}
+
+/// One prompt, one dsh ACP session, then exit. Stdout is the final answer.
+/// Tool cards and thoughts stay off stdout. A signal cancels the dsh turn.
+fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
+    let LaunchMode::Plain {
+        prompt,
+        cwd,
+        max_turns,
+        tools,
+        resume,
+    } = plain
+    else {
+        return Err(io::Error::other("plain mode was not selected"));
+    };
+    let blocks = plain_blocks(prompt)?;
+    // Config, session catalog, and dsh all read the process directory.
+    // Change it before either of those, not only before the ACP spawn.
+    if let Some(path) = cwd {
+        let target = path.canonicalize().map_err(|error| {
+            io::Error::other(format!("couldn't use --cwd {}: {error}", path.display()))
+        })?;
+        if !target.is_dir() {
+            return Err(io::Error::other(format!(
+                "--cwd {} is not a directory",
+                path.display()
+            )));
+        }
+        std::env::set_current_dir(&target)?;
+    }
+    let mut effective = load_runtime_config(launch);
+    effective.permission.interactive = false;
+    let applied = runtime_apply(&effective);
+    if applied.apply_failed {
+        return Err(io::Error::other(applied.error));
+    }
+    if !can_execute(&effective, applied.apply_failed) {
+        return Err(io::Error::other(effective.first_run_message()));
+    }
+    let mut extra_env = applied.extra_env;
+    if let Some(bound) = max_turns {
+        extra_env.push(("CODSH_PLAIN_MAX_TURNS".into(), bound.to_string()));
+    }
+    if let Some(filter) = plain_tool_env(tools) {
+        extra_env.push(filter);
+    }
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let terminate = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        // 130 and 143 stay distinct. The launcher also forwards the signal.
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&interrupt))?;
+        signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&terminate))?;
+    }
+    let session_mode = session_mode(plain);
+    let (mut connection, _) = connect(
+        &session_mode,
+        None,
+        &extra_env,
+        applied.patch.as_ref(),
+        launch.fork_session,
+        launch.child_id.as_deref(),
+    )
+    .map_err(io::Error::other)?;
+    if let Err(error) = apply_live_selection(&mut connection.client, &effective) {
+        connection.client.shutdown();
+        return Err(io::Error::other(error));
+    }
+    // Memory joins the first prompt of a new session, as in the TUI.
+    let blocks = blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none());
+    if let Err(error) = connection.client.submit_prompt_blocks(&blocks) {
+        connection.client.shutdown();
+        return Err(io::Error::other(error.message));
+    }
+    let mut answer = String::new();
+    let mut stop = PlainStop {
+        code: 0,
+        message: String::new(),
+    };
+    let started = Instant::now();
+    loop {
+        let signal = if terminate.load(Ordering::Relaxed) {
+            143
+        } else if interrupt.load(Ordering::Relaxed) {
+            130
+        } else {
+            0
+        };
+        if signal != 0 {
+            let _ = connection.client.cancel_prompt();
+            connection.client.shutdown();
+            let _ = io::stdout().flush();
+            std::process::exit(signal);
+        }
+        let events = connection.client.pump(Duration::from_millis(50));
+        let mut finished = false;
+        for event in events {
+            match event {
+                AcpEvent::Answer { text, .. } => answer.push_str(&text),
+                AcpEvent::Thought { .. }
+                | AcpEvent::ToolCall { .. }
+                | AcpEvent::ToolCallUpdate { .. }
+                | AcpEvent::Usage { .. }
+                | AcpEvent::ConfigOptions { .. }
+                | AcpEvent::PermissionCancelled { .. } => {}
+                AcpEvent::PermissionRequest {
+                    request_id,
+                    options,
+                    ..
+                } => {
+                    // No TTY means no approval prompt. Reject stays inside dsh.
+                    let option = options
+                        .iter()
+                        .find(|choice| choice.option_id == "reject-once")
+                        .or_else(|| options.first());
+                    if let Some(choice) = option {
+                        let _ = connection
+                            .client
+                            .answer_permission(&request_id, &choice.option_id);
+                    }
+                }
+                AcpEvent::PromptFinished { stop_reason, .. } => {
+                    finished = true;
+                    if stop.code == 0 && stop_reason != "end_turn" && stop_reason != "end" {
+                        if stop_reason == "cancelled" || stop_reason.is_empty() {
+                            let signal = if terminate.load(Ordering::Relaxed) {
+                                143
+                            } else if interrupt.load(Ordering::Relaxed) {
+                                130
+                            } else {
+                                0
+                            };
+                            stop = if signal == 0 {
+                                PlainStop {
+                                    code: 1,
+                                    message: plain_failure_message(&effective.dsh_home),
+                                }
+                            } else {
+                                PlainStop {
+                                    code: signal,
+                                    message: format!("interrupted by signal {signal}"),
+                                }
+                            };
+                        } else {
+                            stop = PlainStop {
+                                code: 1,
+                                message: format!("dsh stopped the plain turn: {stop_reason}"),
+                            };
+                        }
+                    }
+                }
+                AcpEvent::RpcError { message, .. } => {
+                    finished = true;
+                    if stop.code == 0 {
+                        stop = PlainStop { code: 1, message };
+                    }
+                }
+                AcpEvent::ProtocolMismatch { version } => {
+                    finished = true;
+                    stop = PlainStop {
+                        code: 1,
+                        message: format!("ACP protocol mismatch: agent {version}"),
+                    };
+                }
+                AcpEvent::Disconnected { detail } => {
+                    finished = true;
+                    if stop.code == 0 {
+                        stop = PlainStop {
+                            code: 1,
+                            message: detail,
+                        };
+                    }
+                }
+            }
+        }
+        if finished {
+            if stop.code == 0 && answer.trim().is_empty() {
+                stop = PlainStop {
+                    code: 1,
+                    message: plain_failure_message(&effective.dsh_home),
+                };
+            }
+            break;
+        }
+        if started.elapsed() > Duration::from_secs(180) {
+            stop = PlainStop {
+                code: 1,
+                message: "plain turn timed out before dsh finished".into(),
+            };
+            break;
+        }
+    }
+    connection.client.shutdown();
+    if stop.code == 0 || !answer.is_empty() {
+        if !answer.is_empty() && !answer.ends_with('\n') {
+            answer.push('\n');
+        }
+        print!("{answer}");
+        let _ = io::stdout().flush();
+    }
+    plain_exit(&stop)
+}
+
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let launch = parse_launch(&args)?;
@@ -4740,7 +5219,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --no-memory, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. Child network blocking is not this control.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --no-memory, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. Child network blocking is not this control.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn and prints the final answer on stdout. Diagnostics stay on stderr. --cwd <path> is the dsh workspace. --continue and --resume <id> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops inside the dsh agent loop before the next model step. --tools and --disallowed-tools filter registered dsh tool names; an unknown name is an error. A positional prompt is not plain mode. Piped stdin is not the prompt. JSON output formats, agent selection, sandbox, subagents, plan, web search, worktrees, and memory flags error and stay owned by later tickets. SIGINT exits 130 and SIGTERM exits 143. A missing credential, bad flag, or dsh error exits 1.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -4985,6 +5464,7 @@ fn run() -> io::Result<()> {
                 Err(error) => return Err(io::Error::other(error)),
             }
         }
+        LaunchMode::Plain { .. } => return run_plain(&launch, &mode),
         _ => {}
     }
     if let LaunchMode::Resume(id) = &mode {
@@ -7925,6 +8405,69 @@ mod tests {
     }
 
     #[test]
+    fn parse_plain_prompt_sources_and_bounds() {
+        let single =
+            parse_launch(&args(&["-p", "hello", "--cwd", "/tmp", "--max-turns", "2"])).unwrap();
+        match single.mode {
+            LaunchMode::Plain {
+                prompt: PlainPrompt::Text(text),
+                cwd,
+                max_turns,
+                tools,
+                resume,
+            } => {
+                assert_eq!(text, "hello");
+                assert_eq!(cwd.as_deref(), Some(std::path::Path::new("/tmp")));
+                assert_eq!(max_turns, Some(2));
+                assert!(tools.is_none());
+                assert!(resume.is_none());
+            }
+            other => panic!("{other:?}"),
+        }
+        let file = parse_launch(&args(&[
+            "--prompt-file",
+            "prompt.txt",
+            "--disallowed-tools",
+            "bash,web_search",
+            "--continue",
+        ]))
+        .unwrap();
+        match file.mode {
+            LaunchMode::Plain {
+                prompt: PlainPrompt::File(path),
+                tools: Some(PlainTools::Deny(names)),
+                resume: Some(PlainResume::Continue),
+                ..
+            } => {
+                assert_eq!(path, std::path::PathBuf::from("prompt.txt"));
+                assert_eq!(names, ["bash", "web_search"]);
+            }
+            other => panic!("{other:?}"),
+        }
+        let json = parse_launch(&args(&[
+            "--prompt-json",
+            "{\"type\":\"text\",\"text\":\"hi\"}",
+        ]))
+        .unwrap();
+        assert!(matches!(
+            json.mode,
+            LaunchMode::Plain {
+                prompt: PlainPrompt::Json(_),
+                ..
+            }
+        ));
+        let zero = parse_launch(&args(&["-p", "hello", "--max-turns", "0"])).unwrap_err();
+        assert!(zero.to_string().contains("positive integer"));
+        let positional = parse_launch(&args(&["fix the bug"])).unwrap_err();
+        assert!(positional.to_string().contains("positional prompt"));
+        let deferred =
+            parse_launch(&args(&["-p", "hello", "--output-format", "json"])).unwrap_err();
+        assert!(deferred.to_string().contains("later ticket"));
+        let subagents = parse_launch(&args(&["-p", "hello", "--no-subagents"])).unwrap_err();
+        assert!(subagents.to_string().contains("later ticket"));
+    }
+
+    #[test]
     fn parse_continue_with_model() {
         let launch = parse_launch(&args(&["--model", "gateway", "--continue"])).unwrap();
         assert!(matches!(launch.mode, LaunchMode::Continue));
@@ -8342,7 +8885,9 @@ enabled = {enabled}
         );
         let error = parse_launch(&args(&["--no-alt-screen"])).unwrap_err();
         assert!(
-            error.to_string().contains("unsupported preview arguments"),
+            error
+                .to_string()
+                .contains("that flag has no effect on this plain command"),
             "{error}"
         );
         let rules =

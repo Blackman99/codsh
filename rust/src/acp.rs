@@ -427,6 +427,8 @@ pub fn dsh_spawn_spec(
         "CODSH_PERMISSION_POLICY",
         "CODSH_HOOK_DENY",
         "CODSH_PERMISSION_REMEMBER",
+        "CODSH_PLAIN_TOOLS",
+        "CODSH_PLAIN_MAX_TURNS",
         "CODSH_WEB_SEARCH",
         "CODSH_WEB_FETCH",
         "CODSH_WEB_SEARCH_KEY_ENV",

@@ -354,7 +354,10 @@ with an empty bundle composition. Interactive `codsh --rust` then starts release
 `dsh --profile acp` over ACP/JSON-RPC stdio in that Home; dsh owns execution and
 durable sessions. The mock model, when used, is a dsh provider-boundary fixture
 (`CODSH_ACP_PATCH`, `DSH_CODE_CLI_MOCK_TOOL`), not a stub of the Rust client or
-dsh core. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
+dsh core. Plain automation is `python3 scripts/rust-plain-pipe-test.py`: it packs
+the CLI and runs no-TTY `-p`/`--prompt-file` prompts, `--cwd`, `--continue`,
+tool denial, `--max-turns`, invalid flags, and SIGINT/SIGTERM through released
+dsh. JSON output formats are refused here. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
 drive a loopback OpenAI-compatible fixture at the provider boundary and assert
 the actual request path, model id, auth, and effort; same-named models on
 different backends are not treated as equivalent. Enter submits the draft through dsh when connected. Missing dsh, ACP
