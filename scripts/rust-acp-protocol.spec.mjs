@@ -143,21 +143,26 @@ describe('dsh session log projection', () => {
   })
 
   it('restores a text-only image turn as the typed row, not the fallback path', () => {
-    const fallback = id => `\n<pasted-image id="${id}" media="image/png" dimensions="1x1" path="/h/attachments/pasted/${id}.png">\n</pasted-image>\n`
+    const fallback = (id, path = `/h/attachments/pasted/${id}.png`) => `\n<pasted-image id="${id}" media="image/png" dimensions="1x1" path="${path}">\n</pasted-image>\n`
+    const turn = (n, text) => [
+      { type: 'turn/start', data: { turn: n } },
+      { type: 'user/message', data: { message: { content: [{ type: 'text', text }] } } },
+      { type: 'turn/end', data: { turn: n, reason: { kind: 'stop' } } },
+    ]
     const turns = projectTurns([
-      { type: 'turn/start', data: { turn: 1 } },
       // dsh stores adjacent ACP text blocks as one block.
-      { type: 'user/message', data: { message: { content: [
-        { type: 'text', text: `[Image #1][Image #2] look${fallback(1)}${fallback(2)}` },
-      ] } } },
-      { type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
-      { type: 'turn/start', data: { turn: 2 } },
-      { type: 'user/message', data: { message: { content: [
-        { type: 'text', text: 'quote <pasted-image id="9"> literally' },
-      ] } } },
-      { type: 'turn/end', data: { turn: 2, reason: { kind: 'stop' } } },
+      ...turn(1, `[Image #1][Image #2] look${fallback(1)}${fallback(2, '/h&quot;q/attachments/pasted/2.png')}`),
+      ...turn(2, 'quote <pasted-image id="9"> literally'),
+      // The same element typed mid-message is the user's text, not a fallback.
+      ...turn(3, `before${fallback(3)}after`),
+      ...turn(4, `[Image #1] typed${fallback(7)} middle${fallback(1)}`),
     ])
-    expect(turns.map(turn => turn.user)).toEqual(['[Image #1][Image #2] look', 'quote <pasted-image id="9"> literally'])
+    expect(turns.map(turn => turn.user)).toEqual([
+      '[Image #1][Image #2] look',
+      'quote <pasted-image id="9"> literally',
+      `before${fallback(3)}after`,
+      `[Image #1] typed${fallback(7)} middle`,
+    ])
   })
 
   it('converts leftover pending tools to unknown when the turn never ended', () => {

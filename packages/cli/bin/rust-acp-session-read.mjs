@@ -38,13 +38,15 @@ function textBlocks(content) {
 }
 
 // A text-only model gets each pasted image as a `<pasted-image … path=…>`
-// element after the typed text, and dsh joins adjacent text blocks into one.
-// The live row shows only the typed text with its `[Image #N]` placeholders,
-// so the restored row drops exactly the elements the client wrote.
-const PASTED_IMAGE_FALLBACK = /\n<pasted-image id="\d+" media="image\/(?:png|jpeg|webp|gif)"(?: dimensions="\d+x\d+")? path="[^"\n]*">\n<\/pasted-image>\n/gu
+// element appended after everything the user typed (the client escapes the
+// path attribute), and dsh joins adjacent text blocks into one. The live row
+// shows only the typed text with its `[Image #N]` placeholders, so the
+// restored row drops that trailing run of elements and nothing earlier: an
+// element the user typed mid-message stays.
+const PASTED_IMAGE_FALLBACKS = /(?:\n<pasted-image id="\d+" media="image\/(?:png|jpeg|webp|gif)"(?: dimensions="\d+x\d+")? path="[^"\n]*">\n<\/pasted-image>\n)+$/u
 
 function typedText(content) {
-  return textBlocks(content).replace(PASTED_IMAGE_FALLBACK, '')
+  return textBlocks(content).replace(PASTED_IMAGE_FALLBACKS, '')
 }
 
 function proposedDiff(name, args) {

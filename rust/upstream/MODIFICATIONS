@@ -61,11 +61,14 @@ Network filtering and bubblewrap re-exec are not included.
 
 Ticket 25 (#157) adapts the dropped-path classifier of
 xai-grok-pager-render/src/prompt_images.rs (`try_read_dropped_paths` and its
-quote/`file://`/backslash-escape helpers) into `dropped_image_paths` in local
-`src/images.rs`. Local changes take only all-image drops (a non-image path keeps
-the codsh workspace-file drop), accept png/jpeg/webp/gif through the local
-256 KiB sniffer, and omit the unexpanded `~/` and Windows drive/UNC anchors
-and the tracing target.
+quote/`file://`/backslash-escape helpers) into local `src/dropped_paths.rs`,
+which carries a notice. Local changes take only all-image drops (a non-image
+path keeps the codsh workspace-file drop), omit the unexpanded `~/` and Windows
+drive/UNC anchors and the tracing target, and hand each file to the local
+png/jpeg/webp/gif sniffer with its 256 KiB ceiling. A dropped `.png` that is
+corrupt, empty, or not one of those types therefore shows a notice and inserts
+nothing, where upstream lets it fall through as its path text; one over 256 KiB
+gets the same notice, where upstream attaches it up to its own larger limits.
 
 Ticket 57 (#189) adds local `src/auth.rs` and `src/extra_ca.rs` for substitute
 login/logout/setup, extra CA trust, and signed managed-config fetch. Those

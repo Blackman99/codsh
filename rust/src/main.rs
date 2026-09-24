@@ -5,6 +5,7 @@ mod attachments;
 mod auth;
 mod config;
 mod content;
+mod dropped_paths;
 mod extra_ca;
 mod feedback_ui;
 mod filesystem_sandbox;
@@ -6470,12 +6471,15 @@ fn run() -> io::Result<()> {
                     nav.refresh_search();
                     hint = nav.overlay_text();
                 } else if text.trim().is_empty() {
-                    // Cmd+V (Ctrl+V on Windows Terminal) on an image-only
-                    // clipboard reaches the app as an empty bracketed paste.
-                    // The reference probes the clipboard then; elsewhere it
-                    // inserts nothing.
-                    if cfg!(any(target_os = "macos", target_os = "windows")) {
-                        attach_clipboard_image(&mut composer, &mut hint, &mut last_error);
+                    // Cmd+V on an image-only clipboard reaches the app as an
+                    // empty bracketed paste. The reference reads the clipboard
+                    // image then; this client implements that on macOS only.
+                    match images::empty_paste_route(std::env::consts::OS) {
+                        images::EmptyPaste::ReadClipboard => {
+                            attach_clipboard_image(&mut composer, &mut hint, &mut last_error);
+                        }
+                        images::EmptyPaste::Unavailable(notice) => hint = notice.to_string(),
+                        images::EmptyPaste::Ignore => {}
                     }
                 } else {
                     composer.paste(&text);

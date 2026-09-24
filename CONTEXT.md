@@ -625,11 +625,13 @@ speaks when the head row is off the screen.
 _Avoid_: tooltip, status hint
 
 **Pasted image**:
-The clipboard image Ctrl+V (Alt+V on Windows) attaches behind an `[Image #N]`
+The clipboard image Ctrl+V attaches on macOS behind an `[Image #N]`
 token in the box — one backspace removes the token whole, and a deleted token
-drops its image. Cmd+V reaches the client as a bracketed paste: on macOS and
-Windows an empty one (an image-only clipboard) reads the clipboard image the
-same way, and whitespace alone inserts nothing. A paste that is only absolute
+drops its image. Cmd+V reaches the client as a bracketed paste: on macOS an
+empty one (an image-only clipboard) reads the clipboard image the same way, and
+whitespace alone inserts nothing. The Windows read (Alt+V, or that empty paste)
+is not implemented: it says so and attaches nothing, left to the platform
+tickets (#200/#201). A paste that is only absolute
 paths or `file://` URLs of image files (a Finder drop) attaches those files;
 prose, relative names, and mixed paths keep the text and `@file` rules. At
 submit, a model whose `input_modalities` includes `image`

@@ -94,6 +94,30 @@ pub fn sniff_image(bytes: &[u8]) -> Result<ImageBytes, ImageRefusal> {
     })
 }
 
+/// The clipboard image read is implemented for macOS and the Linux helpers.
+/// Windows is left to the platform tickets, so Alt+V there says so plainly.
+pub const WINDOWS_IMAGE_PASTE_UNAVAILABLE: &str =
+    "clipboard image paste is not available on Windows in this client yet; nothing was attached";
+
+/// What an empty bracketed paste does. A macOS terminal turns Cmd+V on an
+/// image-only clipboard into one, and the reference then reads the clipboard
+/// image. Windows would too, but that read is not implemented here. Elsewhere
+/// the reference inserts nothing and says nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmptyPaste {
+    ReadClipboard,
+    Unavailable(&'static str),
+    Ignore,
+}
+
+pub fn empty_paste_route(os: &str) -> EmptyPaste {
+    match os {
+        "macos" => EmptyPaste::ReadClipboard,
+        "windows" => EmptyPaste::Unavailable(WINDOWS_IMAGE_PASTE_UNAVAILABLE),
+        _ => EmptyPaste::Ignore,
+    }
+}
+
 /// Read one image from the platform clipboard.
 ///
 /// `GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read. Any
@@ -125,7 +149,7 @@ pub fn read_clipboard_image() -> Result<ImageBytes, ImageRefusal> {
         "linux" => read_linux_clipboard(),
         "windows" => Err(refuse(
             AttachStatus::Permission,
-            "Windows image paste uses Alt+V through the platform clipboard and is not verified on this host",
+            WINDOWS_IMAGE_PASTE_UNAVAILABLE,
         )),
         other => Err(refuse(
             AttachStatus::Permission,
@@ -253,135 +277,6 @@ pub fn read_image_file(path: &Path) -> Result<ImageBytes, ImageRefusal> {
     file.read_to_end(&mut bytes)
         .map_err(|error| refuse(AttachStatus::Permission, &error.to_string()))?;
     sniff_image(&bytes)
-}
-
-/// Extensions the reference treats as an image drop. bmp and tiff are
-/// recognised so they get a notice instead of becoming a binary file mention.
-const DROP_IMAGE_EXTENSIONS: [&str; 8] =
-    ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"];
-
-/// Paths of a bracketed paste that is only image files, as a Finder drop or
-/// a copied file pastes them. `None` leaves the paste to the text and
-/// workspace-file routes. Every token must be an absolute path or a
-/// `file://` URL naming an existing file with an image extension; prose or a
-/// relative name is not taken. Over SSH the path names the other machine,
-/// so nothing is read.
-///
-/// Adapted from `try_read_dropped_paths` in the upstream
-/// `xai-grok-pager-render/src/prompt_images.rs` (Apache-2.0, a28ee2b). The
-/// upstream mixed image/non-image drop is not taken here: a non-image path
-/// keeps the existing workspace-file drop.
-pub fn dropped_image_paths(text: &str) -> Option<Vec<PathBuf>> {
-    if ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
-        .iter()
-        .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
-    {
-        return None;
-    }
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let normalized = trimmed.replace("\r\n", "\n").replace('\r', "\n");
-    let mut paths = Vec::new();
-    for line in normalized.split('\n') {
-        for token in split_drop_line(line) {
-            paths.push(dropped_image_path(token)?);
-        }
-    }
-    (!paths.is_empty()).then_some(paths)
-}
-
-fn dropped_image_path(token: &str) -> Option<PathBuf> {
-    let unquoted = strip_matching_quotes(token.trim());
-    let path = if unquoted.starts_with("file://") {
-        let url = url::Url::parse(unquoted).ok()?;
-        if url.scheme() != "file" {
-            return None;
-        }
-        url.to_file_path().ok()?
-    } else if unquoted.starts_with('/') {
-        PathBuf::from(shell_unescape(unquoted))
-    } else {
-        return None;
-    };
-    if path.as_os_str().is_empty()
-        || path == Path::new("/")
-        || path
-            .as_os_str()
-            .as_encoded_bytes()
-            .iter()
-            .any(|&byte| byte == 0 || byte == b'\r' || byte == b'\n')
-    {
-        return None;
-    }
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    if !DROP_IMAGE_EXTENSIONS.contains(&extension.as_str()) || !path.is_file() {
-        return None;
-    }
-    Some(path)
-}
-
-/// One line, or its space-separated paths when every part starts like one.
-/// A sentence that only contains a path stays one token and does not match.
-fn split_drop_line(line: &str) -> Vec<&str> {
-    let line = line.trim();
-    if line.is_empty() {
-        return Vec::new();
-    }
-    let bytes = line.as_bytes();
-    let mut parts = Vec::new();
-    let mut start = 0;
-    for index in 0..bytes.len() {
-        if bytes[index] == b' ' && line.get(index + 1..).is_some_and(starts_with_drop_anchor) {
-            parts.push(&line[start..index]);
-            start = index + 1;
-        }
-    }
-    parts.push(&line[start..]);
-    let parts: Vec<&str> = parts
-        .into_iter()
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .collect();
-    if parts.len() > 1 && parts.iter().all(|part| starts_with_drop_anchor(part)) {
-        parts
-    } else {
-        vec![line]
-    }
-}
-
-fn starts_with_drop_anchor(text: &str) -> bool {
-    let unquoted = strip_matching_quotes(text);
-    unquoted.starts_with('/') || unquoted.starts_with("file://")
-}
-
-fn strip_matching_quotes(text: &str) -> &str {
-    let bytes = text.as_bytes();
-    if bytes.len() >= 2
-        && ((bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"')
-            || (bytes[0] == b'\'' && bytes[bytes.len() - 1] == b'\''))
-    {
-        return &text[1..text.len() - 1];
-    }
-    text
-}
-
-/// Terminals escape spaces and parentheses in a dropped path (`\ `).
-fn shell_unescape(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next() {
-                Some(next) => result.push(next),
-                None => result.push(ch),
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Decode a base64 image supplied by a test or a clipboard helper.
@@ -537,7 +432,7 @@ pub fn prompt_blocks_with_images(
             let path = verified
                 .saved_path
                 .as_ref()
-                .map(|path| path.display().to_string())
+                .map(|path| xml_attribute(&path.display().to_string()))
                 .unwrap_or_else(|| format!("unsaved:{}", verified.digest));
             let size = match (verified.width, verified.height) {
                 (Some(width), Some(height)) => format!(" dimensions=\"{width}x{height}\""),
@@ -556,6 +451,25 @@ pub fn prompt_blocks_with_images(
         return Err("empty prompt".into());
     }
     Ok(blocks)
+}
+
+/// A home directory may contain `"` or `<`. Escape the path so the
+/// `<pasted-image>` element stays one well-formed element for the model and
+/// for the resume projection that recognises it.
+fn xml_attribute(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '"' => escaped.push_str("&quot;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '\n' => escaped.push_str("&#10;"),
+            '\r' => escaped.push_str("&#13;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
 }
 
 fn refuse(status: AttachStatus, detail: &str) -> ImageRefusal {
@@ -810,6 +724,45 @@ mod tests {
             "{sized_message}"
         );
         let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn text_only_path_is_one_escaped_attribute() {
+        let home = std::env::temp_dir().join(format!(
+            "codsh-image-quote-{}/a\"b<c>&d",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(home.parent().unwrap());
+        fs::create_dir_all(&home).unwrap();
+        let mut stored = prepare_image(1, sniff_image(&tiny_png()).unwrap());
+        stored.saved_path = Some(save_original(&home, &stored).unwrap());
+        let blocks = prompt_blocks_with_images("look", &[], &[stored], false).unwrap();
+        let fallback = blocks
+            .iter()
+            .filter_map(|block| block["text"].as_str())
+            .find(|text| text.contains("<pasted-image "))
+            .unwrap();
+        assert!(
+            fallback.contains("a&quot;b&lt;c&gt;&amp;d/attachments/pasted/"),
+            "{fallback}"
+        );
+        let attribute = fallback.split(" path=\"").nth(1).unwrap();
+        let value = attribute.split('"').next().unwrap();
+        assert!(!value.contains(['<', '>', '\n']), "{value}");
+        assert!(fallback.ends_with("\">\n</pasted-image>\n"), "{fallback}");
+        let _ = fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn empty_paste_reads_the_clipboard_only_where_that_read_exists() {
+        assert_eq!(empty_paste_route("macos"), EmptyPaste::ReadClipboard);
+        let EmptyPaste::Unavailable(notice) = empty_paste_route("windows") else {
+            panic!("windows must say the read is not available");
+        };
+        assert!(notice.contains("not available on Windows"), "{notice}");
+        assert!(notice.contains("nothing was attached"), "{notice}");
+        assert_eq!(empty_paste_route("linux"), EmptyPaste::Ignore);
+        assert_eq!(empty_paste_route("freebsd"), EmptyPaste::Ignore);
     }
 
     #[test]

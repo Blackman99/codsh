@@ -203,10 +203,13 @@ sent, and a missing file, a file over 256 KiB, a permission failure, or a
 change since preview stays in the composer with an explicit notice and no
 file bytes. The admitted text is what dsh and the model receive. Resume shows
 the same `@path` mention.
-Ctrl+V (Alt+V on Windows) reads an image from the platform clipboard. A
-terminal delivers Cmd+V as a bracketed paste; on macOS and Windows an empty one
-(what an image-only clipboard sends) reads the clipboard image the same way,
-and a paste that is only whitespace inserts nothing. Pasting or dropping the
+On macOS, Ctrl+V reads an image from the clipboard. A terminal delivers Cmd+V
+as a bracketed paste; an empty one (what an image-only clipboard sends) reads
+the clipboard image the same way, and a paste that is only whitespace inserts
+nothing. Windows clipboard images are not implemented yet: Alt+V and an empty
+paste say so and attach nothing (left to the Windows and cross-platform
+tickets #200/#201). Linux reads through `xclip` or `wl-paste` and is likewise
+unverified here. Pasting or dropping the
 absolute path or `file://` URL of an image file attaches that file as an image;
 a relative name, prose, or a mix with other paths keeps the existing text or
 `@file` handling. A bracketed paste that starts with `codsh-image:` or

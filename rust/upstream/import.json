@@ -199,6 +199,12 @@
       "modified": true
     },
     {
+      "path": "src/dropped_paths.rs",
+      "upstreamPath": "crates/codegen/xai-grok-pager-render/src/prompt_images.rs",
+      "upstreamSha256": "aea3e899104e115e48e944b7fa5e1b5bbf7ee287bb0c975a88a0ba929f34e32e",
+      "modified": true
+    },
+    {
       "path": "upstream/xai-grok-markdown-core/Cargo.toml",
       "upstreamPath": "crates/codegen/xai-grok-markdown-core/Cargo.toml",
       "upstreamSha256": "db1cd9f9bf8384bff6dbe9b9a295d9222c1f08b3ce96fe46f11ae1bdd0fe486f",

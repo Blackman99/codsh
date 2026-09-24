@@ -659,7 +659,7 @@ impl PromptComposer {
         }
         // An image file wins over the workspace-file drop, like the
         // reference: a png is an image chip, not a binary @file mention.
-        if let Some(paths) = images::dropped_image_paths(text) {
+        if let Some(paths) = crate::dropped_paths::dropped_image_paths(text) {
             self.attach_dropped_images(&paths);
             return;
         }
