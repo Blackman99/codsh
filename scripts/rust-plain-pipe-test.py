@@ -49,6 +49,19 @@ def start_plain(launcher, cwd, env, args):
     )
 
 
+def wait_for_grandchild(launcher_pid, seconds=20):
+    """The dsh process under the native client: it exists while connect runs."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        native = subprocess.run(['pgrep', '-P', str(launcher_pid)], capture_output=True, text=True).stdout.split()
+        for pid in native:
+            dsh = subprocess.run(['pgrep', '-P', pid], capture_output=True, text=True).stdout.split()
+            if dsh:
+                return dsh[0]
+        time.sleep(0.05)
+    raise AssertionError('dsh child never started')
+
+
 def outside_temp_root():
     """A scratch directory outside /tmp, /var/tmp, and TMPDIR, beside the repo
     or in HOME. Sandbox profiles write-allow the temp roots."""
@@ -77,8 +90,10 @@ def interactive_flags(launcher, project, web_env, web_trace, work, output):
     moved = work / 'interactive-cwd'
     moved.mkdir()
     (moved / 'note.txt').write_text('MOVED_NOTE\n')
+    # A parent's plain mask and step bound must not reach the TUI session.
     tui_env = {**web_env, 'DSH_CODE_CLI_MOCK_TOOL': 'plain-steps',
-               'TERM': 'xterm-256color', 'COLORTERM': 'truecolor'}
+               'TERM': 'xterm-256color', 'COLORTERM': 'truecolor',
+               'CODSH_PLAIN_TOOLS': 'deny:edit', 'CODSH_PLAIN_MAX_TURNS': '1'}
     session = screen.Session(
         'plain-flags-tui', launcher, project, tui_env, output,
         extra=['--cwd', str(moved), '--disable-web-search', '--max-turns', '1',
@@ -332,18 +347,29 @@ def main():
         expanded_user = '\n'.join(rows[0]['user'])
         frozen_user = '\n'.join(rows[-1]['user'])
         assert 'SHIP_NOTE_BODY' in expanded_user and 'HOME_RULE' in expanded_user, expanded_user
-        assert slash in frozen_user, frozen_user
+        # --verbatim keeps the user's bytes exact and still applies rules.
+        # The rules lead as their own ACP block; dsh joins adjacent text
+        # blocks, so the model part is the rule block and then the exact bytes.
+        frozen_first = rows[-1]['user'][0]
+        assert frozen_first.startswith('<human_rules>'), frozen_first
+        assert frozen_first.endswith('</human_rules>\n' + slash), frozen_first
+        rule_block = frozen_first[:-len(slash)]
+        assert 'SESSION_RULE_SENTINEL' in rule_block and 'HOME_RULE' in rule_block, rule_block
         assert 'SHIP_NOTE_BODY' not in frozen_user
-        assert 'SESSION_RULE_SENTINEL' not in frozen_user
-        assert 'HOME_RULE' not in frozen_user
+        wire.unlink()
+        replaced = plain(launcher, project, wire_env,
+                         ['-p', slash, '--verbatim', '--system-prompt-override', 'OVERRIDE_SENTINEL'])
+        assert replaced.returncode == 0, replaced.stderr
+        replaced_first = [json.loads(line) for line in wire.read_text().splitlines() if line.strip()][0]['user'][0]
+        assert replaced_first == 'OVERRIDE_SENTINEL\n' + slash, replaced_first
         (project / 'spaced.txt').write_text('  keep\nline')
         wire.unlink()
         spaced = plain(launcher, project, wire_env, ['--verbatim', '--prompt-file', 'spaced.txt'])
         assert spaced.returncode == 0, spaced.stderr
         spaced_rows = [json.loads(line) for line in wire.read_text().splitlines() if line.strip()]
-        spaced_user = '\n'.join(spaced_rows[0]['user'])
-        assert '  keep\nline' in spaced_user, spaced_user
-        assert 'HOME_RULE' not in spaced_user
+        spaced_first = spaced_rows[0]['user'][0]
+        assert spaced_first.endswith('</human_rules>\n  keep\nline'), spaced_first
+        assert 'HOME_RULE' in spaced_first, spaced_first
         wire.unlink()
         agent_trace = work / 'agent-trace.jsonl'
         agent_env = {**env('echo'), 'CODSH_REVIEW_TRACE': str(agent_trace)}
@@ -421,9 +447,9 @@ def main():
         # so the model sees the note first and then the exact bytes.
         exact_user = memory_rows()[0]['user'][0]
         assert exact_user.startswith('<local-memory>'), exact_user
-        assert exact_user.endswith('</local-memory>\n  keep\nline'), exact_user
-        assert 'PLAIN_MEMORY_SENTINEL' in exact_user, exact_user
-        assert 'HOME_RULE' not in exact_user and '<human_rules>' not in exact_user, exact_user
+        assert '</local-memory>\n<human_rules>' in exact_user, exact_user
+        assert exact_user.endswith('</human_rules>\n  keep\nline'), exact_user
+        assert 'PLAIN_MEMORY_SENTINEL' in exact_user and 'HOME_RULE' in exact_user, exact_user
         (grok_home / 'memory' / 'MEMORY.md').unlink()
 
         # Workspace and read-only profiles write-allow the temp roots, so the
@@ -490,6 +516,20 @@ def main():
         from_file = plain(launcher, project, env('echo'), ['--prompt-file', 'prompt.txt'])
         assert from_file.returncode == 0, from_file.stderr
         assert 'from-file' in from_file.stdout
+        # Upstream apply_cwd changes directory, then reads --prompt-file.
+        # A relative path is therefore inside --cwd, not beside the invocation.
+        # The file here asks the model to read note.txt; only ../other has
+        # OTHER_NOTE, so the answer proves both the file and the turn cwd.
+        (other / 'prompt.txt').write_text('read the note\n')
+        elsewhere = plain(launcher, project, env('plain-read'),
+                          ['--prompt-file', 'prompt.txt', '--cwd', '../other'])
+        assert elsewhere.returncode == 0, elsewhere.stderr
+        assert 'RUST_ACP_HUGE_DONE' in elsewhere.stdout, elsewhere.stdout
+        missing = plain(launcher, project, env('echo'),
+                        ['--prompt-file', 'missing-prompt.txt', '--cwd', '../other'])
+        assert missing.returncode != 0, missing.stdout
+        assert 'missing-prompt.txt' in missing.stderr
+        assert 'from-file' not in missing.stdout
 
         piped = plain(launcher, project, env('echo'), ['-p', 'VISIBLE'], stdin='NOT_THE_PROMPT\n')
         assert piped.returncode == 0, piped.stderr
@@ -511,6 +551,23 @@ def main():
                 raise
             assert child.returncode == code, (sig, child.returncode, out, err)
             assert 'RUST_ACP_ANSWER' not in out
+        # Ctrl+C that reaches only codsh while dsh is still connecting: the
+        # prompt is never submitted, so no model request starts.
+        connect_trace = work / 'connect-trace.jsonl'
+        child = start_plain(launcher, project, {**slow_env, 'CODSH_REVIEW_TRACE': str(connect_trace)},
+                            ['-p', 'CONNECT_CANCEL'])
+        dsh_child = wait_for_grandchild(child.pid)
+        os.kill(child.pid, signal.SIGINT)
+        out, err = child.communicate(timeout=30)
+        assert child.returncode == 130, (child.returncode, out, err, dsh_child)
+        assert out == '', out
+        assert not connect_trace.exists(), connect_trace.read_text()
+        if os.environ.get('CODSH_PLAIN_LONG_TURN') == '1':
+            # Opt-in: a turn longer than the old 180 s cap still completes.
+            long_turn = plain(launcher, project, {**env('echo'), 'DSH_CODE_CLI_MOCK_DELAY_MS': '190000'},
+                              ['-p', 'LONG_TURN_TOKEN'], timeout=400)
+            assert long_turn.returncode == 0, (long_turn.stdout, long_turn.stderr)
+            assert 'LONG_TURN_TOKEN' in long_turn.stdout
 
         grok = home / '.codsh-rust' / '.grok'
         grok.mkdir(parents=True, exist_ok=True)

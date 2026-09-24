@@ -185,22 +185,37 @@ pub fn prompt_with_session(
     session_rules: &str,
     system_prompt_override: bool,
 ) -> String {
-    if system_prompt_override {
-        let invocation = invocation_prompt(catalog, text).unwrap_or_default();
-        let preamble = session_rules.trim();
-        if preamble.is_empty() {
-            return format!("{invocation}{text}");
-        }
-        return format!("{preamble}\n{invocation}{text}");
-    }
-    let rules = rule_context(catalog);
-    let agents = agent_context(catalog);
+    let context = context_block(catalog, session_rules, system_prompt_override);
     let invocation = invocation_prompt(catalog, text).unwrap_or_default();
-    let session = session_rule_block(session_rules);
-    if rules.is_empty() && agents.is_empty() && invocation.is_empty() && session.is_empty() {
+    if context.is_empty() && invocation.is_empty() {
         return text.to_string();
     }
-    format!("{rules}{session}{agents}{invocation}{text}")
+    format!("{context}{invocation}{text}")
+}
+
+/// The rule context that leads the user's text: file rules, `--rules`, and
+/// agent definitions, or only the `--system-prompt-override` text. It holds no
+/// user text and no slash-command body, so `--verbatim` can send it as its own
+/// block ahead of the unchanged prompt. dsh takes these as prompt context; it
+/// has no separate system-prompt channel for them.
+pub fn context_block(
+    catalog: &AssetCatalog,
+    session_rules: &str,
+    system_prompt_override: bool,
+) -> String {
+    if system_prompt_override {
+        let preamble = session_rules.trim();
+        if preamble.is_empty() {
+            return String::new();
+        }
+        return format!("{preamble}\n");
+    }
+    format!(
+        "{}{}{}",
+        rule_context(catalog),
+        session_rule_block(session_rules),
+        agent_context(catalog)
+    )
 }
 
 fn session_rule_block(session_rules: &str) -> String {

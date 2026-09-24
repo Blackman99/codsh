@@ -486,26 +486,26 @@ fn deferred_plain_flag(arg: &str) -> Option<String> {
     let named = |message: &str| Some(format!("{name}: {message}"));
     match name {
         "--json-schema" | "--include-partial-messages" => named(
-            "JSON and streaming output formats belong to a later ticket; this command prints plain text only",
+            "JSON and streaming output formats belong to a later ticket; plain prompts print plain text only",
         ),
         "--agent" | "--agents" | "--agent-profile" => {
-            named("agent selection is not available in this plain command; a later ticket owns it")
+            named("agent selection is not available in this client; a later ticket owns it")
         }
-        "--fs-read" | "--fs-write" => named(
-            "sandbox profiles are not available in this plain command; a later ticket owns them",
-        ),
-        "--no-subagents" => named(
-            "subagent controls are not available in this plain command; a later ticket owns them",
-        ),
+        "--fs-read" | "--fs-write" => {
+            named("sandbox profiles are not available in this client; a later ticket owns them")
+        }
+        "--no-subagents" => {
+            named("subagent controls are not available in this client; a later ticket owns them")
+        }
         "--no-plan" | "--no-ask-user" | "--todo-gate" => {
-            named("plan controls are not available in this plain command; a later ticket owns them")
+            named("plan controls are not available in this client; a later ticket owns them")
         }
         "--worktree" | "-w" | "--worktree-ref" | "--ref" => {
-            named("worktrees are not available in this plain command; a later ticket owns them")
+            named("worktrees are not available in this client; a later ticket owns them")
         }
-        "--experimental-memory" | "--memory-flush" => named(
-            "memory controls are not available in this plain command; a later ticket owns them",
-        ),
+        "--experimental-memory" | "--memory-flush" => {
+            named("memory controls are not available in this client; a later ticket owns them")
+        }
         "--leader"
         | "--no-leader"
         | "--leader-socket"
@@ -515,10 +515,10 @@ fn deferred_plain_flag(arg: &str) -> Option<String> {
             named("shared leader controls are not available; dsh owns execution")
         }
         "--no-auto-update" => named(
-            "update checks are already off for this plain command; a later ticket owns the flag",
+            "this client runs no update checks, so there is nothing to disable; a later ticket owns the flag",
         ),
         "--no-alt-screen" => named(
-            "that flag has no effect on this plain command; the alternate screen is already off",
+            "inline rendering without the alternate screen is not available; a later ticket owns the flag. Use --minimal for native terminal history; plain prompts never use the alternate screen",
         ),
         "--compaction-mode" | "--compaction-detail" => {
             named("compaction controls are recognized and not applied; a later ticket owns them")
@@ -5136,6 +5136,35 @@ fn plain_tool_env(tools: &Option<PlainTools>) -> Option<(String, String)> {
     Some(("CODSH_PLAIN_TOOLS".into(), clauses.join(";")))
 }
 
+/// The plain mask and step bound for the dsh child. A flag wins over a value
+/// inherited from a parent process. Interactive modes pass neither, so a
+/// parent's CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS never shapes the TUI.
+fn plain_env(mode: &LaunchMode, inherited: &[(String, String)]) -> Vec<(String, String)> {
+    let LaunchMode::Plain {
+        max_turns, tools, ..
+    } = mode
+    else {
+        return Vec::new();
+    };
+    let parent = |key: &str| {
+        inherited
+            .iter()
+            .find(|(name, value)| name == key && !value.is_empty())
+            .map(|(name, value)| (name.clone(), value.clone()))
+    };
+    let mut env = Vec::new();
+    if let Some(filter) = plain_tool_env(tools).or_else(|| parent("CODSH_PLAIN_TOOLS")) {
+        env.push(filter);
+    }
+    if let Some(bound) = max_turns
+        .map(|bound| ("CODSH_PLAIN_MAX_TURNS".to_string(), bound.to_string()))
+        .or_else(|| parent("CODSH_PLAIN_MAX_TURNS"))
+    {
+        env.push(bound);
+    }
+    env
+}
+
 struct PlainStop {
     code: i32,
     message: String,
@@ -5164,6 +5193,44 @@ fn plain_exit(stop: &PlainStop) -> io::Result<()> {
         eprintln!("{}", stop.message);
     }
     std::process::exit(stop.code);
+}
+
+/// Paths typed beside the invocation stay there when `--cwd` later moves the
+/// process. Upstream `apply_cwd` anchors only the debug file and the leader
+/// socket this way. `--prompt-file` is not one of them: it is opened after
+/// `set_current_dir`, so a relative path names a file inside `--cwd`.
+fn anchor_input_paths(launch: &mut Launch, base: &Path) {
+    let anchor = |path: &mut PathBuf| {
+        if path.is_relative() {
+            *path = base.join(&*path);
+        }
+    };
+    for path in [
+        &mut launch.cwd,
+        &mut launch.sandbox_report,
+        &mut launch.sandbox_probe,
+        &mut launch.trust_folder,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        anchor(path);
+    }
+    match &mut launch.mode {
+        LaunchMode::Inspect {
+            debug_file: Some(path),
+            ..
+        }
+        | LaunchMode::Logout {
+            debug_file: Some(path),
+            ..
+        }
+        | LaunchMode::Completions {
+            debug_file: Some(path),
+            ..
+        } => anchor(path),
+        _ => {}
+    }
 }
 
 fn enter_cwd(path: &Path) -> io::Result<()> {
@@ -5220,13 +5287,7 @@ fn run_plain_turn(
     interrupt: &AtomicBool,
     terminate: &AtomicBool,
 ) -> io::Result<()> {
-    let LaunchMode::Plain {
-        prompt,
-        max_turns,
-        tools,
-        resume,
-    } = plain
-    else {
+    let LaunchMode::Plain { prompt, resume, .. } = plain else {
         return Err(io::Error::other("plain mode was not selected"));
     };
     let blocks = plain_blocks(prompt)?;
@@ -5240,12 +5301,8 @@ fn run_plain_turn(
         return Err(io::Error::other(effective.first_run_message()));
     }
     let mut extra_env = applied.extra_env;
-    if let Some(bound) = max_turns {
-        extra_env.push(("CODSH_PLAIN_MAX_TURNS".into(), bound.to_string()));
-    }
-    if let Some(filter) = plain_tool_env(tools) {
-        extra_env.push(filter);
-    }
+    let inherited: Vec<(String, String)> = std::env::vars().collect();
+    extra_env.extend(plain_env(plain, &inherited));
     let session_mode = session_mode(plain);
     let (mut connection, _) = connect(
         &session_mode,
@@ -5260,6 +5317,15 @@ fn run_plain_turn(
         connection.client.shutdown();
         return Err(io::Error::other(error));
     }
+    // A signal that arrived while dsh started or connected is honored before
+    // the prompt goes out, so no model request starts for an abandoned turn.
+    let signal = plain_signal(interrupt, terminate);
+    if signal != 0 {
+        connection.client.shutdown();
+        eprintln!("interrupted by signal {signal}");
+        let _ = io::stdout().flush();
+        std::process::exit(signal);
+    }
     // Memory joins the first prompt of a new session, as in the TUI.
     let blocks = blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none());
     if let Err(error) = connection.client.submit_prompt_blocks(&blocks) {
@@ -5271,7 +5337,8 @@ fn run_plain_turn(
         code: 0,
         message: String::new(),
     };
-    let started = Instant::now();
+    // No wall-clock cap: the turn ends when dsh finishes, errors, or
+    // disconnects, or when a signal arrives. The reference has no time limit.
     loop {
         let signal = plain_signal(interrupt, terminate);
         if signal != 0 {
@@ -5364,13 +5431,6 @@ fn run_plain_turn(
             }
             break;
         }
-        if started.elapsed() > Duration::from_secs(180) {
-            stop = PlainStop {
-                code: 1,
-                message: "plain turn timed out before dsh finished".into(),
-            };
-            break;
-        }
     }
     connection.client.shutdown();
     if stop.code == 0 || !answer.is_empty() {
@@ -5385,7 +5445,11 @@ fn run_plain_turn(
 
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let launch = parse_launch(&args)?;
+    let mut launch = parse_launch(&args)?;
+    if launch.cwd.is_some() {
+        let invoked = std::env::current_dir()?;
+        anchor_input_paths(&mut launch, &invoked);
+    }
     let mode = launch.mode.clone();
     let help_like = matches!(
         mode,
@@ -8319,6 +8383,19 @@ fn first_turn_memory(
     (!block.is_empty()).then_some(block)
 }
 
+/// The rules `--verbatim` still applies: file rules, `--rules`, and agent
+/// definitions, or only `--system-prompt-override`. They lead as their own
+/// block so the user's bytes stay exact; a slash body is not expanded.
+fn verbatim_rules(launch: &Launch, effective: &config::EffectiveConfig) -> String {
+    let replaced = launch.system_prompt_override.is_some();
+    let rules = if replaced {
+        launch.system_prompt_override.as_deref().unwrap_or("")
+    } else {
+        launch.session_rules.as_deref().unwrap_or("")
+    };
+    assets::context_block(&effective.assets, rules, replaced)
+}
+
 fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text: &str) -> String {
     let override_text = launch.system_prompt_override.as_deref().unwrap_or("");
     let rules = if launch.system_prompt_override.is_some() {
@@ -8340,8 +8417,9 @@ fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text
 /// Rules, agents, session rules, and an explicit skill body wrap the user's
 /// text. Attachment resource links stay as admitted by #156; only text blocks
 /// are rewritten. First-turn memory joins the first text block once.
-/// `--verbatim` leaves every text block exactly as admitted and sends that
-/// memory as a separate leading block, as the guide's first-turn context.
+/// `--verbatim` leaves every text block exactly as admitted. First-turn memory
+/// and the rules then lead as one separate block, so they still reach the
+/// model while the user's bytes stay exact.
 fn blocks_with_model_prompt(
     launch: &Launch,
     effective: &config::EffectiveConfig,
@@ -8367,9 +8445,16 @@ fn blocks_with_model_prompt(
                 continue;
             }
         };
+        let memory_pending = first_turn && first_text;
         if launch.verbatim {
-            if memory_pending {
-                context = first_turn_memory(effective, &text, memory_session_on, true);
+            if first_text {
+                if memory_pending
+                    && let Some(memory) =
+                        first_turn_memory(effective, &text, memory_session_on, true)
+                {
+                    lead.push_str(&memory);
+                }
+                lead.push_str(&verbatim_rules(launch, effective));
             }
         } else {
             let wrapped = model_prompt(launch, effective, &text, memory_session_on, memory_pending);
@@ -8377,11 +8462,11 @@ fn blocks_with_model_prompt(
                 block["text"] = serde_json::Value::String(wrapped);
             }
         }
-        memory_pending = false;
+        first_text = false;
         out.push(block);
     }
-    if let Some(memory) = context {
-        out.insert(0, serde_json::json!({ "type": "text", "text": memory }));
+    if !lead.is_empty() {
+        out.insert(0, serde_json::json!({ "type": "text", "text": lead }));
     }
     out
 }
@@ -8914,14 +8999,16 @@ mod tests {
             model_prompt(&frozen, &effective, spaced, None, true),
             spaced
         );
-        let blocks = blocks_with_model_prompt(
-            &frozen,
-            &effective,
-            vec![serde_json::json!({ "type": "text", "text": slash })],
-            None,
-            true,
-        );
-        assert_eq!(blocks[0]["text"], slash);
+        let text = |value: &str| serde_json::json!({ "type": "text", "text": value });
+        // Rules still reach the model: they lead as their own block and the
+        // user's block keeps its exact bytes. The slash body is not expanded.
+        let blocks = blocks_with_model_prompt(&frozen, &effective, vec![text(slash)], None, true);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        let context = blocks[0]["text"].as_str().unwrap_or_default();
+        assert!(context.contains("HOME_RULE"), "{context}");
+        assert!(!context.contains("SHIP_NOTE_BODY"), "{context}");
+        assert!(!context.contains(slash), "{context}");
+        assert_eq!(blocks[1]["text"], slash);
         let rules = parse_launch(&args(&[
             "-p",
             slash,
@@ -8931,6 +9018,126 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(model_prompt(&rules, &effective, slash, None, true), slash);
+        let ruled = blocks_with_model_prompt(&rules, &effective, vec![text(slash)], None, false);
+        assert_eq!(ruled.len(), 2, "{ruled:?}");
+        let context = ruled[0]["text"].as_str().unwrap_or_default();
+        assert!(context.contains("SESSION_RULE_SENTINEL"), "{context}");
+        assert!(context.contains("HOME_RULE"), "{context}");
+        assert!(!context.contains("SHIP_NOTE_BODY"), "{context}");
+        assert_eq!(ruled[1]["text"], slash);
+        let replaced = parse_launch(&args(&[
+            "-p",
+            slash,
+            "--verbatim",
+            "--system-prompt-override",
+            "ONLY_THIS_OVERRIDE",
+        ]))
+        .unwrap();
+        let only = blocks_with_model_prompt(&replaced, &effective, vec![text(slash)], None, true);
+        assert_eq!(only.len(), 2, "{only:?}");
+        let context = only[0]["text"].as_str().unwrap_or_default();
+        assert!(context.contains("ONLY_THIS_OVERRIDE"), "{context}");
+        assert!(!context.contains("HOME_RULE"), "{context}");
+        assert_eq!(only[1]["text"], slash);
+    }
+
+    #[test]
+    fn relative_prompt_file_stays_inside_cwd_and_other_inputs_stay_beside_the_invocation() {
+        // Upstream apply_cwd changes the process directory and then reads
+        // --prompt-file, so a relative file is inside --cwd. The debug file,
+        // sandbox report, and trust folder are anchored to the invocation.
+        let mut launch = parse_launch(&args(&[
+            "--prompt-file",
+            "prompt.txt",
+            "--cwd",
+            "../b",
+            "--sandbox-report",
+            "report.json",
+            "--trust-folder",
+            "trusted",
+        ]))
+        .unwrap();
+        let base = std::path::Path::new("/invoked/here");
+        anchor_input_paths(&mut launch, base);
+        assert!(matches!(
+            &launch.mode,
+            LaunchMode::Plain {
+                prompt: PlainPrompt::File(path),
+                ..
+            } if path == std::path::Path::new("prompt.txt")
+        ));
+        assert_eq!(launch.cwd.as_deref(), Some(base.join("../b").as_path()));
+        assert_eq!(
+            launch.sandbox_report.as_deref(),
+            Some(base.join("report.json").as_path())
+        );
+        assert_eq!(
+            launch.trust_folder.as_deref(),
+            Some(base.join("trusted").as_path())
+        );
+        let mut logged = parse_launch(&args(&[
+            "--cwd",
+            "../b",
+            "inspect",
+            "--debug-file",
+            "debug.log",
+        ]))
+        .unwrap();
+        anchor_input_paths(&mut logged, base);
+        assert!(matches!(
+            &logged.mode,
+            LaunchMode::Inspect { debug_file: Some(path), .. } if path == &base.join("debug.log")
+        ));
+        let absolute =
+            parse_launch(&args(&["--prompt-file", "/abs/p.txt", "--cwd", "/x"])).unwrap();
+        let mut kept = absolute;
+        anchor_input_paths(&mut kept, base);
+        assert!(matches!(
+            &kept.mode,
+            LaunchMode::Plain { prompt: PlainPrompt::File(path), .. } if path == std::path::Path::new("/abs/p.txt")
+        ));
+    }
+
+    #[test]
+    fn inherited_plain_env_reaches_only_plain_turns() {
+        let inherited = [
+            ("CODSH_PLAIN_TOOLS".to_string(), "deny:edit".to_string()),
+            ("CODSH_PLAIN_MAX_TURNS".to_string(), "1".to_string()),
+        ];
+        let plain = parse_launch(&args(&["-p", "hello"])).unwrap();
+        let env = plain_env(&plain.mode, &inherited);
+        assert!(
+            env.contains(&("CODSH_PLAIN_TOOLS".into(), "deny:edit".into())),
+            "{env:?}"
+        );
+        assert!(
+            env.contains(&("CODSH_PLAIN_MAX_TURNS".into(), "1".into())),
+            "{env:?}"
+        );
+        let flagged = parse_launch(&args(&[
+            "-p",
+            "hello",
+            "--disallowed-tools",
+            "bash",
+            "--max-turns",
+            "3",
+        ]))
+        .unwrap();
+        let env = plain_env(&flagged.mode, &inherited);
+        assert!(
+            env.contains(&("CODSH_PLAIN_TOOLS".into(), "deny:bash".into())),
+            "{env:?}"
+        );
+        assert!(
+            env.contains(&("CODSH_PLAIN_MAX_TURNS".into(), "3".into())),
+            "{env:?}"
+        );
+        assert_eq!(env.len(), 2, "{env:?}");
+        let interactive = parse_launch(&args(&["--continue"])).unwrap();
+        assert!(plain_env(&interactive.mode, &inherited).is_empty());
+        // The ACP child never copies the inherited keys itself.
+        assert!(!acp::INHERITED_ENV.contains(&"CODSH_PLAIN_TOOLS"));
+        assert!(!acp::INHERITED_ENV.contains(&"CODSH_PLAIN_MAX_TURNS"));
     }
 
     #[test]
@@ -9569,14 +9776,18 @@ enabled = {enabled}
             error.to_string().contains("conflicting screen flags"),
             "{error}"
         );
-        let error = parse_launch(&args(&["--no-alt-screen"])).unwrap_err();
-        assert!(
-            error.to_string().contains("--no-alt-screen")
-                && error
-                    .to_string()
-                    .contains("that flag has no effect on this plain command"),
-            "{error}"
-        );
+        // The refusal text is mode-neutral: these flags are refused in the TUI too.
+        for flag in [
+            "--no-alt-screen",
+            "--no-auto-update",
+            "--agent",
+            "--no-plan",
+        ] {
+            let error = parse_launch(&args(&[flag])).unwrap_err().to_string();
+            assert!(error.starts_with(flag), "{error}");
+            assert!(!error.contains("plain command"), "{error}");
+            assert!(error.contains("later ticket"), "{error}");
+        }
         let rules =
             parse_launch(&args(&["--rules", "SESSION_RULE_SENTINEL", "--minimal"])).unwrap();
         assert_eq!(
