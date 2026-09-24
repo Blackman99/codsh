@@ -310,17 +310,18 @@ deny = ["Read(secret/**)"]
         assert matched, unmatched
 
         denied = exercise('search-denied', launcher, cwd, {**search_env, 'DSH_CODE_CLI_MOCK_TOOL': 'search-denied'}, output,
-                          typed='search SECRET_LINE including shell', wait_for=['visible.txt', 'no results were returned', 'RUST_ACP_SEARCH_ERROR'], action='none', extra=deny_extra)
+                          typed='search SECRET_LINE including shell', wait_for=['visible.txt', 'no results were returned', 'rust-acp-bash-denied failed', 'RUST_ACP_SEARCH_ERROR'], action='none', extra=deny_extra)
         denied_body = denied['screen'].split('search SECRET_LINE including shell', 1)[-1]
-        assert 'SECRET_LINE' not in denied_body
-        assert 'secret/key.txt' not in denied_body
         assert 'must stay hidden' not in denied_body
-        assert 'Denied' in denied['screen'] or 'denied' in denied['screen']
+        assert 'deny rule' in denied['screen']
+        assert 'rust-acp-bash-denied failed' in denied['screen']
+        assert (cwd / 'secret' / 'key.txt').read_text() == 'SECRET_LINE must stay hidden\n'
         denied_trace = review_results(output / 'review-trace.jsonl', 'search SECRET_LINE including shell')
         assert denied_trace
         assert any('visible.txt' in item for item in denied_trace)
         assert any('no results were returned' in item for item in denied_trace)
-        assert all('SECRET_LINE' not in item and 'secret/key.txt' not in item and 'must stay hidden' not in item for item in denied_trace)
+        assert any('deny rule' in item for item in denied_trace)
+        assert all('must stay hidden' not in item for item in denied_trace)
         matched, unmatched = screen_matches_model(denied['screen'], denied_trace)
         assert matched, unmatched
 

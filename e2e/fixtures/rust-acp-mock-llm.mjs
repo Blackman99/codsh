@@ -304,7 +304,10 @@ function* fileToolTurn(options) {
   }
   if (MODE === 'search-needle' || MODE === 'search-empty' || MODE === 'search-denied' || MODE === 'search-continue' || MODE === 'search-binary' || MODE === 'search-stale' || MODE === 'search-lsp') {
     const last = done.at(-1)
-    if (last?.isError === true) {
+    // A denied search root errors before the shell bypass. Keep going so
+    // `rg` of the denied file is actually issued, then stop on that result.
+    const continueDeniedShell = MODE === 'search-denied' && done.length < 4
+    if (last?.isError === true && !continueDeniedShell) {
       yield* mockText(`RUST_ACP_SEARCH_ERROR ${resultText(last)}`)
       return
     }
