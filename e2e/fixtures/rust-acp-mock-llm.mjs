@@ -8,7 +8,7 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session. Optional
+ * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -532,6 +532,93 @@ async function * sandboxSessionTurn(options) {
   yield* mockText(child ? 'RUST_ACP_SANDBOX_CHILD_DONE' : 'RUST_ACP_SANDBOX_DONE')
 }
 
+// Typed subagents (ticket 172). The parent prompt lists spawn steps:
+// `SPAWN:<type>:<CHILD>[:bg]`, run one after another. Each child prompt
+// carries `CHILD_<CHILD>`; the child reports the tool names dsh offered it,
+// so a test sees the real restricted schema. CHILD kinds:
+//   WRITE  calls write child-<n>.txt, then reports whether it was allowed.
+//   ECHO   answers at once.
+//   SLOW   waits until dsh aborts it (cancel), up to 60s.
+//   NEST   calls the subagent tool itself (refused when depth-capped).
+// COLLECT in the parent prompt then reads each background job with job_output.
+function rawUserTexts(options) {
+  return options.messages
+    .filter(message => message.role === 'user')
+    .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+}
+
+function turnToolResults(options, marker) {
+  let start = -1
+  options.messages.forEach((message, index) => {
+    if (message.role === 'user' && message.content.some(block => block.type === 'text' && block.text.includes(marker))) start = index
+  })
+  return options.messages.slice(start + 1).flatMap(message => message.content.filter(block => block.type === 'tool-result'))
+}
+
+async function * subagentChildTurn(options, kind, signal) {
+  const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name).sort().join(',') : ''
+  const done = toolResults(options)
+  if (kind === 'WRITE') {
+    if (done.length === 0) {
+      const name = `child-${Date.now().toString(36)}.txt`
+      yield* mockToolCall(`rust-acp-child-write-${name}`, 'write', { file_path: name, content: 'CHILD_WROTE\n' })
+      return
+    }
+    const last = done.at(-1)
+    yield* mockText(`CHILD_DONE tools=${tools} write=${last?.isError ? 'denied' : 'allowed'}:${resultText(last).replaceAll('\n', ' ').slice(0, 160)}`)
+    return
+  }
+  if (kind === 'NEST') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-child-nest', 'subagent', { description: 'nested', prompt: 'CHILD_ECHO nested', subagent_type: 'general-purpose' })
+      return
+    }
+    yield* mockText(`CHILD_NEST tools=${tools} result=${done.at(-1)?.isError ? 'error' : 'ok'}:${resultText(done.at(-1)).replaceAll('\n', ' ').slice(0, 160)}`)
+    return
+  }
+  if (kind === 'SLOW') {
+    try {
+      await sleep(60000, signal)
+    } catch {
+      return
+    }
+    yield* mockText('CHILD_SLOW_DONE')
+    return
+  }
+  yield* mockText(`CHILD_ECHO tools=${tools}`)
+}
+
+async function * subagentsTurn(options) {
+  const texts = rawUserTexts(options)
+  const childText = texts.find(text => /CHILD_[A-Z]+/.test(text))
+  if (childText) {
+    yield* subagentChildTurn(options, /CHILD_([A-Z]+)/.exec(childText)[1], options.signal)
+    return
+  }
+  const prompt = [...texts].reverse().find(text => text.includes('SPAWN:')) ?? ''
+  const steps = [...prompt.matchAll(/SPAWN:([a-z0-9_-]+):([A-Z]+)(:bg)?/g)]
+  const done = turnToolResults(options, 'SPAWN:')
+  if (done.length < steps.length) {
+    const [, type, kind, bg] = steps[done.length]
+    yield* mockToolCall(`rust-acp-spawn-${done.length}-${Date.now().toString(36)}`, 'subagent', {
+      description: `${type} ${kind.toLowerCase()} probe`,
+      prompt: `CHILD_${kind}: run the ${kind.toLowerCase()} probe and report.`,
+      subagent_type: type,
+      ...bg ? { run_in_background: true } : {},
+    })
+    return
+  }
+  // COLLECT reads every started background job once with job_output wait=true.
+  const jobs = done.slice(0, steps.length).map(result => /started background subagent job (\S+)/.exec(resultText(result))?.[1]).filter(Boolean)
+  if (prompt.includes('COLLECT') && done.length < steps.length + jobs.length) {
+    const job = jobs[done.length - steps.length]
+    yield* mockToolCall(`rust-acp-collect-${done.length}-${Date.now().toString(36)}`, 'job_output', { job_id: job, wait: true })
+    return
+  }
+  const report = done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 400)}`).join(' ')
+  yield* mockText(`PARENT_DONE ${report}`)
+}
+
 class RustAcpMockAdapter extends LlmAdapter {
   listModels(provider) {
     if (provider === 'narrow') {
@@ -620,6 +707,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'sandbox-session') {
       yield* sandboxSessionTurn(options)
+      return
+    }
+    if (MODE === 'subagents') {
+      yield* subagentsTurn(options)
       return
     }
     const turn = String(userTurns(options))

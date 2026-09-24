@@ -309,7 +309,11 @@ python3 scripts/rust-prompt-pty-test.py
 python3 scripts/rust-voice-pty-test.py
 python3 scripts/rust-nav-pty-test.py
 python3 scripts/rust-content-pty-test.py
+pnpm exec vitest run scripts/rust-subagents.spec.mjs
+python3 scripts/rust-subagent-pty-test.py
 ```
+
+Subagents (ticket 172) have two layers of evidence. `scripts/rust-subagents.spec.mjs` drives released dsh over ACP with the keyless `subagents` mock mode: type capability allow-lists, permission inheritance in ask mode, depth, disabled and unknown types, a model override and a missing model, cancel through the control directory, parent `session/cancel`, the `fail` and `queue` limits, and one background delivery through `job_output`. `scripts/rust-subagent-pty-test.py` runs the Rust client in a PTY against the repo launcher and the staged binary (`pnpm run build:rust` first): an explore child that loses `write`, a general-purpose child that writes, the Ctrl+G and `/tasks` list, a read-only child view, Ctrl+C cancelling only the child, `x` cancelling a background child, `/compact`, `--resume`, child sessions kept out of `sessions list`, and the headless `--no-subagents` and `Agent(type)` flags. It does not require macOS; it has been run on Linux only.
 
 `build:rust` stages the host binary under ignored `packages/cli/native/<os>-<arch>`
 with SHA-256, selected dependency metadata and license/notice files. `npm pack`
@@ -398,7 +402,7 @@ durable sessions. The mock model, when used, is a dsh provider-boundary fixture
 dsh core. Plain automation is `python3 scripts/rust-plain-pipe-test.py`: it packs
 the CLI and runs no-TTY `-p`/`--prompt-file` prompts, `--cwd`, `--continue`,
 tool denial, `--max-turns`, invalid flags, and SIGINT/SIGTERM through released
-dsh. It also checks the first-request tool list (including `Agent` removing `subagent` and `subagent_fork`, typed `Agent(...)` refusals from flags and an inherited `CODSH_PLAIN_TOOLS`, and `--disable-web-search`), first-turn memory with `--no-memory` and `--verbatim`, rules still reaching the model under `--verbatim`, a relative `--prompt-file` read from inside `--cwd`, Ctrl+C during connect sending no prompt, `--cwd` with `--sandbox` write roots, title resume, a non-mock provider, help, shell completions, and one interactive PTY session where `--cwd` and `--disable-web-search` apply and headless-only flags warn. `CODSH_PLAIN_LONG_TURN=1` adds a 190 s mock turn that proves there is no wall-clock cap; it is off by default because it takes over three minutes. Sandbox write targets are created beside the repo, outside the temp roots, and removed afterwards. JSON output formats are refused here. Unknown options exit 2. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
+dsh. It also checks the first-request tool list (including `Agent` removing `subagent` and `subagent_fork`, `--disallowed-tools Agent(explore)` keeping `subagent` while other names are masked, typed `Agent(...)` refusals from `--tools`, `Agent()`, and an inherited `CODSH_PLAIN_TOOLS`, and `--disable-web-search`), first-turn memory with `--no-memory` and `--verbatim`, rules still reaching the model under `--verbatim`, a relative `--prompt-file` read from inside `--cwd`, Ctrl+C during connect sending no prompt, `--cwd` with `--sandbox` write roots, title resume, a non-mock provider, help, shell completions, and one interactive PTY session where `--cwd` and `--disable-web-search` apply and headless-only flags warn. `CODSH_PLAIN_LONG_TURN=1` adds a 190 s mock turn that proves there is no wall-clock cap; it is off by default because it takes over three minutes. Sandbox write targets are created beside the repo, outside the temp roots, and removed afterwards. JSON output formats are refused here. Unknown options exit 2. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
 drive a loopback OpenAI-compatible fixture at the provider boundary and assert
 the actual request path, model id, auth, and effort; same-named models on
 different backends are not treated as equivalent. Enter submits the draft through dsh when connected. Missing dsh, ACP

@@ -4,8 +4,10 @@
  * CODSH_PLAIN_TOOLS is "allow:read,grep", "deny:edit", or both joined by ";".
  * When both are set, deny wins. Public ids (read_file, Bash, Agent) map to
  * the dsh tool name. Agent denies every subagent spawn tool dsh registered
- * (subagent and subagent_fork). Agent(type), in any letter case, is refused:
- * the released tool has no type argument, and ticket 172 owns that filter.
+ * (subagent and subagent_fork). Agent(type), in any letter case, is refused
+ * here: the Rust client turns `--disallowed-tools Agent(type)` into the
+ * subagent policy (rust-acp-subagents.mjs) and never puts a typed entry in
+ * CODSH_PLAIN_TOOLS, so one arriving here (say, inherited) cannot be honored.
  * A refused or malformed value, including one inherited from a parent
  * process, cancels the agent before its first model request.
  * CODSH_DISABLE_WEB_TOOLS=1 (--disable-web-search) drops the registered
@@ -79,10 +81,11 @@ function parseTools(raw) {
     const target = mode === 'allow' ? allow : deny
     const typed = names.findIndex(scopedAgentFilter)
     if (typed >= 0) {
-      // Ticket 172 owns per-type filters. The released subagent tool has
-      // no type argument, so storing the name would leave the call allowed.
+      // Per-type filters live in the subagent policy (ticket 172). This
+      // mask has no type argument, so storing the name would leave the
+      // call allowed.
       throw new Error(
-        `plain tool filter cannot apply ${typedEntry(names, typed)}; subagent types are not available until a later ticket. Use Agent to deny every subagent`,
+        `plain tool filter cannot apply ${typedEntry(names, typed)}; subagent types belong to the subagent policy. Pass --disallowed-tools ${typedEntry(names, typed)} to codsh --rust, or use Agent to deny every subagent`,
       )
     }
     for (const name of names) {

@@ -240,7 +240,14 @@ SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, and SessionEnd.
 Exit 2 and `decision: deny` block; other failures are recorded and are not
 success. Hook stdout and stderr stay hook output. An allow does not skip
 permission checks, and a hook cannot widen a sandbox or permission deny.
-Untrusted project hooks stay skipped. Deny and hook blocks have
+Untrusted project hooks stay skipped. Typed subagents run as dsh children
+(`rust-acp-subagents.mjs`): the Rust client resolves `[subagents]`, roles, agent
+files, and `GROK_*` overrides into `CODSH_SUBAGENT_POLICY`; the plugin turns a
+type's capability into a dsh tool allow-list (unclassified tools only under
+`all`), preflights a type model, admits by session with queue or fail, and
+reports one lifecycle (queued, start, activity, end, refused) on stderr that
+feeds the tool block, status line, and task list. Cancel requests travel as
+files in a private control directory. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

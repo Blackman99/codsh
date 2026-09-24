@@ -348,6 +348,31 @@ impl HeadlessOutput {
                     self.diagnostics.push(text.clone());
                 }
             }
+            AcpEvent::Subagent { event } => {
+                // A settled or refused child is a diagnostic line on stderr;
+                // the answer stays the parent's.
+                let kind = event.get("event").and_then(Value::as_str).unwrap_or("");
+                if kind == "end" || kind == "refused" {
+                    let field = |key: &str| {
+                        event
+                            .get(key)
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string()
+                    };
+                    self.diagnostics.push(format!(
+                        "subagent {} {} ({}): {}",
+                        field("type"),
+                        if kind == "end" {
+                            field("status")
+                        } else {
+                            "refused".into()
+                        },
+                        field("label"),
+                        field("detail").lines().next().unwrap_or("")
+                    ));
+                }
+            }
         }
     }
 

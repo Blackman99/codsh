@@ -401,26 +401,34 @@ def main():
             assert 'subagent' not in row['tools'] and 'subagent_fork' not in row['tools'], row
             assert 'read' in row['tools'], row
         agent_trace.unlink()
-        scoped_agent = plain(launcher, project, env('echo'),
+        # Agent(type) removes that subagent type through the subagent
+        # policy (ticket 172); the plain mask keeps the other names.
+        scoped_agent = plain(launcher, project, agent_env,
                              ['-p', 'hello', '--disallowed-tools', 'Agent(explore),edit'])
-        assert scoped_agent.returncode != 0, scoped_agent.stdout
-        assert 'Agent(explore)' in scoped_agent.stderr
-        assert 'later ticket' in scoped_agent.stderr
-        # Every typed spelling is refused before a provider call, from the
-        # flags and from a CODSH_PLAIN_TOOLS value inherited from a parent.
+        assert scoped_agent.returncode == 0, scoped_agent.stderr
+        scoped_rows = [json.loads(line) for line in agent_trace.read_text().splitlines() if line.strip()]
+        assert scoped_rows, 'Agent(explore) deny made no model request'
+        for row in scoped_rows:
+            assert 'edit' not in row['tools'] and 'subagent' in row['tools'], row
+        agent_trace.unlink()
+        # --tools cannot allow a type, an empty Agent() names nothing, and a
+        # typed CODSH_PLAIN_TOOLS value inherited from a parent is refused,
+        # all before a provider call.
+        for flag, entry, words in (('--tools', 'Agent(explore, plan)', 'cannot allow'),
+                                   ('--tools', 'agent(explore)', 'cannot allow'),
+                                   ('--disallowed-tools', 'Agent()', 'name at least one subagent type')):
+            typed = plain(launcher, project, agent_env, ['-p', 'hello', flag, entry])
+            assert typed.returncode == 1, (flag, entry, typed.stdout, typed.stderr)
+            assert typed.stdout == '', (flag, entry, typed.stdout)
+            assert words in typed.stderr, (flag, entry, typed.stderr)
+            assert not agent_trace.exists(), (flag, entry, agent_trace.read_text())
         for entry in ('Agent(explore, plan)', 'Agent()', 'agent(explore)'):
             named = entry.split(',')[0]
-            for flag in ('--disallowed-tools', '--tools'):
-                typed = plain(launcher, project, agent_env, ['-p', 'hello', flag, entry])
-                assert typed.returncode == 1, (flag, entry, typed.stdout, typed.stderr)
-                assert typed.stdout == '', (flag, entry, typed.stdout)
-                assert named in typed.stderr and 'later ticket' in typed.stderr, (flag, entry, typed.stderr)
-                assert not agent_trace.exists(), (flag, entry, agent_trace.read_text())
             inherited = plain(launcher, project, {**agent_env, 'CODSH_PLAIN_TOOLS': f'deny:{entry}'},
                               ['-p', 'hello'])
             assert inherited.returncode == 1, (entry, inherited.stdout, inherited.stderr)
             assert inherited.stdout == '', (entry, inherited.stdout)
-            assert named in inherited.stderr and 'later ticket' in inherited.stderr, (entry, inherited.stderr)
+            assert named in inherited.stderr and 'subagent policy' in inherited.stderr, (entry, inherited.stderr)
             assert 'unknown global tool' not in inherited.stderr, (entry, inherited.stderr)
             assert not agent_trace.exists(), (entry, agent_trace.read_text())
 

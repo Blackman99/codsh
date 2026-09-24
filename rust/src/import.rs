@@ -2141,6 +2141,7 @@ env_key = "EXISTING_KEY"
             cli_no_memory: false,
             cli_sandbox: None,
             cli_disable_web_search: false,
+            cli_subagents: Default::default(),
         });
         assert_eq!(loaded.default_model.as_deref(), Some("acme-gateway"));
         assert!(!loaded.imported_legacy_credentials);
@@ -2294,6 +2295,7 @@ agent-default-model:
             cli_no_memory: false,
             cli_sandbox: None,
             cli_disable_web_search: false,
+            cli_subagents: Default::default(),
         });
         let active = loaded.active_model().expect("imported route is usable");
         assert_eq!(active.model, "acme-large");

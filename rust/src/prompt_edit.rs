@@ -39,6 +39,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "multiline",
         "onboarding",
         "rewind",
+        "tasks",
         "theme",
         "timeline",
         "tour",
@@ -99,6 +100,7 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         true,
     ),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
+    SlashCommand::new("tasks", &[], "Show subagent tasks", true),
     SlashCommand::new("onboarding", &[], "Open onboarding", true),
     SlashCommand::new(
         "reload-assets",

@@ -134,6 +134,11 @@ pub struct EffectiveConfig {
     /// is already applied here; CLI and `GROK_SANDBOX` do not beat it.
     pub sandbox_profile: String,
     pub sandbox_profile_source: String,
+    /// Process flags for the subagent policy. The policy itself is resolved
+    /// when dsh is spawned, after trust has settled the agent assets.
+    pub subagent_cli: crate::subagents::CliSubagents,
+    /// Environment the client passed to config (for the subagent knobs).
+    pub subagent_env: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -158,6 +163,8 @@ pub struct LoadInput {
     pub cli_sandbox: Option<String>,
     /// `--disable-web-search` for this process.
     pub cli_disable_web_search: bool,
+    /// `--no-subagents` and `--disallowed-tools Agent(type)`.
+    pub cli_subagents: crate::subagents::CliSubagents,
 }
 
 impl EffectiveConfig {
@@ -363,6 +370,7 @@ pub fn load() -> EffectiveConfig {
         cli_no_memory: false,
         cli_sandbox: None,
         cli_disable_web_search: false,
+        cli_subagents: Default::default(),
     })
 }
 
@@ -1949,7 +1957,32 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         memory,
         sandbox_profile: sandbox.0,
         sandbox_profile_source: sandbox.1,
+        subagent_cli: input.cli_subagents,
+        subagent_env: input
+            .env
+            .iter()
+            .filter(|(key, _)| {
+                key.starts_with("GROK_SUBAGENT") || key.as_str() == "GROK_MAX_CONCURRENT_SUBAGENTS"
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
     }
+}
+
+/// The subagent policy for the next dsh spawn.
+pub fn subagent_policy(config: &EffectiveConfig) -> crate::subagents::Policy {
+    crate::subagents::resolve(
+        &config.merged_table,
+        &config.subagent_env,
+        &config.subagent_cli,
+        &config.assets.agents,
+        &config.grok_home,
+    )
+}
+
+/// CODSH_SUBAGENT_POLICY and the control directory for dsh.
+pub fn subagent_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    crate::subagents::dsh_env(&subagent_policy(config), &config.dsh_home)
 }
 
 pub fn refresh_assets(config: &mut EffectiveConfig, home: &Path) {
@@ -2134,6 +2167,7 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
     }
     lines.push(crate::plugin::inspect_text(&config.plugins));
     lines.push(crate::assets::inspect_text(&config.assets));
+    lines.extend(subagent_policy(config).inspect_lines());
     lines.push(crate::filesystem_sandbox::status_line(
         crate::filesystem_sandbox::active(),
     ));
@@ -2189,6 +2223,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         "workspaceTrusted": config.workspace_trusted,
         "projectAssetsActive": config.project_assets_active,
         "assets": crate::assets::inspect_json(&config.assets),
+        "subagents": subagent_policy(config).to_json(),
         "trustPrompt": config.trust_prompt,
         "plugins": crate::plugin::inspect_json_value(&config.plugins),
         "auth": auth::inspect_auth_json(&config.auth, config.auth_session.as_ref()),
@@ -3000,6 +3035,7 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "sandbox",
     "campaigns",
     "memory",
+    "subagents",
     "auth",
     "force_login_team_uuid",
     "grok_com_config",
@@ -3662,6 +3698,7 @@ mod tests {
             cli_no_memory: false,
             cli_sandbox: None,
             cli_disable_web_search: false,
+            cli_subagents: Default::default(),
         }
     }
 

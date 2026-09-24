@@ -79,6 +79,10 @@ pub enum AcpEvent {
     Stderr {
         text: String,
     },
+    /// A typed-subagent lifecycle line from rust-acp-subagents (ticket 172).
+    Subagent {
+        event: Value,
+    },
     Usage {
         used: Option<u64>,
         size: Option<u64>,
@@ -427,6 +431,15 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_SHELL_WORKDIR",
     "GROK_HOME",
 ];
+
+/// A marked subagent lifecycle line becomes its own event; any other stderr
+/// line stays raw.
+fn stderr_event(text: String) -> AcpEvent {
+    match crate::subagents::parse_line(&text) {
+        Some(event) => AcpEvent::Subagent { event },
+        None => AcpEvent::Stderr { text },
+    }
+}
 
 pub fn dsh_spawn_spec(
     cwd: PathBuf,
@@ -996,7 +1009,7 @@ impl AcpClient {
             };
             match self.rx.recv_timeout(wait) {
                 Ok(Line::Text(line)) => events.extend(self.handle_line(&line)),
-                Ok(Line::Stderr(text)) => events.push(AcpEvent::Stderr { text }),
+                Ok(Line::Stderr(text)) => events.push(stderr_event(text)),
                 Ok(Line::Eof) => {
                     let detail = self
                         .disconnected
@@ -1018,7 +1031,7 @@ impl AcpClient {
                 while let Ok(line) = self.rx.try_recv() {
                     match line {
                         Line::Text(text) => events.extend(self.handle_line(&text)),
-                        Line::Stderr(text) => events.push(AcpEvent::Stderr { text }),
+                        Line::Stderr(text) => events.push(stderr_event(text)),
                         Line::Eof => {
                             events.push(AcpEvent::Disconnected {
                                 detail: "ACP connection ended".into(),

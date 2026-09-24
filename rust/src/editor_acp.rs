@@ -1831,6 +1831,7 @@ impl Runtime {
             cli_no_memory: false,
             cli_sandbox: None,
             cli_disable_web_search: false,
+            cli_subagents: Default::default(),
         };
         if input.dsh_home.as_os_str().is_empty() {
             return Err("missing isolated DSH_HOME; use codsh --rust agent stdio".into());

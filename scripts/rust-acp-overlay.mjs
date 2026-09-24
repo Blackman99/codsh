@@ -27,7 +27,11 @@ export function rustAcpHooksUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-hooks.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl()) {
+export function rustAcpSubagentsUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-subagents.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -54,6 +58,9 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     '  config:',
     `    search: ${enabled('CODSH_WEB_SEARCH') ? 'true' : 'false'}`,
     `    fetch: ${enabled('CODSH_WEB_FETCH') ? 'true' : 'false'}`,
+    // rust-acp-subagents registers the typed `subagent` tool in its place.
+    '- id: tool-subagent',
+    '  disabled: true',
   ]
   // dsh owns code navigation. No language server is configured, so a call
   // reports LSP_UNAVAILABLE instead of inventing a location. The profile does
@@ -92,6 +99,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${plainUrl}'`,
     '    - id: rust-acp-hooks',
     `      name: '${hooksUrl}'`,
+    '    - id: rust-acp-subagents',
+    `      name: '${subagentsUrl}'`,
     '    - id: rust-acp-file-approval',
     `      name: '${approvalUrl}'`,
     '    - id: rust-acp-compact',
