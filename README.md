@@ -204,8 +204,13 @@ change since preview stays in the composer with an explicit notice and no
 file bytes. The admitted text is what dsh and the model receive. Resume shows
 the same `@path` mention.
 Ctrl+V (Alt+V on Windows) reads an image from the platform clipboard. A
-bracketed paste that starts with `codsh-image:` or `data:image/...;base64,`
-does the same. The draft shows an atomic `[Image #N]` chip. While the pointer hovers that
+terminal delivers Cmd+V as a bracketed paste; on macOS and Windows an empty one
+(what an image-only clipboard sends) reads the clipboard image the same way,
+and a paste that is only whitespace inserts nothing. Pasting or dropping the
+absolute path or `file://` URL of an image file attaches that file as an image;
+a relative name, prose, or a mix with other paths keeps the existing text or
+`@file` handling. A bracketed paste that starts with `codsh-image:` or
+`data:image/...;base64,` also attaches an image. The draft shows an atomic `[Image #N]` chip. While the pointer hovers that
 chip, or the cursor rests on it, the notice is `Pasted image #N` plus the
 sniffed size (png, gif, jpeg, or webp), the byte length, a short digest, and
 the saved path when the text-only route stored one. That is the frozen guide
@@ -215,18 +220,22 @@ removes the chip and its bytes together. A model whose
 canonical base64, `mimeType` is png, jpeg, webp, or gif). A model that omits
 `image`, or does not declare modalities, does not receive that block: the
 original is saved under the isolated dsh home `attachments/pasted/` and the
-prompt carries a `<pasted-image>` path. No second vision provider is called.
-An empty clipboard, a file that is not a png/jpeg/webp/gif, and a file over
-256 KiB stay in the composer with a notice and are not sent.
+prompt carries a `<pasted-image>` path. On that route the attach notice says
+the model cannot see images and gets only the saved path. No second vision
+provider is called. An empty clipboard, a file that is not a png/jpeg/webp/gif,
+and a file over 256 KiB stay in the composer with a notice and are not sent.
 `GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read even when
 set to `0`; `CODSH_CLIPBOARD_IMAGE` is the controlled file used instead.
 The packed launcher forwards both, so an empty fixture is what the session
 reads. Switching `/model`, `/minimal`, or `/fullscreen` keeps the same chip
 and the parked image bytes, not only the placeholder text. Closing the model
-menu puts that draft back. An unsent
-draft is restored from `$GROK_HOME/image-draft.json` on the next start, but
-only when the stored digest, type, and size still match the bytes. A rewritten
-file stays unsent and is not replaced. A prompt queued under one model is
+menu puts that draft back. Like the reference, the draft lives only in the
+running process: nothing about it is written to disk, the next launch in any
+project starts with an empty composer, and a sent prompt never comes back. An
+exec relaunch (`GROK_SCREEN_MODE_SWITCH=exec`) resumes the session, not the
+draft. `--resume` shows a sent image turn with its `[Image #N]` placeholders,
+as the live row did (the text-only `<pasted-image>` path is model input, not
+typed text), and sends nothing again. A prompt queued under one model is
 rebuilt for the model selected when it sends: a text-only model gets the path,
 not the image block that was queued earlier.
 `chips=false` only means the current draft has no attachment. Unicode, large paste, and resize keep an unsent draft. A refused

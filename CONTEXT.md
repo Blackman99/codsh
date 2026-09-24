@@ -627,17 +627,27 @@ _Avoid_: tooltip, status hint
 **Pasted image**:
 The clipboard image Ctrl+V (Alt+V on Windows) attaches behind an `[Image #N]`
 token in the box — one backspace removes the token whole, and a deleted token
-drops its image. At submit, a model whose `input_modalities` includes `image`
+drops its image. Cmd+V reaches the client as a bracketed paste: on macOS and
+Windows an empty one (an image-only clipboard) reads the clipboard image the
+same way, and whitespace alone inserts nothing. A paste that is only absolute
+paths or `file://` URLs of image files (a Finder drop) attaches those files;
+prose, relative names, and mixed paths keep the text and `@file` rules. At
+submit, a model whose `input_modalities` includes `image`
 gets an ACP image block. A model that does not declare `image` gets the
 original saved under the isolated dsh home `attachments/pasted/` and a
-`<pasted-image>` path in the same message. The isolated client does not call
+`<pasted-image>` path in the same message, and the attach notice says that
+model cannot see images. The isolated client does not call
 a second vision provider. An empty clipboard, a file that is not png, jpeg,
 webp, or gif, and a file over 256 KiB stay in the composer with a notice.
 `GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read whenever it
 is set. The packed launcher forwards that switch and `CODSH_CLIPBOARD_IMAGE`,
-so the session reads the controlled file, including an empty one. Resume and a
-model or screen-mode switch keep the same bytes, not only the placeholder.
-Closing the model menu puts that draft back.
+so the session reads the controlled file, including an empty one. A model or
+screen-mode switch keeps the same bytes, not only the placeholder. Closing the
+model menu puts that draft back. The draft is process state, as in the
+reference: nothing of it reaches disk, a new launch in any project starts
+empty, a sent prompt never returns, and an exec relaunch resumes the session
+without it. Resume shows a sent image turn by its placeholders, never its
+`<pasted-image>` path, and sends nothing again.
 _Avoid_: upload, embed
 
 **Image preview card**:

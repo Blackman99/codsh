@@ -37,6 +37,16 @@ function textBlocks(content) {
     .join('')
 }
 
+// A text-only model gets each pasted image as a `<pasted-image … path=…>`
+// element after the typed text, and dsh joins adjacent text blocks into one.
+// The live row shows only the typed text with its `[Image #N]` placeholders,
+// so the restored row drops exactly the elements the client wrote.
+const PASTED_IMAGE_FALLBACK = /\n<pasted-image id="\d+" media="image\/(?:png|jpeg|webp|gif)"(?: dimensions="\d+x\d+")? path="[^"\n]*">\n<\/pasted-image>\n/gu
+
+function typedText(content) {
+  return textBlocks(content).replace(PASTED_IMAGE_FALLBACK, '')
+}
+
 function proposedDiff(name, args) {
   const path = String(args?.file_path ?? '')
   if (name === 'write') {
@@ -403,7 +413,7 @@ export function projectTurns(events, options = {}) {
           }
         }
       } else if (text !== '' && current.user === '') {
-        current.user = text
+        current.user = typedText(message.content).trim() || text
       }
     } else if (type === 'assistant/message') {
       const message = data.message ?? {}

@@ -15,8 +15,6 @@ pub const FILE_CHIP: ElementKind = ElementKind(2);
 pub const IMAGE_CHIP: ElementKind = ElementKind(3);
 
 pub const HISTORY_FILE: &str = "prompt-history.json";
-pub const IMAGE_DRAFT_FILE: &str = "image-draft.json";
-pub const TEXT_DRAFT_FILE: &str = "prompt-draft.txt";
 pub const MAX_HISTORY: usize = 500;
 const ESC_CLEAR_MS: u128 = 800;
 
@@ -336,15 +334,7 @@ impl PromptComposer {
             workspace: None,
             files: Vec::new(),
             images: Vec::new(),
-            next_image_id: {
-                let saved = load_image_draft(grok_home);
-                saved
-                    .iter()
-                    .map(|image| image.id)
-                    .max()
-                    .unwrap_or(0)
-                    .saturating_add(1)
-            },
+            next_image_id: 1,
             accepts_images: false,
             attachment_store: None,
             preview_image: None,
@@ -361,35 +351,6 @@ impl PromptComposer {
     pub fn set_image_route(&mut self, accepts_images: bool, store: Option<&Path>) {
         self.accepts_images = accepts_images;
         self.attachment_store = store.map(Path::to_path_buf);
-    }
-
-    /// Put a resumed draft's image chips back. Placeholders without saved bytes
-    /// stay text and are not sent. A file that fails the digest check is left
-    /// on disk; rewriting it here would erase a draft the user can still repair.
-    pub fn restore_image_draft(&mut self, text: &str) {
-        let saved = load_image_draft(&self.grok_home);
-        self.set_text(text);
-        if saved.is_empty() {
-            return;
-        }
-        self.rebind_saved_images();
-        if !self.images.is_empty() {
-            self.persist_image_draft();
-        }
-    }
-
-    pub fn persist_visible_draft(&self) {
-        self.persist_image_draft();
-    }
-
-    fn persist_image_draft(&self) {
-        let images: Vec<PreparedImage> = self
-            .images
-            .iter()
-            .map(|image| image.prepared.clone())
-            .collect();
-        let _ = save_image_draft(&self.grok_home, &images);
-        let _ = save_text_draft(&self.grok_home, self.draft.text());
     }
 
     /// Put back a prompt whose submit did not start a turn. Returns whether
@@ -682,12 +643,24 @@ impl PromptComposer {
         }
     }
 
+    /// A bracketed paste. Whitespace alone inserts nothing, as in the
+    /// reference: that is how a terminal delivers Cmd+V on an image-only
+    /// clipboard, and the host probes the clipboard for the image instead.
     pub fn paste(&mut self, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
         if !self.simple_mode && self.vim == VimPrompt::Normal {
             self.vim = VimPrompt::Insert;
         }
         self.close_transient_overlays(false);
         if self.try_paste_image_payload(text) {
+            return;
+        }
+        // An image file wins over the workspace-file drop, like the
+        // reference: a png is an image chip, not a binary @file mention.
+        if let Some(paths) = images::dropped_image_paths(text) {
+            self.attach_dropped_images(&paths);
             return;
         }
         if self.try_drop_paths(text) {
@@ -697,6 +670,33 @@ impl PromptComposer {
         self.draft.insert_str(text);
         self.refresh_slash_from_draft();
         self.footer_notice.clear();
+    }
+
+    /// Each dropped file is read and sniffed now. A corrupt, oversized, or
+    /// unsupported one is named in the notice and adds no chip.
+    fn attach_dropped_images(&mut self, paths: &[PathBuf]) {
+        let mut refused = None;
+        for path in paths {
+            match images::read_image_file(path) {
+                Ok(image) => self.insert_image(image),
+                Err(error) => {
+                    let name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path.display().to_string());
+                    // The sniffer speaks about the clipboard; this is a file.
+                    let detail = match error.status {
+                        AttachStatus::NotAFile => "not a png, jpeg, webp, or gif image".to_string(),
+                        AttachStatus::Missing if path.is_file() => "image file is empty".into(),
+                        _ => image_notice(&error),
+                    };
+                    refused = Some(format!("{name}: {detail}; not attached"));
+                }
+            }
+        }
+        if let Some(notice) = refused {
+            self.footer_notice = notice;
+        }
     }
 
     /// Ctrl+V image paste. An empty or corrupt clipboard stays out of the draft.
@@ -2011,11 +2011,6 @@ impl PromptComposer {
         self.rebind_image_chips(&images);
     }
 
-    fn rebind_saved_images(&mut self) {
-        let saved = load_image_draft(&self.grok_home);
-        self.rebind_image_chips(&saved);
-    }
-
     fn is_image_paste(&self, key: &KeyEvent) -> bool {
         let control = key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'));
@@ -2072,8 +2067,15 @@ impl PromptComposer {
         });
         self.refresh_file_state();
         self.refresh_image_preview();
-        self.persist_image_draft();
-        self.footer_notice = format!("image #{id} attached");
+        // Say it now, not after submit: a text-only route never sees the
+        // pixels. It gets the `<pasted-image>` path of the saved original.
+        self.footer_notice = if self.accepts_images {
+            format!("image #{id} attached")
+        } else {
+            format!(
+                "image #{id} attached; this model cannot see images and gets only the saved path"
+            )
+        };
     }
 
     fn sync_image_chips(&mut self) {
@@ -2087,11 +2089,6 @@ impl PromptComposer {
         self.images.retain(|image| live.contains(&image.id));
         self.refresh_file_state();
         self.refresh_image_preview();
-        // A refused resume leaves the placeholder as text and the file untouched.
-        // Writing here would replace that file with an empty draft.
-        if !self.images.is_empty() || !image_draft_path(&self.grok_home).exists() {
-            self.persist_image_draft();
-        }
     }
 
     fn refresh_images(&mut self) -> Result<Vec<PreparedImage>, String> {
@@ -2515,102 +2512,6 @@ fn images_match_draft(live: &[AttachedImage], parked: &[PreparedImage]) -> bool 
         && live.iter().zip(parked).all(|(live, parked)| {
             live.prepared.id == parked.id && live.prepared.digest == parked.digest
         })
-}
-
-fn json_u32(value: Option<&serde_json::Value>) -> Option<u32> {
-    let value = value?;
-    if value.is_null() {
-        return None;
-    }
-    value.as_u64().and_then(|number| u32::try_from(number).ok())
-}
-
-fn image_draft_path(grok_home: &Path) -> PathBuf {
-    grok_home.join(IMAGE_DRAFT_FILE)
-}
-
-fn text_draft_path(grok_home: &Path) -> PathBuf {
-    grok_home.join(TEXT_DRAFT_FILE)
-}
-
-pub fn load_text_draft(grok_home: &Path) -> Option<String> {
-    let text = fs::read_to_string(text_draft_path(grok_home)).ok()?;
-    if text.is_empty() { None } else { Some(text) }
-}
-
-pub fn save_text_draft(grok_home: &Path, text: &str) -> std::io::Result<()> {
-    fs::create_dir_all(grok_home)?;
-    fs::write(text_draft_path(grok_home), text)
-}
-
-/// Persist unsent image chips. Resume reads this file and rebinds the same bytes.
-pub fn save_image_draft(grok_home: &Path, images: &[PreparedImage]) -> std::io::Result<()> {
-    fs::create_dir_all(grok_home)?;
-    let body = images
-        .iter()
-        .map(|image| {
-            serde_json::json!({
-                "id": image.id,
-                "mediaType": image.media_type,
-                "data": base64::Engine::encode(
-                    &base64::engine::general_purpose::STANDARD,
-                    &image.bytes,
-                ),
-                "width": image.width,
-                "height": image.height,
-                "digest": image.digest,
-                "savedPath": image.saved_path.as_ref().map(|path| path.display().to_string()),
-            })
-        })
-        .collect::<Vec<_>>();
-    fs::write(
-        image_draft_path(grok_home),
-        serde_json::to_vec_pretty(&body)?,
-    )
-}
-
-pub fn load_image_draft(grok_home: &Path) -> Vec<PreparedImage> {
-    let Ok(text) = fs::read_to_string(image_draft_path(grok_home)) else {
-        return Vec::new();
-    };
-    let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
-        return Vec::new();
-    };
-    items
-        .into_iter()
-        .filter_map(|item| {
-            let id = item.get("id")?.as_u64()? as u32;
-            let encoded = item.get("data")?.as_str()?;
-            let bytes =
-                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).ok()?;
-            let stored_digest = item.get("digest").and_then(|value| value.as_str())?;
-            let stored_type = item.get("mediaType").and_then(|value| value.as_str())?;
-            // Sniff again. A rewritten `data` field must not keep the old digest.
-            let sniffed = images::sniff_image(&bytes).ok()?;
-            if sniffed.media_type != stored_type {
-                return None;
-            }
-            let prepared = images::prepare_image(id, sniffed);
-            if prepared.digest != stored_digest {
-                return None;
-            }
-            let stored_width = json_u32(item.get("width"));
-            let stored_height = json_u32(item.get("height"));
-            if stored_width.is_some() && stored_width != prepared.width {
-                return None;
-            }
-            if stored_height.is_some() && stored_height != prepared.height {
-                return None;
-            }
-            let mut prepared = prepared;
-            prepared.saved_path = item
-                .get("savedPath")
-                .and_then(|value| value.as_str())
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from);
-            Some(prepared)
-        })
-        .collect()
 }
 
 pub fn load_histfile(path: &Path) -> Vec<String> {
@@ -3404,99 +3305,131 @@ mod tests {
     }
 
     #[test]
-    fn image_draft_survives_a_model_switch_and_a_new_composer() {
+    fn image_draft_survives_a_model_switch_but_not_a_new_process() {
         let home = temp_home();
         let store = temp_home();
         let png = images::tiny_png();
         let mut composer = PromptComposer::load(&home, &[]);
         composer.set_image_route(true, Some(&store));
         composer.paste_image_bytes(&png).unwrap();
+        assert_eq!(composer.footer_notice, "image #1 attached");
         for ch in " keep".chars() {
             composer.handle_key(key(KeyCode::Char(ch)), ctx());
         }
         let draft = composer.text().to_string();
-        composer.persist_visible_draft();
         composer.set_image_route(false, Some(&store));
         assert!(composer.chips, "switching the model drops the chip");
         assert_eq!(composer.text(), draft);
-        let mut resumed = PromptComposer::load(&home, &[]);
-        resumed.set_image_route(false, Some(&store));
-        resumed.restore_image_draft(&draft);
-        assert!(
-            resumed.chips,
-            "resume lost the image chip: {}",
-            resumed.text()
-        );
-        assert_eq!(resumed.text(), draft);
-        let submitted = resumed.prepare_submit().expect("resumed text-only submit");
+        let submitted = composer.prepare_submit().expect("text-only submit");
         let joined = serde_json::to_string(&submitted.blocks).unwrap();
         assert!(joined.contains("<pasted-image "), "{joined}");
         assert!(!joined.contains("\"type\":\"image\""), "{joined}");
-        let preview = resumed.image_preview().expect("preview after resume");
-        assert!(preview.contains("Pasted image #1"), "{preview}");
-        assert!(preview.contains("1x1"), "{preview}");
-
-        let honest = fs::read_to_string(home.join(IMAGE_DRAFT_FILE)).unwrap();
-        let mut tampered: serde_json::Value = serde_json::from_str(&honest).unwrap();
-        let green = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            images::tiny_png_green(),
-        );
-        tampered[0]["data"] = serde_json::Value::String(green.clone());
-        fs::write(
-            home.join(IMAGE_DRAFT_FILE),
-            serde_json::to_vec_pretty(&tampered).unwrap(),
-        )
-        .unwrap();
-        let mut forged = PromptComposer::load(&home, &[]);
-        forged.set_image_route(true, Some(&store));
-        forged.restore_image_draft(&draft);
+        composer.paste_image_bytes(&png).unwrap();
         assert!(
-            !forged.chips,
-            "a rewritten image-draft.json must not restore: {}",
-            forged.text()
-        );
-        assert_eq!(forged.text(), draft, "refusing the bytes keeps the text");
-        let sent = forged.prepare_submit().expect("the text still submits");
-        let encoded = serde_json::to_string(&sent.blocks).unwrap();
-        assert!(
-            !encoded.contains("\"type\":\"image\""),
-            "tampered bytes must not be sent: {encoded}"
-        );
-        let kept = fs::read_to_string(home.join(IMAGE_DRAFT_FILE)).unwrap();
-        assert!(
-            kept.contains(&green),
-            "refusing the draft must not rewrite the file the user can repair"
+            composer.footer_notice.contains("cannot see images")
+                && composer.footer_notice.contains("saved path"),
+            "a text-only attach must say the model gets only the path: {}",
+            composer.footer_notice
         );
 
-        let mut wrong_type: serde_json::Value = serde_json::from_str(&honest).unwrap();
-        wrong_type[0]["mediaType"] = serde_json::Value::String("image/jpeg".into());
-        fs::write(
-            home.join(IMAGE_DRAFT_FILE),
-            serde_json::to_vec_pretty(&wrong_type).unwrap(),
-        )
-        .unwrap();
-        let mut typed = PromptComposer::load(&home, &[]);
-        typed.restore_image_draft(&draft);
-        assert!(
-            !typed.chips,
-            "a stored type that disagrees must not restore"
-        );
-        let mut wrong_size: serde_json::Value = serde_json::from_str(&honest).unwrap();
-        wrong_size[0]["width"] = serde_json::Value::from(9);
-        fs::write(
-            home.join(IMAGE_DRAFT_FILE),
-            serde_json::to_vec_pretty(&wrong_size).unwrap(),
-        )
-        .unwrap();
-        let mut sized = PromptComposer::load(&home, &[]);
-        sized.restore_image_draft(&draft);
-        assert!(
-            !sized.chips,
-            "a stored size that disagrees must not restore"
-        );
+        // Like the reference, the draft lives in this process. Nothing about
+        // it is written to the Home, so a later launch starts empty.
+        let written: Vec<_> = fs::read_dir(&home)
+            .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+            .unwrap_or_default();
+        assert!(written.is_empty(), "draft state reached disk: {written:?}");
+        let next = PromptComposer::load(&home, &[]);
+        assert!(next.text().is_empty(), "{}", next.text());
+        assert!(!next.chips);
+        assert!(next.image_preview().is_none());
         let _ = fs::remove_dir_all(home);
         let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn whitespace_paste_inserts_nothing_and_keeps_the_notice() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_text("keep");
+        composer.footer_notice = "earlier".into();
+        for empty in ["", " ", "\n", "\r\n\t"] {
+            composer.paste(empty);
+            assert_eq!(composer.text(), "keep", "{empty:?}");
+            assert_eq!(composer.footer_notice, "earlier", "{empty:?}");
+        }
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn dropped_image_paths_become_image_chips() {
+        let home = temp_home();
+        let store = temp_home();
+        let work = temp_home();
+        fs::create_dir_all(work.join("dir with space")).unwrap();
+        let first = work.join("shot.png");
+        let second = work.join("dir with space").join("two (1).PNG");
+        fs::write(&first, images::tiny_png()).unwrap();
+        fs::write(&second, images::tiny_png_green()).unwrap();
+        fs::write(work.join("broken.png"), b"not-an-image").unwrap();
+        fs::write(work.join("notes.txt"), b"text").unwrap();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&work);
+        composer.set_image_route(true, Some(&store));
+        let escaped = second
+            .display()
+            .to_string()
+            .replace(' ', "\\ ")
+            .replace('(', "\\(")
+            .replace(')', "\\)");
+        composer.paste(&format!("{} {escaped}", first.display()));
+        assert_eq!(
+            composer.text(),
+            "[Image #1][Image #2]",
+            "{}",
+            composer.footer_notice
+        );
+        let sent = composer.prepare_submit().expect("two images");
+        assert_eq!(
+            image_block_bytes(&sent),
+            vec![images::tiny_png(), images::tiny_png_green()]
+        );
+        composer.set_text("");
+        let url = url::Url::from_file_path(&second).unwrap().to_string();
+        composer.paste(&format!("'{url}'"));
+        assert!(
+            composer.text().contains("[Image #3]"),
+            "{}",
+            composer.text()
+        );
+
+        // A corrupt image file says so and adds nothing.
+        composer.set_text("");
+        composer.paste(&work.join("broken.png").display().to_string());
+        assert_eq!(composer.text(), "");
+        assert!(
+            composer.footer_notice.contains("broken.png")
+                && composer.footer_notice.contains("not a png"),
+            "{}",
+            composer.footer_notice
+        );
+        // Prose, a relative name, and a non-image path are not image drops.
+        for text in [
+            format!("see {} please", first.display()),
+            "shot.png".to_string(),
+            work.join("notes.txt").display().to_string(),
+            format!("{} {}", first.display(), work.join("notes.txt").display()),
+        ] {
+            composer.set_text("");
+            composer.paste(&text);
+            assert!(
+                !composer.text().contains("[Image #"),
+                "{text}: {}",
+                composer.text()
+            );
+        }
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+        let _ = fs::remove_dir_all(work);
     }
 
     #[test]
@@ -3611,12 +3544,8 @@ mod tests {
         assert_eq!(before_bytes, vec![first.clone(), second.clone()]);
         composer.restore_pending_submit();
         let draft = composer.text().to_string();
-        let saved = load_image_draft(&home);
 
         for command in ["/minimal", "/fullscreen", "/reload-assets"] {
-            composer.set_text("");
-            let _ = save_image_draft(&home, &saved);
-            composer.restore_image_draft(&draft);
             assert_eq!(composer.text(), draft);
             composer.handle_key(key(KeyCode::Char('/')), ctx());
             assert_eq!(composer.text(), "/");

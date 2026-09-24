@@ -4985,10 +4985,10 @@ fn run() -> io::Result<()> {
     // still cannot stop hold-to-talk; the first release flips this on.
     let mut voice_release_supported = false;
     composer.set_workspace(&effective.cwd);
+    // The composer starts empty. Like the reference, an unsent draft lives
+    // in this process only: a sent prompt must never come back on the next
+    // launch, and a draft is not carried into another project.
     sync_image_route(&mut composer, &effective);
-    if let Some(draft) = prompt_edit::load_text_draft(&effective.grok_home) {
-        composer.restore_image_draft(&draft);
-    }
     composer.simple_mode = effective.simple_mode;
     composer.prompt_suggestions = effective.prompt_suggestions;
     composer.vim = if composer.simple_mode {
@@ -6469,6 +6469,14 @@ fn run() -> io::Result<()> {
                     search.query.push_str(&text.replace(['\n', '\r'], ""));
                     nav.refresh_search();
                     hint = nav.overlay_text();
+                } else if text.trim().is_empty() {
+                    // Cmd+V (Ctrl+V on Windows Terminal) on an image-only
+                    // clipboard reaches the app as an empty bracketed paste.
+                    // The reference probes the clipboard then; elsewhere it
+                    // inserts nothing.
+                    if cfg!(any(target_os = "macos", target_os = "windows")) {
+                        attach_clipboard_image(&mut composer, &mut hint, &mut last_error);
+                    }
                 } else {
                     composer.paste(&text);
                     if !composer.footer_notice.is_empty() {
@@ -6764,8 +6772,8 @@ fn dispatch_composer_command(
                         *hint = screen_mode::exec_failure_message(None, target, "no session");
                         return Ok(());
                     };
+                    // The exec relaunch resumes the session, not the draft.
                     drop_connection(client, owner);
-                    composer.persist_visible_draft();
                     return Err(io::Error::other(format!(
                         "CODSH_SCREEN_RELAUNCH:{session_id}:{target}",
                         target = target.as_str()

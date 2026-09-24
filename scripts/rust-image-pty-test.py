@@ -5,8 +5,10 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location(
@@ -110,6 +112,112 @@ def paste_image(session, png):
     session.write(PASTE_OPEN + payload + PASTE_CLOSE)
 
 
+def terminal_paste(session, text=b''):
+    # macOS terminals turn Cmd+V (and a Finder drop) into a bracketed paste.
+    # An image-only clipboard arrives as an empty one.
+    session.write(PASTE_OPEN + text + PASTE_CLOSE)
+
+
+def quit_session(session):
+    session.write(b'\x11')
+    deadline = time.monotonic() + 12
+    while session.process.poll() is None:
+        if time.monotonic() > deadline:
+            raise TimeoutError(f'{session.name}: quit hung after Ctrl+Q')
+        session.pump(0.15)
+
+
+def assert_no_draft_files(root):
+    left = [str(path) for path in root.rglob('*')
+            if path.name in ('image-draft.json', 'prompt-draft.txt')]
+    assert not left, f'an unsent draft was written to disk: {left}'
+
+
+def files_containing(root, *needles):
+    hits = []
+    for path in root.rglob('*'):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        hits.extend((str(path), needle[:24]) for needle in needles if needle in data)
+    return hits
+
+
+def wait_idle(session, seconds=25):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        session.pump(0.2)
+        shown = session.visible()
+        if 'Streaming turn' not in shown and 'Cancelling turn' not in shown:
+            return shown
+    raise AssertionError(f'{session.name}: turn did not finish\n{session.visible()}')
+
+
+def last_turn(shown):
+    turns = re.findall(r'RUST_ACP_ANSWER turn=(\d+)', shown)
+    assert turns, shown
+    return int(turns[-1])
+
+
+def user_rows(shown):
+    """Transcript rows that hold a user prompt.
+
+    Rows carry a `> ` gutter (twice on the selected entry). A prompt row
+    flattens newlines to spaces; the mock answer and its wrapped history
+    spell them `⏎`, which keeps the echoed prompt text out of this list.
+    """
+    rows = []
+    for line in shown.splitlines():
+        body = line.strip()
+        if not body.startswith('> '):
+            continue
+        while body.startswith('> '):
+            body = body[2:]
+        if 'RUST_ACP_ANSWER' in body or '⏎' in body:
+            continue
+        rows.append(body)
+    return rows
+
+
+def resume_shows_image_turns(launcher, cwd, env, output, name, session_id, vision, turn):
+    """--resume shows the sent image turns as sent and sends nothing again."""
+    resumed = Session(name, launcher, cwd, env, output, extra=['--fullscreen', '--resume', session_id],
+                      cols=160, rows=64)
+    try:
+        shown = resumed.wait_visible('resumed', 25)
+        shown = resumed.wait_visible('again', 10)
+        (output / f'{name}.txt').write_text(shown)
+        rows = [row for row in user_rows(shown) if row.startswith('[Image #')]
+        assert any(row.startswith('[Image #1][Image #2][Image #3] look') for row in rows), rows
+        assert any(row.startswith('[Image #4] again') for row in rows), rows
+        # The live row showed the placeholders. The text-only fallback path
+        # is model input, not what the user typed.
+        assert not any('<pasted-image' in row for row in rows), rows
+        assert 'Pasted image #' not in shown, shown
+        assert 'Streaming turn' not in shown, shown
+        answers = shown.count('RUST_ACP_ANSWER')
+        resumed.write(b'\r')
+        resumed.pump(2.0)
+        shown = resumed.visible()
+        assert 'Streaming turn' not in shown, shown
+        assert shown.count('RUST_ACP_ANSWER') == answers, shown
+        resumed.write(b'after resume\r')
+        shown = wait_answer(resumed, 'latest=after resume', seconds=25)
+        echo = attach.model_echo(shown)
+        # The model history still holds the earlier turns, and nothing more.
+        assert last_turn(shown) == turn + 1, shown
+        if vision:
+            assert 'images=4 ' in echo, echo
+        else:
+            assert 'images=' not in echo, echo
+        quit_session(resumed)
+    finally:
+        close_session(resumed)
+
+
 def run_case(name, vision, work, home, output, dsh, overlay):
     # launchRust sets HOME to <fixture>/.codsh-rust and GROK_HOME to its .grok.
     grok = home / '.codsh-rust' / '.grok'
@@ -127,7 +235,8 @@ def run_case(name, vision, work, home, output, dsh, overlay):
         'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
         'DEEPSEEK_API_KEY': '', 'XAI_API_KEY': 'test-key', 'CODSH_UPDATE_CHECK': 'off',
         'DSH_CODE_CLI_MOCK_TOOL': 'echo',
-        'DSH_CODE_CLI_MOCK_DELAY_MS': '2500',
+        # Long enough that the Esc and Ctrl+C steps land while 'later' runs.
+        'DSH_CODE_CLI_MOCK_DELAY_MS': '4000',
         'DSH_CODE_CLI_MOCK_IMAGE': '1' if vision else '0',
         'GROK_PROMPT_SUGGESTIONS': 'false',
         'GROK_CLIPBOARD_NO_NATIVE_READ': '0',
@@ -136,9 +245,15 @@ def run_case(name, vision, work, home, output, dsh, overlay):
     session = Session(name, launcher, cwd, env, output, extra=['--fullscreen'])
     try:
         session.wait_visible('Connected to dsh ACP', 25)
+        session_id = session.session_id()
         paste_image(session, TINY_PNG)
         shown = session.wait_visible('image #1 attached', 10)
         assert '[Image #1]' in shown, shown
+        # A text-only route says so at attach time, not only after submit.
+        if vision:
+            assert 'cannot see images' not in shown, shown
+        else:
+            assert 'cannot see images' in shown and 'saved path' in shown, shown
         session.pump(0.4)
         shown = session.visible()
         assert 'Pasted image #1' in shown, shown
@@ -157,10 +272,18 @@ def run_case(name, vision, work, home, output, dsh, overlay):
         session.write(b'\x16')
         shown = session.wait_visible('256 KiB', 10)
         assert '[Image #3]' not in shown, shown
+        # Cmd+V on an image-only clipboard: the terminal sends an empty
+        # bracketed paste. With no image it says so and inserts nothing.
+        (cwd / 'missing.png').unlink()
+        before = session.visible()
+        terminal_paste(session)
+        shown = session.wait_visible('clipboard has no image', 10)
+        assert '[Image #3]' not in shown, shown
         (cwd / 'missing.png').write_bytes(TINY_PNG)
-        session.write(b'\x16')
+        terminal_paste(session)
         shown = session.wait_visible('[Image #3]', 10)
         assert 'image #3 attached' in shown, shown
+        assert before.count('[Image #2]') == shown.count('[Image #2]'), shown
         session.write(b'/model')
         session.wait_visible('/model', 8)
         session.write(b'\r\r')
@@ -205,8 +328,11 @@ def run_case(name, vision, work, home, output, dsh, overlay):
         shown = session.wait_visible('[cancelled]', 20)
         session.write(b'/fullscreen\r')
         shown = session.wait_visible('Switched to fullscreen', 12)
-        paste_image(session, TINY_PNG)
+        # A Finder drop pastes the absolute path. An image file becomes an
+        # image chip, not a binary @file mention.
+        terminal_paste(session, str(cwd / 'shot.png').encode())
         shown = session.wait_visible('[Image #4]', 10)
+        assert '@shot.png' not in shown, shown
         paste_image(session, GREEN_PNG)
         shown = session.wait_visible('[Image #5]', 10)
         session.write(b'\x7f')
@@ -214,6 +340,15 @@ def run_case(name, vision, work, home, output, dsh, overlay):
         shown = session.visible()
         assert '[Image #5]' not in shown, shown
         assert '[Image #4]' in shown, shown
+        # Chips survive a round trip through minimal and back to fullscreen.
+        session.write(b'/minimal\r')
+        shown = session.wait_visible('Switched to minimal', 12)
+        assert '[Image #4]' in shown, shown
+        session.write(b'/fullscreen\r')
+        shown = session.wait_visible('Switched to fullscreen', 12)
+        assert '[Image #4]' in shown and '[Image #5]' not in shown, shown
+        shown = session.wait_visible('Pasted image #4', 8)
+        assert '1x1' in shown, shown
         session.write(b' again\r')
         needle = 'latest=' if vision else 'id="4"'
         try:
@@ -228,10 +363,12 @@ def run_case(name, vision, work, home, output, dsh, overlay):
             assert_ordered_images(echo, shown, [(TINY_PNG, '1x1'), (GREEN_PNG, '2x1'), (TINY_PNG, '1x1'), (TINY_PNG, '1x1')])
         else:
             assert_text_only(echo, 1)
-        session.write(b'\x11')
-        session.pump(0.5)
+        shown = wait_idle(session)
+        turn = last_turn(shown)
+        quit_session(session)
     finally:
         close_session(session)
+    resume_shows_image_turns(launcher, cwd, env, output, f'{name}-resume', session_id, vision, turn)
 
 
 def close_session(session):
@@ -291,13 +428,19 @@ def run_queue_only(work, output, dsh, overlay, launcher):
 
 
 def run_restart_and_queue(work, home, output, dsh, overlay):
-    """A killed process resumes the same bytes. A queued image follows the model selected at send."""
+    """A composer draft lives in one process, like the reference.
+
+    A sent prompt is not restored by the next launch in any project, and an
+    unsent draft is not written to disk. A queued image follows the model
+    selected at send.
+    """
     grok = home / '.codsh-rust' / '.grok'
     grok.mkdir(parents=True, exist_ok=True)
     (grok / 'config.toml').write_text(config_text(True, switchable=True))
     cwd = work / 'restart'
     cwd.mkdir()
-    (cwd / 'shot.png').write_bytes(TINY_PNG)
+    other = work / 'restart-other'
+    other.mkdir()
     launcher = pack_install(work / 'restart-pack', home)
     patch = work / 'restart-overlay.yml'
     patch.write_text(overlay)
@@ -307,65 +450,83 @@ def run_restart_and_queue(work, home, output, dsh, overlay):
         'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
         'DEEPSEEK_API_KEY': '', 'XAI_API_KEY': 'test-key', 'CODSH_UPDATE_CHECK': 'off',
         'DSH_CODE_CLI_MOCK_TOOL': 'echo',
-        'DSH_CODE_CLI_MOCK_DELAY_MS': '20000',
         'DSH_CODE_CLI_MOCK_IMAGE': '1',
         'GROK_PROMPT_SUGGESTIONS': 'false',
         'GROK_CLIPBOARD_NO_NATIVE_READ': '1',
-        'CODSH_CLIPBOARD_IMAGE': str(cwd / 'missing.png'),
+        'CODSH_CLIPBOARD_IMAGE': str(work / 'restart-clip.png'),
     }
-    session = Session('restart', launcher, cwd, env, output, extra=['--fullscreen'])
+    (work / 'restart-clip.png').write_bytes(GREEN_PNG)
+    unsent_b64 = base64.b64encode(GREEN_PNG)
+    session = Session('restart-send', launcher, cwd, env, output, extra=['--fullscreen'])
     try:
         session.wait_visible('Connected to dsh ACP', 25)
+        sent_id = session.session_id()
         paste_image(session, TINY_PNG)
         shown = session.wait_visible('[Image #1]', 10)
         assert 'Pasted image #1' in shown, shown
         session.write(b' later')
         session.wait_visible('later', 8)
-        session.pump(0.3)
-    finally:
-        close_session(session)
-    draft = grok / 'image-draft.json'
-    assert draft.is_file(), 'restart did not persist image-draft.json'
-    saved = draft.read_text()
-    assert 'iVBORw0KGgo' in saved, saved[:400]
-
-    resumed = Session('resumed', launcher, cwd, env, output, extra=['--fullscreen'])
-    try:
-        shown = resumed.wait_visible('[Image #1]', 25)
-        assert 'later' in shown, shown
-        assert 'Pasted image #1' in shown, shown
-        resumed.write(b'\r')
-        shown = wait_answer(resumed, 'latest=', seconds=25)
+        session.write(b'\r')
+        shown = wait_answer(session, 'latest=', seconds=25)
         echo = attach.model_echo(shown)
         assert_ordered_images(echo, shown, [(TINY_PNG, '1x1')])
+        first_turn = last_turn(shown)
+        # A draft that was never sent, with an image, when the process ends.
+        session.write(b'UNSENT_DRAFT')
+        session.wait_visible('UNSENT_DRAFT', 8)
+        session.write(b'\x16')
+        shown = session.wait_visible('[Image #2]', 10)
+        quit_session(session)
+    finally:
+        close_session(session)
+    assert_no_draft_files(home)
+    assert files_containing(home, b'UNSENT_DRAFT', unsent_b64, GREEN_PNG) == [], \
+        files_containing(home, b'UNSENT_DRAFT', unsent_b64, GREEN_PNG)
+
+    for name, where in (('restart-same-project', cwd), ('restart-other-project', other)):
+        fresh = Session(name, launcher, where, env, output, extra=['--fullscreen'])
+        try:
+            fresh.wait_visible('Connected to dsh ACP', 25)
+            fresh.pump(0.6)
+            shown = fresh.visible()
+            assert 'UNSENT_DRAFT' not in shown, shown
+            assert '[Image #' not in shown, shown
+            assert 'later' not in shown, shown
+            assert 'Pasted image' not in shown, shown
+            # Enter on the empty composer sends nothing.
+            fresh.write(b'\r')
+            fresh.pump(2.0)
+            shown = fresh.visible()
+            assert 'Streaming turn' not in shown and 'RUST_ACP_ANSWER' not in shown, shown
+            fresh.write(b'fresh start\r')
+            shown = wait_answer(fresh, 'latest=fresh start', seconds=25)
+            echo = attach.model_echo(shown)
+            # Same history depth as the first prompt of a new session.
+            assert last_turn(shown) == first_turn, shown
+            assert 'images=' not in echo, echo
+            quit_session(fresh)
+        finally:
+            close_session(fresh)
+        assert_no_draft_files(home)
+
+    resumed = Session('restart-resume', launcher, cwd, env, output, extra=['--fullscreen', '--resume', sent_id])
+    try:
+        shown = resumed.wait_visible('resumed', 25)
+        shown = resumed.wait_visible('later', 10)
+        assert '[Image #1] later' in user_rows(shown), shown
+        assert 'UNSENT_DRAFT' not in shown, shown
+        assert 'Pasted image' not in shown, shown
+        resumed.write(b'after\r')
+        shown = wait_answer(resumed, 'latest=after', seconds=25)
+        echo = attach.model_echo(shown)
+        # One image in the model history: the sent one. Nothing was resent.
+        assert last_turn(shown) == first_turn + 1, shown
+        assert 'images=1 ' in echo, echo
+        assert_ordered_images(echo, shown, [(TINY_PNG, '1x1')])
+        quit_session(resumed)
     finally:
         close_session(resumed)
-
-    # Same placeholder, different bytes, original digest. Resume must not send it.
-    tampered = json.loads(draft.read_text())
-    original_digest = tampered[0]['digest']
-    tampered[0]['data'] = base64.b64encode(GREEN_PNG).decode()
-    draft.write_text(json.dumps(tampered))
-    refused_env = dict(env)
-    refused_env['DSH_CODE_CLI_MOCK_IMAGE'] = '0'
-    refused = Session('tampered', launcher, cwd, refused_env, output, extra=['--fullscreen'])
-    try:
-        shown = refused.wait_visible('later', 25)
-        assert 'image #1 attached' not in shown, shown
-        assert 'Pasted image #1' not in shown, shown
-        # The placeholder stays as text. The screen may wrap it; the draft file does not.
-        text_draft = (grok / 'prompt-draft.txt').read_text()
-        assert '[Image #1]' in text_draft, text_draft
-        refused.write(b'\r')
-        shown = wait_answer(refused, 'latest=', seconds=25)
-        echo = attach.model_echo(shown)
-        assert 'images=' not in echo, echo
-        assert 'mime=image/png' not in echo, echo
-        kept = json.loads(draft.read_text())
-        assert kept[0]['data'] == tampered[0]['data'], 'refusal rewrote the draft'
-        assert kept[0]['digest'] == original_digest, 'refusal rewrote the digest'
-    finally:
-        close_session(refused)
+    assert_no_draft_files(home)
 
     run_queue_only(work, output, dsh, overlay, launcher)
     text_env = dict(env)
@@ -416,9 +577,14 @@ def main():
         text_home = work / 'text-home'
         vision_home.mkdir()
         text_home.mkdir()
-        run_case('vision', True, work, vision_home, output, dsh, overlay)
-        run_case('text-only', False, work, text_home, output, dsh, overlay)
-        run_restart_and_queue(work, work / 'restart-home', output, dsh, overlay)
+        # CODSH_IMAGE_PTY_ONLY=vision,text-only,restart runs a subset while debugging.
+        only = {item for item in os.environ.get('CODSH_IMAGE_PTY_ONLY', '').split(',') if item}
+        if not only or 'vision' in only:
+            run_case('vision', True, work, vision_home, output, dsh, overlay)
+        if not only or 'text-only' in only:
+            run_case('text-only', False, work, text_home, output, dsh, overlay)
+        if not only or 'restart' in only:
+            run_restart_and_queue(work, work / 'restart-home', output, dsh, overlay)
     print('image input pty ok')
 
 

@@ -59,6 +59,14 @@ Ticket 11 (#143) adds local `src/filesystem_sandbox.rs`. It uses the Apache-2.0
 `nono` 0.53 crate (Seatbelt/Landlock) and does not import `xai-grok-sandbox`.
 Network filtering and bubblewrap re-exec are not included.
 
+Ticket 25 (#157) adapts the dropped-path classifier of
+xai-grok-pager-render/src/prompt_images.rs (`try_read_dropped_paths` and its
+quote/`file://`/backslash-escape helpers) into `dropped_image_paths` in local
+`src/images.rs`. Local changes take only all-image drops (a non-image path keeps
+the codsh workspace-file drop), accept png/jpeg/webp/gif through the local
+256 KiB sniffer, and omit the unexpanded `~/` and Windows drive/UNC anchors
+and the tracing target.
+
 Ticket 57 (#189) adds local `src/auth.rs` and `src/extra_ca.rs` for substitute
 login/logout/setup, extra CA trust, and signed managed-config fetch. Those
 modules do not import upstream xai-grok-login or official entitlements.

@@ -142,6 +142,24 @@ describe('dsh session log projection', () => {
     expect(JSON.stringify(turns[0]).toLowerCase()).not.toContain('success')
   })
 
+  it('restores a text-only image turn as the typed row, not the fallback path', () => {
+    const fallback = id => `\n<pasted-image id="${id}" media="image/png" dimensions="1x1" path="/h/attachments/pasted/${id}.png">\n</pasted-image>\n`
+    const turns = projectTurns([
+      { type: 'turn/start', data: { turn: 1 } },
+      // dsh stores adjacent ACP text blocks as one block.
+      { type: 'user/message', data: { message: { content: [
+        { type: 'text', text: `[Image #1][Image #2] look${fallback(1)}${fallback(2)}` },
+      ] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'user/message', data: { message: { content: [
+        { type: 'text', text: 'quote <pasted-image id="9"> literally' },
+      ] } } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'stop' } } },
+    ])
+    expect(turns.map(turn => turn.user)).toEqual(['[Image #1][Image #2] look', 'quote <pasted-image id="9"> literally'])
+  })
+
   it('converts leftover pending tools to unknown when the turn never ended', () => {
     const turns = projectTurns([
       { type: 'turn/start', data: { turn: 1 } },
