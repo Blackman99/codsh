@@ -147,7 +147,9 @@ untrusted project file does not veto that user definition. A trusted malformed
 project file still refuses startup. `devbox` skips only the global
 hook/config/trust write protection; a profile extending it keeps its `deny`
 list. Deny paths and glob literal prefixes are resolved to the paths Seatbelt
-checks, and one that cannot be resolved or expressed refuses startup. dsh's per-call
+checks, and one that cannot be resolved or expressed refuses startup.
+`inspect` does not apply the profile: it reports the resolved name and every
+config error. A session launch still refuses a profile the kernel cannot apply. dsh's per-call
 Seatbelt cannot nest inside a profile, so while one is applied codsh starts
 dsh with its per-call file mode at `danger-full-access` and unchanged
 approvals; the kernel policy confines bash children and child agents. A deny

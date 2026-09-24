@@ -178,7 +178,9 @@ at the resolved path), a workspace named `ws[12]*?` whose relative glob must not
 hit the sibling `ws1ab`, refusals for a deny under a dangling symlink or with
 a control character, a glob whose literal-prefix directory cannot be renamed
 out of the deny (while a rename inside the glob tail stays allowed), and a
-launchd escape probe: a sandboxed child running `launchctl submit` and
+`inspect --json` probe that prints every config error (including an unknown
+field and unsigned `fail_closed`) instead of stopping at the sandbox precheck,
+and a launchd escape probe: a sandboxed child running `launchctl submit` and
 `launchctl bootstrap gui/$UID` must not get an unconfined process to read a
 denied file. That probe uses a unique `codsh.sandboxprobe.<pid>` user-domain
 label, targets a throwaway secret, and tears the job down (the harness sweeps

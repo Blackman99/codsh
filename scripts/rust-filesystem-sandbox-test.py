@@ -358,6 +358,76 @@ def probe_metachar_workspace(binary, work):
     return {"profile": "meta", "effects": effects}
 
 
+def probe_inspect_keeps_diagnostics(binary, work):
+    """inspect starts no dsh child. A config error must not be replaced by the
+    sandbox precheck: `inspect --json` still prints the JSON report, including
+    every error, and a requested profile is reported without being applied."""
+    base = work / "inspect"
+    home = base / "home"
+    grok = home / ".grok"
+    workspace = base / "workspace"
+    grok.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+    (grok / "config.toml").write_text(
+        "[models]\ndefault = \"chat\"\n"
+        "[model.chat]\nname = \"Local chat\"\nmodel = \"shared-name\"\n"
+        "base_url = \"http://127.0.0.1:9/v1\"\nenv_key = \"XAI_API_KEY\"\n"
+        "[sandbox]\nprofile = \"workspace\"\n"
+    )
+    (grok / "managed_config.toml").write_text("remote_fetch = false\n")
+    (grok / "requirements.toml").write_text("fail_closed = true\nnot_a_policy = 1\n")
+    env = fixture_env(home, grok, home / "dsh")
+    env["XAI_API_KEY"] = "test"
+    completed = subprocess.run(
+        [str(binary), "--sandbox", "strict", "inspect", "--json"],
+        cwd=workspace,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    text = completed.stdout + completed.stderr
+    start = completed.stdout.find("{")
+    end = completed.stdout.rfind("}")
+    if completed.returncode == 0 or start < 0 or end <= start:
+        return fail(
+            "inspect --json hid diagnostics behind the sandbox gate: "
+            f"status={completed.returncode} stdout={completed.stdout.strip()} stderr={completed.stderr.strip()}"
+        )
+    try:
+        payload = json.loads(completed.stdout[start:end + 1])
+    except json.JSONDecodeError:
+        return fail(f"inspect --json did not print JSON: {text.strip()}")
+    reasons = " ".join(str(item.get("reason", "")) for item in payload.get("errors", []))
+    if "remote_fetch" not in reasons or "not_a_policy" not in reasons:
+        return fail(f"inspect --json dropped an error: {payload.get('errors')}")
+    if "cannot be verified" not in reasons and "cannot be verified" not in text:
+        return fail(f"inspect --json dropped the unsigned fail_closed error: {text.strip()}")
+    if payload.get("sandboxProfile") != "strict" or payload.get("sandboxProfileSource") != "cli":
+        return fail(
+            "inspect did not report the requested profile without applying it: "
+            f"profile={payload.get('sandboxProfile')} source={payload.get('sandboxProfileSource')}"
+        )
+    if payload.get("ready") is not False:
+        return fail(f"inspect reported a broken config as ready: {payload.get('ready')}")
+    # A real session with the same files must still refuse before launch.
+    session = subprocess.run(
+        [str(binary), "--sandbox", "strict"],
+        cwd=workspace,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    session_text = session.stdout + session.stderr
+    if session.returncode == 0 or "{" in session.stdout or "remote_fetch" not in session_text:
+        return fail(
+            "a non-inspect launch did not refuse the broken config: "
+            f"status={session.returncode} text={session_text.strip()}"
+        )
+    return {"errors": len(payload.get("errors", [])), "profile": payload.get("sandboxProfile")}
+
+
 def refuse_unresolvable(binary, work):
     """A protection whose path cannot be resolved or expressed refuses
     startup before any report, instead of starting with a dead rule."""
@@ -835,6 +905,7 @@ def probe(binary, work, outside_env):
         ("metachar", probe_metachar_workspace),
         ("glob_rename", probe_glob_parent_rename),
         ("launchd", probe_launchd_escape),
+        ("inspect", probe_inspect_keeps_diagnostics),
     ):
         result = scenario(binary, work)
         if isinstance(result, int):

@@ -2171,6 +2171,14 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             }),
         );
         object.insert(
+            "sandboxProfile".into(),
+            JsonValue::String(config.sandbox_profile.clone()),
+        );
+        object.insert(
+            "sandboxProfileSource".into(),
+            JsonValue::String(config.sandbox_profile_source.clone()),
+        );
+        object.insert(
             "permissionMode".into(),
             JsonValue::String(config.permission.mode.as_str().into()),
         );

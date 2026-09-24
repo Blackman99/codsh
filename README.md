@@ -91,7 +91,10 @@ sandbox is off).
 A `.` or `..` segment anywhere in a deny entry, including `a/./secret`, also
 refuses startup. `[!a]` and `[^a]` both negate in the macOS
 profile. A POSIX class, an empty `//` segment, a trailing slash, or a caret
-that would be literal is refused instead of applied. `[sandbox] profile` is
+that would be literal is refused instead of applied. `codsh --rust inspect` and `inspect --json` do not apply the sandbox. They
+print the resolved profile and every config error, including a broken
+`fail_closed` file, instead of stopping at the first one. A non-inspect launch
+still refuses that file before dsh starts. `[sandbox] profile` is
 read by the same config loader as inspect: a signed `requirements.toml` pin
 beats `--sandbox`, `GROK_SANDBOX`, `GROK_CONFIG` / `GROK_CONFIG_PATH`, and
 every file below it. A managed default does not; those sources override it.
