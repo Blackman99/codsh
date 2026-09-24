@@ -412,6 +412,7 @@ pub fn dsh_spawn_spec(
         "FAKE_ACP_STALE_OWNER",
         "FAKE_ACP_REFUSE_WHILE_LIVE",
         "FAKE_ACP_HELD_SESSION",
+        "FAKE_ACP_TRACE",
         "CODSH_SESSION_READ",
         "CODSH_SESSION_FORK",
         "GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
@@ -618,15 +619,16 @@ impl AcpClient {
             .collect())
     }
 
-    /// Accept a same-client resume without sending it. dsh answers
-    /// `session is already active` for any resume while this connection still
-    /// holds a session, including the target. The live id stays until
-    /// [`finish_resume`] succeeds.
+    /// Send `session/resume` while the current session is still open. dsh
+    /// accepts that and replaces the active id; a refusal (`already active`
+    /// / `already owned`) returns before the caller closes anything. The
+    /// previous id is kept so [`finish_resume`] can close it only after this
+    /// reply succeeds.
     pub fn prepare_resume(
         &mut self,
         session_id: &str,
-        _cwd: &Path,
-        _timeout: Duration,
+        cwd: &Path,
+        timeout: Duration,
     ) -> Result<(), AcpError> {
         if !self.can_resume {
             return Err(AcpError {
@@ -643,34 +645,48 @@ impl AcpClient {
                 message: format!("session is already active: {session_id}"),
             });
         }
-        self.prepared_resume = Some(session_id.to_string());
-        Ok(())
+        let previous = self.session_id.clone();
+        match self.resume_session(session_id, cwd, timeout) {
+            Ok(_) => {
+                self.prepared_resume = previous;
+                Ok(())
+            }
+            Err(error) => {
+                self.session_id = previous;
+                self.prepared_resume = None;
+                Err(error)
+            }
+        }
     }
 
-    /// Send the resume that [`prepare_resume`] accepted. Call this only after
-    /// the previous session has closed. On failure the previous id is restored
-    /// so the caller can reopen it.
+    /// Close the session that was live before [`prepare_resume`] succeeded.
+    /// There is nothing to close when the resume was refused or this
+    /// connection had no session.
     pub fn finish_resume(
         &mut self,
         previous_id: &str,
-        cwd: &Path,
+        _cwd: &Path,
         timeout: Duration,
     ) -> Result<(), AcpError> {
-        let Some(session_id) = self.prepared_resume.clone() else {
+        let Some(previous) = self.prepared_resume.clone() else {
+            if previous_id.is_empty() {
+                return Ok(());
+            }
             return Err(AcpError {
                 message: "session/resume was not accepted".into(),
             });
         };
-        match self.resume_session(&session_id, cwd, timeout) {
-            Ok(_) => Ok(()),
-            Err(error) => {
-                self.prepared_resume = Some(session_id);
-                if !previous_id.is_empty() {
-                    self.session_id = Some(previous_id.to_string());
-                }
-                Err(error)
-            }
+        if previous != previous_id {
+            return Err(AcpError {
+                message: format!("session/resume did not keep {previous_id}"),
+            });
         }
+        let current = self.session_id.clone();
+        self.session_id = Some(previous);
+        let closed = self.close_session(timeout);
+        self.session_id = current;
+        self.prepared_resume = None;
+        closed
     }
 
     pub fn abandon_resume(&mut self) {
@@ -868,18 +884,6 @@ impl AcpClient {
         }
     }
 
-    /// Restore the ACP session this client already owns. A failed resume must
-    /// not leave the connection with no session after the previous one closed.
-    pub fn reopen_session(
-        &mut self,
-        session_id: &str,
-        cwd: &Path,
-        timeout: Duration,
-    ) -> Result<(), AcpError> {
-        self.session_id = None;
-        self.resume_session(session_id, cwd, timeout).map(|_| ())
-    }
-
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
         let mut events = Vec::new();
         let deadline = Instant::now() + timeout;
@@ -928,6 +932,32 @@ impl AcpClient {
             }
         }
         events
+    }
+
+    /// Test-only spawn of the deterministic ACP stand-in.
+    #[cfg(test)]
+    pub(crate) fn spawn_fake_for_test(mode: &str, extra: Vec<(String, String)>) -> Self {
+        let cwd = std::env::temp_dir();
+        let mut env = vec![
+            ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
+            ("FAKE_ACP_MODE".into(), mode.into()),
+        ];
+        env.extend(extra);
+        Self::spawn(SpawnSpec {
+            program: std::env::var_os("CODSH_NODE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("node")),
+            args: vec![
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../scripts/fake-acp-agent.mjs")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
+            env,
+            cwd,
+            stderr_log: None,
+        })
+        .expect("fake ACP agent")
     }
 
     pub fn shutdown(&mut self) {
@@ -2123,11 +2153,7 @@ mod tests {
             "prompts": []
         });
         std::fs::write(&store_path, format!("{shared}\n")).unwrap();
-        client
-            .prepare_resume(target, &std::env::temp_dir(), Duration::from_secs(2))
-            .expect("prepare does not close");
-        assert_eq!(client.session_id.as_deref(), Some(current.as_str()));
-        let early = client.resume_session(target, &std::env::temp_dir(), Duration::from_secs(2));
+        let early = client.prepare_resume(target, &std::env::temp_dir(), Duration::from_secs(2));
         assert!(
             early
                 .as_ref()
@@ -2140,12 +2166,44 @@ mod tests {
             Some(current.as_str()),
             "a refused resume must not replace the live session"
         );
+        let store_body = std::fs::read_to_string(&store_path).unwrap_or_default();
+        let trace: serde_json::Value =
+            serde_json::from_str(&store_body).unwrap_or_else(|_| json!({}));
+        let methods: Vec<&str> = trace
+            .get("methods")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.get("method").and_then(|method| method.as_str()))
+            .collect();
+        let resume_at = methods
+            .iter()
+            .position(|method| *method == "session/resume")
+            .expect("session/resume was sent");
+        assert!(
+            methods[..resume_at]
+                .iter()
+                .all(|method| *method != "session/close"),
+            "close arrived before the refused resume: {methods:?}"
+        );
+        // The refusal is gone. A later resume of the closed target succeeds,
+        // and only then is the previous session closed.
+        if let serde_json::Value::Object(root) = &mut shared
+            && let Some(serde_json::Value::Object(sessions)) = root.get_mut("sessions")
+            && let Some(serde_json::Value::Object(record)) = sessions.get_mut(target)
+        {
+            record.insert("closed".into(), json!(true));
+            record.insert("owned".into(), json!(false));
+            record.insert("refuseWhileLive".into(), json!(false));
+        }
+        std::fs::write(&store_path, format!("{shared}\n")).unwrap();
         client
-            .close_session(Duration::from_secs(2))
-            .expect("close current only after refusal is known");
+            .prepare_resume(target, &std::env::temp_dir(), Duration::from_secs(2))
+            .expect("resume while the current session is still open");
+        assert_eq!(client.session_id.as_deref(), Some(target));
         client
             .finish_resume(&current, &std::env::temp_dir(), Duration::from_secs(2))
-            .expect("resume after close");
+            .expect("close the previous session only after resume");
         assert_eq!(client.session_id.as_deref(), Some(target));
     }
 

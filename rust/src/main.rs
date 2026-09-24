@@ -1388,7 +1388,8 @@ fn switch_session(
     })?;
     // Ask to resume before closing. The live session stays open until that
     // reply succeeds. A same-directory refusal (`already active` / `already
-    // owned`) never reaches session/close.
+    // owned`) never reaches session/close. finish_resume closes the previous
+    // id only after the agent has accepted the target.
     match client.prepare_resume(session_id, cwd, Duration::from_secs(20)) {
         Ok(()) => {}
         Err(error) => {
@@ -1404,31 +1405,15 @@ fn switch_session(
         }
     }
     if let Some(previous) = current.clone() {
-        if let Err(error) = client.close_session(Duration::from_secs(10)) {
-            client.abandon_resume();
-            return Err(format!(
-                "session switch stopped before close finished: {}",
-                error.message
-            ));
-        }
         if let Err(error) = client.finish_resume(&previous, cwd, Duration::from_secs(20)) {
             let message = error.message;
-            *owner = None;
-            match client.reopen_session(&previous, cwd, Duration::from_secs(20)) {
-                Ok(()) => {
-                    if let Ok(restored) = SessionOwner::acquire(dsh_home, &previous) {
-                        *owner = Some(restored);
-                    }
-                }
-                Err(reopen) => {
-                    *owner = None;
-                    return Err(format!(
-                        "{message}; restoring {previous} also failed: {}",
-                        reopen.message
-                    ));
-                }
-            }
-            return Err(message);
+            // The target is already the ACP session. Closing the previous id
+            // failed, so this client still owns the target and must not reopen
+            // the session it just left.
+            client.abandon_resume();
+            return Err(format!(
+                "session switch stopped before close finished: {message}"
+            ));
         }
     } else if let Err(error) = client.finish_resume("", cwd, Duration::from_secs(20)) {
         drop(next_owner);
@@ -6412,5 +6397,272 @@ mod tests {
         assert!(yolo.always_approve);
         let invalid = parse_launch(&args(&["--permission-mode", "explode"])).unwrap_err();
         assert!(invalid.to_string().contains("invalid permission mode"));
+    }
+
+    fn catalog_session(home: &Path, id: &str, cwd: &Path) {
+        let project = session_catalog::project_key_for_test(&cwd.to_string_lossy());
+        let dir = home
+            .join("sessions")
+            .join(project)
+            .join(session_catalog::encode_segment_for_test(id));
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = format!(
+            "{}\n",
+            serde_json::json!({
+                "type": "session",
+                "version": 3,
+                "id": id,
+                "createdAt": 1,
+                "cwd": cwd,
+                "isSeeded": false,
+                "delegationDepth": 0,
+            })
+        );
+        let encoded = zstd::encode_all(body.as_bytes(), 0).expect("zstd session log");
+        std::fs::write(dir.join("session.v3.jsonl.zstd"), encoded).unwrap();
+    }
+
+    /// A same-directory resume the agent refuses must not close the live ACP
+    /// session. The public switch path is the one the picker and dashboard use.
+    #[test]
+    fn switch_session_refused_resume_does_not_close_the_live_session() {
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = home.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = tempfile::NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().into_owned();
+        let held = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+        catalog_session(home.path(), held, &cwd);
+        let trace = home.path().join("rpc-trace.json");
+        let dsh_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../node_modules/.bin/dsh");
+        let saved = std::env::var_os("DSH_BIN");
+        unsafe {
+            std::env::set_var("DSH_BIN", &dsh_bin);
+        }
+        let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut client = AcpClient::spawn_fake_for_test(
+                "echo",
+                vec![
+                    ("FAKE_ACP_STORE".into(), store_path.clone()),
+                    ("FAKE_ACP_HELD_SESSION".into(), held.into()),
+                    (
+                        "FAKE_ACP_TRACE".into(),
+                        trace.to_string_lossy().into_owned(),
+                    ),
+                ],
+            );
+            client
+                .initialize(Duration::from_secs(2))
+                .expect("initialize");
+            let live = client
+                .new_session(&cwd, Duration::from_secs(2))
+                .expect("live session");
+            catalog_session(home.path(), &live, &cwd);
+            // The target exists and is closed in the agent store. The agent still
+            // refuses this id, which must be observed before session/close.
+            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let mut shared: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&store_path)
+                    .unwrap_or_else(|_| "{\"sessions\":{}}".into()),
+            )
+            .unwrap_or_else(|_| serde_json::json!({"sessions": {}}));
+            shared["sessions"][held] = serde_json::json!({
+                "sessionId": held,
+                "cwd": canonical,
+                "closed": true,
+                "owned": false,
+                "prompts": []
+            });
+            std::fs::write(&store_path, format!("{shared}\n")).unwrap();
+            let mut owner =
+                Some(SessionOwner::acquire(home.path(), &live).expect("live write owner"));
+            let error = match switch_session(&mut client, &mut owner, home.path(), &cwd, held) {
+                Ok(_) => panic!("held same-directory resume was accepted"),
+                Err(error) => error,
+            };
+            let trace_body = std::fs::read_to_string(&trace).unwrap_or_default();
+            assert!(
+                error.contains("already active") || error.contains("already owned"),
+                "{error}; rpc={trace_body}"
+            );
+            assert_eq!(
+                client.session_id.as_deref(),
+                Some(live.as_str()),
+                "a refused resume must leave the live ACP session open"
+            );
+            assert!(
+                owner.as_ref().is_some_and(
+                    |held_owner| held_owner.session_id == live && held_owner.still_held()
+                ),
+                "the original write owner stays"
+            );
+            let store_body = std::fs::read_to_string(&store_path).unwrap_or_default();
+            let trace: serde_json::Value =
+                serde_json::from_str(&store_body).unwrap_or_else(|_| serde_json::json!({}));
+            let methods: Vec<String> = trace
+                .get("methods")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("method").and_then(|method| method.as_str()))
+                .map(str::to_string)
+                .collect();
+            let resume_at = methods
+                .iter()
+                .position(|method| method == "session/resume")
+                .expect("session/resume was sent");
+            assert!(
+                !methods.iter().any(|method| method == "session/close"),
+                "refused resume closed the live session first: {methods:?} {store_body}"
+            );
+            assert!(
+                methods[..resume_at]
+                    .iter()
+                    .all(|method| method != "session/close"),
+                "close arrived before the refused resume: {methods:?}"
+            );
+            let follow = client.submit_prompt("TOKEN_STILL_LIVE").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut stopped = false;
+            while Instant::now() < deadline {
+                for event in client.pump(Duration::from_millis(30)) {
+                    if let AcpEvent::PromptFinished {
+                        request_id: id,
+                        stop_reason,
+                    } = event
+                        && id == follow
+                        && stop_reason == "end_turn"
+                    {
+                        stopped = true;
+                    }
+                }
+                if stopped {
+                    break;
+                }
+            }
+            assert!(stopped, "the live session still accepts a prompt");
+        }));
+        unsafe {
+            match saved {
+                Some(value) => std::env::set_var("DSH_BIN", value),
+                None => std::env::remove_var("DSH_BIN"),
+            }
+        }
+        if let Err(payload) = checked {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    #[test]
+    fn switch_session_closes_the_previous_id_only_after_resume_succeeds() {
+        let home = tempfile::TempDir::new().unwrap();
+        let cwd = home.path().join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let store = tempfile::NamedTempFile::new().unwrap();
+        let store_path = store.path().to_string_lossy().into_owned();
+        let trace = home.path().join("rpc-trace.json");
+        let target = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+        catalog_session(home.path(), target, &cwd);
+        let dsh_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../node_modules/.bin/dsh");
+        let saved = std::env::var_os("DSH_BIN");
+        unsafe {
+            std::env::set_var("DSH_BIN", &dsh_bin);
+        }
+        let switched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut client = AcpClient::spawn_fake_for_test(
+                "echo",
+                vec![
+                    ("FAKE_ACP_STORE".into(), store_path.clone()),
+                    (
+                        "FAKE_ACP_TRACE".into(),
+                        trace.to_string_lossy().into_owned(),
+                    ),
+                ],
+            );
+            client
+                .initialize(Duration::from_secs(2))
+                .expect("initialize");
+            let live = client
+                .new_session(&cwd, Duration::from_secs(2))
+                .expect("live session");
+            catalog_session(home.path(), &live, &cwd);
+            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let mut shared: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&store_path)
+                    .unwrap_or_else(|_| "{\"sessions\":{}}".into()),
+            )
+            .unwrap_or_else(|_| serde_json::json!({"sessions": {}}));
+            shared["sessions"][target] = serde_json::json!({
+                "sessionId": target,
+                "cwd": canonical,
+                "closed": true,
+                "owned": false,
+                "prompts": []
+            });
+            std::fs::write(&store_path, format!("{shared}\n")).unwrap();
+            let mut owner =
+                Some(SessionOwner::acquire(home.path(), &live).expect("live write owner"));
+            switch_session(&mut client, &mut owner, home.path(), &cwd, target)
+                .unwrap_or_else(|error| panic!("same-directory resume failed: {error}"));
+            assert_eq!(client.session_id.as_deref(), Some(target));
+            assert!(
+                owner
+                    .as_ref()
+                    .is_some_and(|next| next.session_id == target && next.still_held()),
+                "the target write owner is held"
+            );
+            let trace_body = std::fs::read_to_string(&trace).unwrap_or_default();
+            let methods: Vec<String> = serde_json::from_str::<Vec<serde_json::Value>>(&trace_body)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|entry| {
+                    entry
+                        .get("method")
+                        .and_then(|method| method.as_str())
+                        .map(str::to_string)
+                })
+                .collect();
+            let resume_at = methods
+                .iter()
+                .rposition(|method| method == "session/resume")
+                .expect("session/resume");
+            let close_at = methods
+                .iter()
+                .rposition(|method| method == "session/close")
+                .expect("session/close after resume");
+            assert!(
+                resume_at < close_at,
+                "close must follow a successful resume: {methods:?}"
+            );
+            let follow = client.submit_prompt("TOKEN_ON_TARGET").unwrap();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut stopped = false;
+            while Instant::now() < deadline {
+                for event in client.pump(Duration::from_millis(30)) {
+                    if let AcpEvent::PromptFinished {
+                        request_id,
+                        stop_reason,
+                    } = event
+                        && request_id == follow
+                        && stop_reason == "end_turn"
+                    {
+                        stopped = true;
+                    }
+                }
+                if stopped {
+                    break;
+                }
+            }
+            assert!(stopped, "the resumed session accepts a prompt");
+        }));
+        unsafe {
+            match saved {
+                Some(value) => std::env::set_var("DSH_BIN", value),
+                None => std::env::remove_var("DSH_BIN"),
+            }
+        }
+        if let Err(payload) = switched {
+            std::panic::resume_unwind(payload);
+        }
     }
 }

@@ -313,6 +313,7 @@ def main():
             peer.close()
 
         store = work / 'active-store.json'
+        trace = work / 'active-rpc.json'
         store.write_text(json.dumps({'sessions': {
             alpha: {'sessionId': alpha, 'cwd': str(cwd), 'closed': True, 'owned': False, 'prompts': []},
             gamma: {'sessionId': gamma, 'cwd': str(cwd), 'closed': True, 'owned': False, 'prompts': []},
@@ -322,6 +323,7 @@ def main():
             'DSH_BIN': str(ROOT / 'scripts/fake-acp-agent.mjs'),
             'FAKE_ACP_MODE': 'echo',
             'FAKE_ACP_STORE': str(store),
+            'FAKE_ACP_TRACE': str(trace),
             # gamma is closed in the catalog and unlocked. The agent still
             # answers session/resume with already active, which must not close
             # the session this client just opened.
@@ -355,6 +357,13 @@ def main():
             board = same.wait_visible('already active', 20)
             assert 'Agent Dashboard' in board or 'gammapeer' in board, board
             assert gamma in board and f'session {live}' in board, board
+            methods = []
+            if trace.exists():
+                methods = [entry.get('method') for entry in json.loads(trace.read_text())]
+            resumes = [index for index, method in enumerate(methods) if method == 'session/resume']
+            assert resumes, methods
+            assert all(method != 'session/close' for method in methods[:resumes[0]]), methods
+            assert methods.count('session/close') == 0, methods
             results.append(same.finish())
         finally:
             same.close()

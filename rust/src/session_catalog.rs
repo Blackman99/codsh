@@ -538,6 +538,11 @@ fn read_session_dir(
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn project_key_for_test(cwd: &str) -> String {
+    project_key(cwd)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 fn project_key(cwd: &str) -> String {
     if cwd.is_empty() {
         return "_no-cwd".into();
@@ -565,6 +570,11 @@ fn project_key(cwd: &str) -> String {
     let trimmed = readable.trim_start_matches('-');
     let body = if trimmed.is_empty() { "root" } else { trimmed };
     format!("--{}--", body.chars().take(251).collect::<String>())
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn encode_segment_for_test(raw: &str) -> String {
+    encode_segment(raw)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

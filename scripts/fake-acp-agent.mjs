@@ -70,6 +70,34 @@ function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`)
 }
 
+function noteMethod(method, params) {
+  const entry = {
+    method,
+    sessionId: params?.sessionId ?? null,
+    live: liveSessionId,
+  }
+  if (storePath) {
+    const store = loadStore()
+    const methods = Array.isArray(store.methods) ? store.methods : []
+    methods.push(entry)
+    store.methods = methods
+    saveStore(store)
+  }
+  const tracePath = process.env.FAKE_ACP_TRACE
+  if (!tracePath) return
+  let methods = []
+  if (existsSync(tracePath)) {
+    try {
+      methods = JSON.parse(readFileSync(tracePath, 'utf8'))
+    } catch {
+      methods = []
+    }
+  }
+  if (!Array.isArray(methods)) methods = []
+  methods.push(entry)
+  writeFileSync(tracePath, `${JSON.stringify(methods)}\n`)
+}
+
 function requestPermission(sessionId, toolCallId, rawInput, title, promptId) {
   permissionSeq += 1
   const permissionId = `perm-${permissionSeq}`
@@ -417,6 +445,7 @@ rl.on('line', line => {
     return
   }
   const { id, method, params } = msg
+  if (typeof method === 'string') noteMethod(method, params)
   if (method === undefined && id != null && permissionPrompt?.permissionId === id) {
     finishPermission(msg.result?.outcome)
     return
@@ -473,7 +502,15 @@ rl.on('line', line => {
       send({ jsonrpc: '2.0', id, error: { code: -32602, message: `session is already active: ${sessionId}` } })
       return
     }
-    if (process.env.FAKE_ACP_REFUSE_WHILE_LIVE === '1' && liveSessionId && liveSessionId !== sessionId) {
+    // dsh accepts session/resume while this connection still holds another
+    // session. A stand-in that refuses only while live must do it before the
+    // client closes, and must not clear the live id on that refusal.
+    if (
+      process.env.FAKE_ACP_REFUSE_WHILE_LIVE === '1'
+      && liveSessionId
+      && liveSessionId !== sessionId
+      && existing.refuseWhileLive !== false
+    ) {
       recordSession(sessionId, {
         resumeAttempts: (existing.resumeAttempts ?? 0) + 1,
         closedBeforeResume: false,
