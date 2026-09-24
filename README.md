@@ -148,7 +148,8 @@ owns that `.gitignore`), until the query
 starts with `!`. Enter or Tab attaches
 the selected file as a chip. `:10-50` keeps that line range, `:2` keeps that
 single line, and a path with spaces uses `@"my file.rs"`. Pasting a workspace
-path drops it in; pasted prose that merely names a path stays text. Backspace
+path drops it in, except a dotfile or `.gitignore` match, which stays text
+and is not read. Pasted prose that merely names a path stays text. Backspace
 on the chip removes it, and Ctrl+Z restores it. Enter while a turn is running
 queues the draft and its chips; Alt+Up puts the oldest queued prompt back
 into an empty composer. Submit reads the file then: a removed chip is not

@@ -49,7 +49,8 @@ patterns that contain `/` (`logs/*.log`, `/secret.rs`, anchored at the
 directory that owns that `.gitignore`),
 stay hidden until the query starts with
 `!`. A chip can name one line, a line range, or a quoted path with spaces.
-Pasting a workspace path is a drop; pasted prose that names a path stays text.
+Pasting a workspace path is a drop, except a dotfile or `.gitignore` match,
+which stays text and is not read. Pasted prose that names a path stays text.
 Backspace removes that chip and Ctrl+Z puts it back. Enter during a turn
 queues the draft and its chips; Alt+Up restores the oldest queued prompt into
 an empty composer. Submit reads the file at that moment. A removed chip is

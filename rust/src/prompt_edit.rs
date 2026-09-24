@@ -2524,6 +2524,63 @@ mod tests {
     }
 
     #[test]
+    fn pasted_gitignore_path_stays_text_and_sends_no_bytes() {
+        let root = temp_home();
+        fs::create_dir_all(root.join("logs")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join(".gitignore"), "logs/*.log\n").unwrap();
+        fs::write(root.join("logs/nested.log"), "PROBE_SLASH_LOG\n").unwrap();
+        fs::write(root.join("src/keep.txt"), "VISIBLE\n").unwrap();
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_workspace(&root);
+
+        let ignored = format!("{}/logs/nested.log", root.display());
+        assert!(
+            composer.overlay_text().contains("no files") || composer.matches.is_empty(),
+            "picker starts closed"
+        );
+        for ch in "@logs/nested.log".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        assert!(
+            !composer
+                .matches
+                .iter()
+                .any(|item| item.contains("nested.log")),
+            "picker hides logs/*.log: {:?}",
+            composer.matches
+        );
+        composer.handle_key(key(KeyCode::Esc), ctx());
+        composer.set_text("");
+
+        composer.paste(&ignored);
+        assert!(
+            !composer.chips,
+            "a pasted gitignored path must not attach: notice={} text={:?}",
+            composer.footer_notice,
+            composer.text()
+        );
+        assert_eq!(composer.text(), ignored);
+        let submitted = composer.prepare_submit().expect("prose path still submits");
+        let encoded = serde_json::to_string(&submitted.blocks).unwrap();
+        assert!(
+            !encoded.contains("PROBE_SLASH_LOG"),
+            "ignored paste must not send file bytes: {encoded}"
+        );
+        assert!(submitted.mentions.is_empty(), "{:?}", submitted.mentions);
+
+        composer.set_text("");
+        composer.paste(&format!("{}/src/keep.txt", root.display()));
+        assert!(composer.chips, "a visible pasted path still attaches");
+        let visible = composer.prepare_submit().expect("visible file");
+        let visible_text = serde_json::to_string(&visible.blocks).unwrap();
+        assert!(visible_text.contains("VISIBLE"), "{visible_text}");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
     fn queued_attachment_can_be_edited_and_a_removed_chip_is_not_sent() {
         let root = temp_home();
         fs::create_dir_all(root.join("src")).unwrap();
@@ -2534,6 +2591,7 @@ mod tests {
         let busy = HostContext {
             inflight: true,
             minimal: false,
+            voice_release: true,
         };
         for ch in "@src/main.rs".chars() {
             composer.handle_key(key(KeyCode::Char(ch)), busy);

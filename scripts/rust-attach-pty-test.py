@@ -108,7 +108,7 @@ def main():
         (cwd / '.hidden').mkdir()
         (cwd / '.gitignore').write_text('**/*.log\nlogs/*.log\n/secret.rs\n')
         (cwd / 'logs').mkdir()
-        (cwd / 'logs' / 'nested.log').write_text('NESTED_PACKED_LOG\n')
+        (cwd / 'logs' / 'nested.log').write_text('PROBE_SLASH_LOG\n')
         (cwd / 'secret.rs').write_text('ROOT_SECRET\n')
         (cwd / 'src' / '.gitignore').write_text('secret.rs\n/anchored.rs\n')
         (cwd / 'src' / 'gen').mkdir()
@@ -139,11 +139,11 @@ def main():
             session.write('@')
             shown = session.wait_visible('file picker', 10)
             assert 'secret.log' not in shown and 'nested.log' not in shown, shown
-            assert 'NESTED_PACKED_LOG' not in shown and 'ROOT_SECRET' not in shown, shown
+            assert 'PROBE_SLASH_LOG' not in shown and 'ROOT_SECRET' not in shown, shown
             session.write('logs/')
             session.pump(0.4)
             shown = session.visible()
-            assert 'nested.log' not in shown and 'NESTED_PACKED_LOG' not in shown, shown
+            assert 'nested.log' not in shown and 'PROBE_SLASH_LOG' not in shown, shown
             session.write('\x1b')
             session.write('\x7f' * 16)
             session.write('@anchored')
@@ -204,12 +204,26 @@ def main():
             assert 'see src/main.rs in the note' in shown, shown
             assert 'attached @' not in shown.split('Draft')[-1], shown
             session.write('\x03')
-            session.write(PASTE_OPEN + str(cwd / 'my file.rs').encode() + PASTE_CLOSE)
-            shown = session.wait_visible('my file.rs', 10)
+            session.write(PASTE_OPEN + str(cwd / 'logs' / 'nested.log').encode() + PASTE_CLOSE)
+            session.pump(0.4)
+            shown = session.visible()
+            draft = shown.split('Draft')[-1]
+            assert str(cwd / 'logs' / 'nested.log') in draft, shown
+            assert 'attached @' not in draft and 'PROBE_SLASH_LOG' not in shown, shown
+            before_ignored = len(prompt.answer_lines(shown))
             session.write('\r')
             shown = wait_answer(session, 'turn=4', seconds=25)
             echo = latest_value(model_echo(shown))
+            assert 'PROBE_SLASH_LOG' not in echo and 'Attached file' not in echo, echo
+            assert 'nested.log' in echo, echo
+            assert len(prompt.answer_lines(shown)) == before_ignored + 1
+            session.write(PASTE_OPEN + str(cwd / 'my file.rs').encode() + PASTE_CLOSE)
+            shown = session.wait_visible('my file.rs', 10)
+            session.write('\r')
+            shown = wait_answer(session, 'turn=5', seconds=25)
+            echo = latest_value(model_echo(shown))
             assert 'spaced line' in echo, echo
+            assert 'PROBE_SLASH_LOG' not in echo, echo
             assert 'see src/main.rs in the note' not in echo, echo
             session_id = session.session_id()
             session.write('\x11')

@@ -234,6 +234,16 @@ impl WorkspaceIndex {
                 detail: "drop a file, not a directory".into(),
             });
         }
+        // A pasted path is a drop, not a way around the picker. The same
+        // dotfile and `.gitignore` check that hides a file from search
+        // refuses it here, so ignored bytes are not read or sent.
+        if self.is_excluded(&relative) {
+            return Err(AttachRefusal {
+                status: AttachStatus::Outside,
+                detail: "file is hidden by .gitignore or is a dotfile; search with ! to attach it"
+                    .into(),
+            });
+        }
         Ok(FileRef {
             relative,
             range: None,
@@ -898,7 +908,7 @@ mod tests {
             "a **/*.log rule must not list nested logs: {names:?}"
         );
         assert!(
-            names.iter().any(|name| *name == "src/logs/keep.txt"),
+            names.contains(&"src/logs/keep.txt"),
             "non-log files under the same directory stay visible: {names:?}"
         );
         assert!(index.resolve_typed("@src/logs/debug.log").is_none());
@@ -1088,7 +1098,7 @@ mod tests {
         let reference = index.resolve_typed("@src/main.rs").unwrap();
         let first = index.prepare(&reference, None);
         assert_eq!(first.status, AttachStatus::Ready);
-        let kept = prompt_blocks("see", &[first.clone()]).unwrap();
+        let kept = prompt_blocks("see", std::slice::from_ref(&first)).unwrap();
         let kept_text = joined_text(&kept);
         assert!(kept_text.contains("one\ntwo\nthree\nfour\n"), "{kept_text}");
         let removed = prompt_blocks("kept", &[]).unwrap();
@@ -1142,6 +1152,24 @@ mod tests {
             "{}",
             rejected.detail
         );
+        fs::create_dir_all(root.join("logs")).unwrap();
+        fs::write(root.join(".gitignore"), "**/*.log\nlogs/*.log\n/secret.rs\n").unwrap();
+        fs::write(root.join("logs/nested.log"), "PROBE_SLASH_LOG\n").unwrap();
+        let ignored = WorkspaceIndex::new(&root);
+        let pasted = root.join("logs/nested.log");
+        let refused = ignored.resolve_drop(pasted.to_str().unwrap()).unwrap_err();
+        assert_eq!(refused.status, AttachStatus::Outside);
+        assert!(
+            !refused.detail.contains("PROBE_SLASH_LOG"),
+            "{}",
+            refused.detail
+        );
+        assert!(
+            ignored.search("nested.log").is_empty(),
+            "picker and drop share the logs/*.log ignore check"
+        );
+        let visible = ignored.resolve_drop(root.join("src/main.rs").to_str().unwrap());
+        assert!(visible.is_ok(), "{visible:?}");
         let _ = fs::remove_file(outside);
         let _ = fs::remove_dir_all(root);
     }
