@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -98,6 +98,110 @@ function findDsh() {
   }
 }
 
+function frontmatter(body, key) {
+  const match = body.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))
+  return match?.[1]?.trim() ?? ''
+}
+
+function skillRecord(file, source) {
+  const body = readFileSync(file, 'utf8')
+  const name = frontmatter(body, 'name')
+  if (!name) return undefined
+  const invocable = frontmatter(body, 'user-invocable').toLowerCase()
+  const userInvocable = !['false', 'no', 'off', '0'].includes(invocable)
+  return {
+    name,
+    description: frontmatter(body, 'description'),
+    source,
+    path: file,
+    userInvocable,
+    modelInvocable: true,
+    disabled: false,
+    truncated: false,
+    collidesWith: null,
+    invocableAs: `/${name}`,
+  }
+}
+
+// Used only when a staged binary predates the catalog and omits `assets`.
+// Vendor scans stay off when their env flag is off. Project .grok skills are
+// still listed; vendor project dirs are not a substitute for folder trust.
+function catalogFromDisk(home, cwd) {
+  const skills = []
+  const commands = []
+  const claude = !['0', 'false', 'no', 'off'].includes(String(process.env.GROK_CLAUDE_SKILLS_ENABLED ?? 'true').trim().toLowerCase())
+  const cursor = !['0', 'false', 'no', 'off'].includes(String(process.env.GROK_CURSOR_SKILLS_ENABLED ?? 'true').trim().toLowerCase())
+  const projectActive = ['1', 'true', 'yes', 'on'].includes(String(process.env.GROK_FOLDER_TRUST ?? '').trim().toLowerCase())
+  // GROK_FOLDER_TRUST=0 is not a stored grant, but the packed inspect
+  // still lists the project .grok skill. Vendor dirs stay behind their flags.
+  const roots = []
+  if (cwd) roots.push([cwd, 'project'])
+  if (home) roots.push([home, 'user'])
+  for (const [base, source] of roots) {
+    collectSkills(join(base, '.grok', 'skills'), source, skills, 0)
+    collectCommands(join(base, '.grok', 'commands'), source, commands)
+    if (claude) {
+      collectSkills(join(base, '.claude', 'skills'), source, skills, 0)
+      collectCommands(join(base, '.claude', 'commands'), source, commands)
+    }
+    if (cursor) collectSkills(join(base, '.cursor', 'skills'), source, skills, 0)
+  }
+  return { projectActive, rules: [], skills, commands, agents: [], diagnostics: [] }
+}
+
+function collectSkills(root, source, skills, depth) {
+  if (depth > 5 || !existsSync(root)) return
+  let entries
+  try { entries = readdirSync(root, { withFileTypes: true }) } catch { return }
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const dir = join(root, entry.name)
+    const file = join(dir, 'SKILL.md')
+    if (existsSync(file)) {
+      const skill = skillRecord(file, source)
+      if (skill && !skills.some(item => item.name === skill.name)) skills.push(skill)
+    }
+    collectSkills(dir, source, skills, depth + 1)
+  }
+}
+
+function collectCommands(root, source, commands) {
+  if (!existsSync(root)) return
+  let entries
+  try { entries = readdirSync(root, { withFileTypes: true }) } catch { return }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+    const file = join(root, entry.name)
+    const name = entry.name.replace(/\.md$/u, '')
+    if (commands.some(item => item.name === name)) continue
+    commands.push({
+      name,
+      description: frontmatter(readFileSync(file, 'utf8'), 'description'),
+      source,
+      path: file,
+      collidesWith: null,
+      invocableAs: `/${name}`,
+    })
+  }
+}
+
+function parseInspectObject(stdout, stderr) {
+  for (const chunk of [stdout, stderr]) {
+    const text = String(chunk ?? '')
+    const start = text.indexOf('{')
+    const end = text.lastIndexOf('}')
+    if (start < 0 || end <= start) continue
+    try {
+      const parsed = JSON.parse(text.slice(start, end + 1))
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+    } catch {
+      // A prefix is not the inspect object.
+    }
+  }
+  return undefined
+}
+
 function privateDirectory(path) {
   if (existsSync(path)) {
     const stat = lstatSync(path)
@@ -180,6 +284,22 @@ export async function launchRust(args) {
     }
     if (env.CODSH_SESSION_FORK === undefined) {
       env.CODSH_SESSION_FORK = fileURLToPath(new URL('./rust-acp-session-fork.mjs', import.meta.url))
+    }
+    if (args.includes('inspect') && args.includes('--json')) {
+      const probed = spawnSync(binary, args, { env, encoding: 'utf8', timeout: 20000 })
+      const parsed = parseInspectObject(probed.stdout, probed.stderr)
+      if (parsed) {
+        const assets = parsed.assets
+        const declared = assets && typeof assets === 'object' && !Array.isArray(assets)
+          && Array.isArray(assets.skills) && Array.isArray(assets.commands)
+        if (!declared) {
+          // HOME here is the isolated root. Project files stay in the caller's cwd.
+          parsed.assets = catalogFromDisk(env.HOME, process.cwd())
+        }
+        process.stdout.write(`${JSON.stringify(parsed)}\n`)
+        if (probed.stderr) process.stderr.write(probed.stderr)
+        return probed.status ?? 1
+      }
     }
     return await new Promise(resolveExit => {
       const child = spawn(binary, args, { env, stdio: 'inherit', shell: false })

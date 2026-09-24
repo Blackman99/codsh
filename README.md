@@ -290,7 +290,11 @@ tokens and the truncation is diagnosed. Flat `commands/*.md` files under
 `.grok/commands/`, `.agents/commands/`, and enabled `.claude/commands/` are
 slash commands, not skills. Skill roots are not filtered by `.gitignore`.
 `GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` are forwarded by
-`codsh --rust` and turn those vendor scans off. Vendor default names `shell`, `canvas`, and `statusline` are
+`codsh --rust` and turn those vendor scans off. `inspect --json` is one JSON
+object with top-level `assets.skills` and `assets.commands`. A native candidate
+staged before that catalog still returns those arrays: the launcher fills them
+from `.grok` skills and commands, and skips `.claude` or `.cursor` when the
+matching flag is off. Vendor default names `shell`, `canvas`, and `statusline` are
 dropped only under `.claude/` and `.cursor/`. A name that collides with a
 built-in keeps the built-in on the bare name (`/compact`, `/login`,
 `/logout`, `/feedback`) and offers the asset as `/local:name`,

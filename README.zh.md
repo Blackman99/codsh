@@ -196,7 +196,8 @@ extra_rule_dirs`）对每个项目生效。相对路径或缺失目录不会加�
 发给 dsh 的 Skill 正文最多 25,000 token，截断会被诊断。`.grok/commands/`、
 `.agents/commands/` 和已启用的 `.claude/commands/` 下的扁平 `*.md` 是斜杠命令，
 不是 Skill。Skill 根目录不按 `.gitignore` 过滤。`codsh --rust` 会转发 `GROK_CLAUDE_SKILLS_ENABLED` 与
-`GROK_CURSOR_SKILLS_ENABLED`，用来关闭对应厂商扫描。`shell`、`canvas`、
+`GROK_CURSOR_SKILLS_ENABLED`，用来关闭对应厂商扫描。`inspect --json` 是一个 JSON
+对象，顶层包含 `assets.skills` 与 `assets.commands`。资产目录出现之前暂存的本机候选仍返回这两个数组：启动器从 `.grok` 的 Skill 与命令补上，并在对应开关关闭时跳过 `.claude` 或 `.cursor`。`shell`、`canvas`、
 `statusline` 只在 `.claude/` 与 `.cursor/` 下被丢弃。与内置命令同名时，内置命令
 保留短名称（`/compact`、`/login`、`/logout`、`/feedback`），资产以
 `/local:name`、`/ancestor:name`、`/repo:name` 或 `/user:name` 出现。菜单不把
