@@ -234,8 +234,10 @@ function* fileToolTurn(options) {
   }
   if (MODE === 'shell-env') {
     if (done.length === 0) {
-      const marker = process.env.CODSH_SHELL_MARKER || 'SHELL_MARKER'
-      const command = `printf 'ENV_%s_%s\\n' '${marker}' "\${CODSH_TICKET38_SECRET-hidden}"`
+      // The command is fixed. The bash child prints the marker and the set
+      // value from its own environment, so a filter that never reached dsh
+      // cannot look filtered.
+      const command = "printf 'ENV_%s_%s\\n' \"${CODSH_SHELL_MARKER-hidden}\" \"${CODSH_ENV_MARK-unset}\""
       yield* mockToolCall('rust-acp-shell', 'bash', { command, description: 'Run the shell probe' })
       return
     }

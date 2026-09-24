@@ -45,8 +45,9 @@ pub struct Prepared {
     /// and every child. A dsh file mode is not this switch.
     pub restrict_network: bool,
     pub network_note: String,
-    /// `None` keeps the launch environment. `Some` is the filtered map a
-    /// shell child is allowed to see, including names forced by `set`.
+    /// `None` keeps the launch environment. `Some` is the filtered map given
+    /// to a shell child this client starts and to the dsh process, including
+    /// names forced by `set`. dsh's bash tool is built from that process.
     pub shell_env: Option<BTreeMap<String, String>>,
     pub limits: Vec<String>,
 }
@@ -93,10 +94,11 @@ struct ProfileBody {
 /// Order matches the reference: start from `inherit`, drop `*KEY*` /
 /// `*SECRET*` / `*TOKEN*` unless `ignore_default_excludes`, drop `exclude`,
 /// apply `set`, then keep only `include_only` when that list is non-empty.
-/// Patterns are case-insensitive `*` / `?` globs. This filters the launch
-/// environment of shell children and of the dsh process. dsh's bash tool is
-/// built from that process environment. Credential keys the client adds for
-/// the model route stay a separate execution grant.
+/// Patterns are case-insensitive `*` / `?` globs. The filtered map is the
+/// environment of a shell child this client starts and of the dsh process
+/// spawned afterwards. dsh's bash tool is built from that process environment
+/// and only adds keys, so an excluded name stays absent there. Credential
+/// keys the client adds for the model route stay a separate execution grant.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 struct ShellEnvironmentPolicy {
     #[serde(default)]
@@ -131,9 +133,19 @@ struct Resolved {
 }
 
 static ACTIVE: OnceLock<Prepared> = OnceLock::new();
+/// The filtered map for dsh, including when the profile is `off` and no
+/// kernel policy is applied. `active()` stays the kernel profile only, so
+/// this does not change file denies, network denies, or dsh's file mode.
+static SHELL_ENV: OnceLock<BTreeMap<String, String>> = OnceLock::new();
 
 pub fn active() -> Option<&'static Prepared> {
     ACTIVE.get()
+}
+
+/// The environment dsh receives when a shell policy is active. `None` keeps
+/// the launch allowlist.
+pub fn shell_env() -> Option<&'static BTreeMap<String, String>> {
+    SHELL_ENV.get()
 }
 
 /// True when a settings write would change a kernel-protected global file.
@@ -335,6 +347,26 @@ pub fn prepare(
     Ok(Some(prepared))
 }
 
+/// Load `[shell_environment_policy]` even when the profile is `off`.
+///
+/// A kernel profile is not required for the filter, and this does not apply
+/// one. The map is what dsh and a probe child receive afterwards.
+pub fn activate_shell_env(
+    workspace: &Path,
+    grok_home: &Path,
+    workspace_trusted: bool,
+) -> Result<(), Refusal> {
+    if SHELL_ENV.get().is_some() {
+        return Ok(());
+    }
+    let Some(policy) = read_shell_policy(workspace, grok_home, workspace_trusted)? else {
+        return Ok(());
+    };
+    let filtered = filter_launch_env(&policy, &std::env::vars().collect())?;
+    let _ = SHELL_ENV.set(filtered);
+    Ok(())
+}
+
 pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
     if ACTIVE.get().is_some() {
         return Ok(());
@@ -463,7 +495,7 @@ fn network_note(restricted: bool) -> String {
 }
 
 fn platform_network_limit(restricted: bool) -> String {
-    let base = "macOS Seatbelt denies network* for a restrict_network profile, including the in-process client and every child. Linux Landlock network is a different mechanism and is not claimed from a macOS run; a profile that asks for network isolation refuses startup there. Windows network confinement is not implemented. dsh's per-call file mode is not a network sandbox. The shell environment policy filters a shell child this client starts (sh -c) and the dsh process. dsh's bash tool is built from that process environment, so it sees the same filter. A second Seatbelt profile is not applied inside this one.";
+    let base = "macOS Seatbelt denies network* for a restrict_network profile, including the in-process client and every child. Linux Landlock network is a different mechanism and is not claimed from a macOS run; a profile that asks for network isolation refuses startup there. Windows network confinement is not implemented. dsh's per-call file mode is not a network sandbox. When a shell environment policy is active, its filtered map is the environment of a shell child this client starts (sh -c) and of the dsh process spawned afterwards. dsh's bash tool is built from that process environment and only adds keys, so it sees the same filter. A second Seatbelt profile is not applied inside this one.";
     if restricted {
         format!("{base} This profile restricts network.")
     } else {

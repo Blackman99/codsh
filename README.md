@@ -153,10 +153,11 @@ implemented and refuses the same way. `[shell_environment_policy]` in
 `set`, `ignore_default_excludes`) filters the environment of a shell child
 this client starts, including `sh -c`. Names matching `*KEY*`, `*SECRET*`,
 or `*TOKEN*` are dropped unless `ignore_default_excludes` is set. An unknown
-`inherit` or a pattern that is not a `*`/`?` glob refuses startup. The same
-filtered map is the environment of the dsh process, so dsh's bash tool sees
-it too: dsh builds that child from its own environment and only adds keys.
-A second Seatbelt profile is still not applied inside this one. A process already under
+`inherit` or a pattern that is not a `*`/`?` glob refuses startup. When that
+policy is active, the filtered map is the environment of the dsh process
+spawned afterwards, so dsh's bash tool sees it too: dsh builds that child
+from its own environment and only adds keys. With no policy, dsh keeps the
+launch allowlist. A second Seatbelt profile is still not applied inside this one. A process already under
 Seatbelt cannot apply another Seatbelt policy, so dsh's own per-call bash
 sandbox cannot run inside a codsh profile. While a profile is applied, codsh
 starts dsh with its per-call file mode set to `danger-full-access` (written

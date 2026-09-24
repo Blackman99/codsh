@@ -466,6 +466,22 @@ pub fn dsh_spawn_spec(
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
         }
     }
+    // An active policy is applied to this allowlist, not instead of it.
+    // dsh builds its bash child from this process environment and only adds
+    // keys, so an excluded name must already be absent here and a `set`
+    // value must already be present. No policy leaves the allowlist as-is.
+    if let Some(filtered) = crate::filesystem_sandbox::shell_env() {
+        let kept: Vec<(String, String)> = filtered
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        env.retain(|(key, value)| kept.iter().any(|(name, kept)| name == key && kept == value));
+        for (key, value) in kept {
+            if !env.iter().any(|(existing, _)| existing == &key) {
+                env.push((key, value));
+            }
+        }
+    }
     env.push(("DSH_TELEMETRY_DISABLED".into(), "1".into()));
     env.push(("DSH_TELEMETRY_MODE".into(), "OFF".into()));
     env.push(("CODSH_UPDATE_CHECK".into(), "off".into()));

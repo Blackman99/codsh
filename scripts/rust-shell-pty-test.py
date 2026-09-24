@@ -108,13 +108,7 @@ def main():
             'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',
             'CODSH_SHELL_MARKER': 'SHELL38',
             'CODSH_SHELL_WORKDIR': str(nested),
-            'CODSH_TICKET38_SECRET': 'not-for-the-child',
         }
-        policy = home / '.grok'
-        policy.mkdir()
-        (policy / 'sandbox.toml').write_text(
-            '[shell_environment_policy]\ninherit = "all"\nexclude = ["CODSH_TICKET38_SECRET"]\n'
-        )
         echo = session('echo', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-echo'}, output)
         echo.write('TOKEN_SHELL_ECHO')
         echo.write(b'\r')
@@ -124,7 +118,6 @@ def main():
         echo.wait_visible(str(nested), 10)
         echo.wait_visible('[exit code: 0]', 10)
         shown = echo.visible()
-        assert 'not-for-the-child' not in shown
         assert 'RUST_ACP_SHELL_DONE' in shown
         code = finish(echo)
         assert code == 0
@@ -173,13 +166,36 @@ def main():
         denied = session('deny', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-deny', 'CODSH_HOOK_DENY': 'ticket 38 deny'}, output)
         denied.write('TOKEN_SHELL_DENY')
         denied.write(b'\r')
-        filtered = session('env', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-env', 'GROK_SANDBOX': 'workspace'}, output)
+        # The client reads $HOME/.codsh-rust/.grok/sandbox.toml. A policy that
+        # exists only at $HOME/.grok is not loaded, so the marker stays.
+        misplaced = home / '.grok'
+        misplaced.mkdir()
+        policy_text = (
+            '[shell_environment_policy]\n'
+            'inherit = "all"\n'
+            'exclude = ["CODSH_SHELL_MARKER"]\n'
+            'set = { CODSH_ENV_MARK = "MARKSET" }\n'
+        )
+        (misplaced / 'sandbox.toml').write_text(policy_text)
+        unfiltered = session('env-misplaced', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-env'}, output)
+        unfiltered.write('TOKEN_SHELL_ENV_MISPLACED')
+        unfiltered.write(b'\r')
+        allow(unfiltered)
+        unfiltered.wait_visible('ENV_SHELL38_unset', 30)
+        assert 'ENV_hidden_' not in unfiltered.visible()
+        assert finish(unfiltered) == 0
+
+        isolated = home / '.codsh-rust' / '.grok'
+        isolated.mkdir(parents=True, exist_ok=True)
+        (isolated / 'sandbox.toml').write_text(policy_text)
+        filtered = session('env', launcher, cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-env'}, output)
         filtered.write('TOKEN_SHELL_ENV')
         filtered.write(b'\r')
         allow(filtered)
-        filtered.wait_visible('ENV_SHELL38_hidden', 30)
+        filtered.wait_visible('ENV_hidden_MARKSET', 30)
         filtered_screen = filtered.visible()
-        assert 'not-for-the-child' not in filtered_screen
+        assert 'ENV_SHELL38_' not in filtered_screen
+        assert 'ENV_hidden_unset' not in filtered_screen
         assert finish(filtered) == 0
 
         denied.wait_visible('Denied by hook', 20)
