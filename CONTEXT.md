@@ -638,7 +638,8 @@ submit, a model whose `input_modalities` includes `image`
 gets an ACP image block. A model that does not declare `image` gets the
 original saved under the isolated dsh home `attachments/pasted/` and a
 `<pasted-image>` path in the same message, and the attach notice says that
-model cannot see images. The isolated client does not call
+model cannot see images. Rules and the first-turn memory note wrap the user's
+text once and are not copied onto that element or an attached file body. The isolated client does not call
 a second vision provider. An empty clipboard, a file that is not png, jpeg,
 webp, or gif, and a file over 256 KiB stay in the composer with a notice.
 `GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read whenever it

@@ -224,7 +224,9 @@ canonical base64, `mimeType` is png, jpeg, webp, or gif). A model that omits
 `image`, or does not declare modalities, does not receive that block: the
 original is saved under the isolated dsh home `attachments/pasted/` and the
 prompt carries a `<pasted-image>` path. On that route the attach notice says
-the model cannot see images and gets only the saved path. No second vision
+the model cannot see images and gets only the saved path. Rules, session
+rules, and the first-turn memory note wrap the user's text once; they are not
+copied onto that `<pasted-image>` element or an attached file body. No second vision
 provider is called. An empty clipboard, a file that is not a png/jpeg/webp/gif,
 and a file over 256 KiB stay in the composer with a notice and are not sent.
 `GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read even when

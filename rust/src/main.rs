@@ -7491,9 +7491,10 @@ fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text
     )
 }
 
-/// Rules, agents, session rules, and an explicit skill body wrap the user's
-/// text. Attachment resource links stay as admitted by #156; only text blocks
-/// are rewritten.
+/// Rules, agents, session rules, memory, and an explicit skill body wrap the
+/// user's prompt text once. A later text block is an attachment body or a
+/// text-only `<pasted-image>` fallback; copying the prefix onto each of
+/// those would send the rules again and break the resume projection.
 fn blocks_with_model_prompt(
     launch: &Launch,
     effective: &config::EffectiveConfig,
@@ -7501,9 +7502,13 @@ fn blocks_with_model_prompt(
     memory_session_on: Option<bool>,
     first_turn: bool,
 ) -> Vec<serde_json::Value> {
+    let mut wrapped_user = false;
     blocks
         .into_iter()
         .map(|mut block| {
+            if wrapped_user {
+                return block;
+            }
             let Some(text) = block.get("text").and_then(|value| value.as_str()) else {
                 return block;
             };
@@ -7514,6 +7519,7 @@ fn blocks_with_model_prompt(
             if wrapped != text {
                 block["text"] = serde_json::Value::String(wrapped);
             }
+            wrapped_user = true;
             block
         })
         .collect()
@@ -7876,6 +7882,116 @@ mod tests {
     fn refuses_turns_until_advertised_selection_applies() {
         assert!(!turn_allowed(false));
         assert!(turn_allowed(true));
+    }
+
+    #[test]
+    fn rules_wrap_the_user_text_once_and_leave_image_blocks_alone() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join(".grok");
+        std::fs::create_dir_all(grok.join("rules")).unwrap();
+        std::fs::write(grok.join("rules").join("home.md"), "HOME_RULE_SENTINEL\n").unwrap();
+        std::fs::write(grok.join("config.toml"), "[memory]\nenabled = true\n").unwrap();
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("HOME".into(), dir.path().display().to_string());
+        let effective = config::load_from(config::LoadInput {
+            home: dir.path().to_path_buf(),
+            dsh_home: dir.path().join("dsh"),
+            cwd: dir.path().to_path_buf(),
+            grok_home: Some(grok),
+            env,
+            cli_model: None,
+            cli_effort: None,
+            cli_trust: false,
+            cli_revoke_trust: false,
+            cli_trust_path: None,
+            interactive: true,
+            cli_permission_mode: None,
+            cli_always_approve: false,
+            cli_auto: false,
+            cli_allow: Vec::new(),
+            cli_deny: Vec::new(),
+            cli_no_memory: false,
+            cli_sandbox: None,
+        });
+        assert!(effective.memory.enabled(), "{:?}", effective.memory);
+        let store = memory::open_store(&effective.grok_home, &effective.cwd).unwrap();
+        memory::save_note(&store, memory::Scope::Global, "MEMORY_NOTE_SENTINEL").unwrap();
+        let launch = parse_launch(&args(&["--rules", "SESSION_RULE_SENTINEL"])).unwrap();
+        let image = images::prepare_image(1, images::sniff_image(&images::tiny_png()).unwrap());
+        let saved = images::save_original(dir.path(), &image).unwrap();
+        let mut stored = image;
+        stored.saved_path = Some(saved);
+        let built =
+            images::prompt_blocks_with_images("look", &[], std::slice::from_ref(&stored), false)
+                .unwrap();
+        let file = attachments::PreparedAttachment {
+            mention: "@note.txt".into(),
+            status: attachments::AttachStatus::Ready,
+            bytes: None,
+            text: Some("FILE_BODY_SENTINEL".into()),
+            size: 18,
+            modified: None,
+            preview: "FILE_BODY_SENTINEL".into(),
+            detail: String::new(),
+        };
+        let with_file =
+            images::prompt_blocks_with_images("look", std::slice::from_ref(&file), &[], true)
+                .unwrap();
+        let wrapped = blocks_with_model_prompt(&launch, &effective, built, None, true);
+        let texts: Vec<&str> = wrapped
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect();
+        assert_eq!(texts.len(), 2, "{texts:?}");
+        assert!(
+            texts[0].contains("HOME_RULE_SENTINEL")
+                && texts[0].contains("SESSION_RULE_SENTINEL")
+                && texts[0].contains("MEMORY_NOTE_SENTINEL")
+                && texts[0].contains("look"),
+            "{}",
+            texts[0]
+        );
+        assert!(
+            texts[1].starts_with("\n<pasted-image ") && texts[1].ends_with("</pasted-image>\n"),
+            "{}",
+            texts[1]
+        );
+        for marker in [
+            "HOME_RULE_SENTINEL",
+            "SESSION_RULE_SENTINEL",
+            "MEMORY_NOTE_SENTINEL",
+            "<human_rules>",
+            "<local-memory>",
+        ] {
+            assert!(!texts[1].contains(marker), "{marker} leaked: {}", texts[1]);
+        }
+        let later =
+            images::prompt_blocks_with_images("next", &[], std::slice::from_ref(&stored), false)
+                .unwrap();
+        let again = blocks_with_model_prompt(&launch, &effective, later, None, false);
+        let second: Vec<&str> = again
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect();
+        assert_eq!(
+            second[0].matches("HOME_RULE_SENTINEL").count(),
+            1,
+            "{}",
+            second[0]
+        );
+        assert!(!second[0].contains("<local-memory>"), "{}", second[0]);
+        assert!(second[1].starts_with("\n<pasted-image "), "{}", second[1]);
+        assert!(!second[1].contains("HOME_RULE_SENTINEL"), "{}", second[1]);
+        let files = blocks_with_model_prompt(&launch, &effective, with_file, None, true);
+        let file_text = files
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .find(|text| text.contains("FILE_BODY_SENTINEL"))
+            .expect("attachment body");
+        assert!(
+            file_text.starts_with("\nAttached file "),
+            "rules wrapped the attachment body: {file_text}"
+        );
     }
 
     #[test]
