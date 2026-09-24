@@ -40,6 +40,11 @@ pub struct Browser {
     /// is true has no effect on any prompt in this session, and `/new`
     /// drops the toggle and follows config.toml again, not it.
     pub memory_injected: bool,
+    /// True only after `t` turns memory on once `memory_injected` is already
+    /// true. A later key can replace `notice` before Esc, so close uses this
+    /// flag instead of the notice text. A plain close (no late `t`) stays
+    /// false and keeps the short "memory on for this session" hint.
+    pub late_toggle_on: bool,
     pub pending_note: String,
     pub pending_scope: Scope,
     pub fullscreen: bool,
@@ -75,6 +80,7 @@ impl Default for Browser {
             session_enabled: false,
             force_off: false,
             memory_injected: false,
+            late_toggle_on: false,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -106,6 +112,7 @@ impl Browser {
             session_enabled,
             force_off,
             memory_injected,
+            late_toggle_on: false,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -278,6 +285,7 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Acti
             browser.session_enabled = !browser.session_enabled;
             browser.notice = if browser.session_enabled {
                 if browser.memory_injected {
+                    browser.late_toggle_on = true;
                     // This session's only injection chance (its first turn)
                     // already happened or was skipped; a fresh `t` on now
                     // cannot reach any prompt here. `/new` also drops this
@@ -286,9 +294,11 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Acti
                     "memory on, but too late for this session; /new still follows config.toml"
                         .into()
                 } else {
+                    browser.late_toggle_on = false;
                     "memory on for this session; config.toml was not changed".into()
                 }
             } else {
+                browser.late_toggle_on = false;
                 let kept = memory::disable_keeps_files(store)
                     .map(|files| files.len())
                     .unwrap_or(0);
@@ -857,6 +867,15 @@ mod tests {
             "must not claim the toggle carries to the next new session: {}",
             mid.notice
         );
+        assert!(
+            mid.late_toggle_on,
+            "Esc must be able to keep this wording after a later key replaces the notice"
+        );
+
+        // A close without that late `t` (memory already on, injection
+        // already done) must not pick up the late-toggle wording.
+        let plain = Browser::open(&store, true, false, true);
+        assert!(!plain.late_toggle_on);
     }
 
     #[test]

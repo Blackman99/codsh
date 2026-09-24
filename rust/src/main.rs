@@ -2463,7 +2463,18 @@ fn handle_catalog_overlay_key(
                 }
                 Some(memory_ui::Action::Close) => {
                     *memory_session_on = Some(browser.session_enabled);
-                    *hint = if browser.session_enabled {
+                    // A late `t` on (after the first-turn injection window
+                    // closed) must not be summarized as "memory on for this
+                    // session": no remaining prompt here will see it. Use the
+                    // late-toggle flag, not `notice` — a later key can replace
+                    // the notice before Esc — and not `memory_injected` alone,
+                    // which is also true for a plain close after a normal
+                    // first turn. A close without a late toggle still reports
+                    // the plain session state.
+                    *hint = if browser.session_enabled && browser.late_toggle_on {
+                        "memory on, but too late for this session; /new still follows config.toml"
+                            .into()
+                    } else if browser.session_enabled {
                         "memory on for this session".into()
                     } else {
                         "memory off for this session; files kept".into()

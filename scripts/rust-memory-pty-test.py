@@ -301,11 +301,13 @@ enabled = true
                 assert '/new' in shown and 'config.toml' in shown, shown
                 assert 'next new session' not in shown, shown
                 quiet.write('\x1b')
-                # Closing must not repeat that caveat as though it still
-                # applied; it just reports the (unaffected) session state,
-                # exactly like a plain close with no toggle at all.
-                shown = quiet.wait_visible('memory on for this session', 5)
-                assert 'too late' not in shown, shown
+                # Closing must keep the honest late-toggle wording. It must
+                # not replace "too late for this session" with a claim that
+                # memory is on for a remaining prompt here.
+                quiet.wait_visible(
+                    'memory on, but too late for this session; /new still follows config.toml',
+                    5,
+                )
 
                 # Regression for ticket 53 / issue 185, symmetric case: an
                 # empty `/remember` must not silently reset this session's
