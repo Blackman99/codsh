@@ -8458,11 +8458,10 @@ fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text
 }
 
 /// Rules, agents, session rules, and an explicit skill body wrap the user's
-/// text. Attachment resource links stay as admitted by #156; only text blocks
-/// are rewritten. First-turn memory joins the first text block once.
-/// `--verbatim` leaves every text block exactly as admitted. First-turn memory
-/// and the rules then lead as one separate block, so they still reach the
-/// model while the user's bytes stay exact.
+/// text once. Attachment resource links and later text blocks (a pasted-image
+/// fallback, a file body) stay as admitted. First-turn memory joins that first
+/// text block. `--verbatim` leaves every admitted block exact and leads with
+/// the rules and first-turn memory as their own block.
 fn blocks_with_model_prompt(
     launch: &Launch,
     effective: &config::EffectiveConfig,
@@ -8471,6 +8470,7 @@ fn blocks_with_model_prompt(
     first_turn: bool,
 ) -> Vec<serde_json::Value> {
     let mut first_text = true;
+    let mut wrapped_user = false;
     let mut lead = String::new();
     let mut out = Vec::with_capacity(blocks.len() + 1);
     for mut block in blocks {
@@ -8494,11 +8494,12 @@ fn blocks_with_model_prompt(
                 }
                 lead.push_str(&verbatim_rules(launch, effective));
             }
-        } else {
+        } else if !wrapped_user {
             let wrapped = model_prompt(launch, effective, &text, memory_session_on, memory_pending);
             if wrapped != text {
                 block["text"] = serde_json::Value::String(wrapped);
             }
+            wrapped_user = true;
         }
         first_text = false;
         out.push(block);
@@ -9456,6 +9457,7 @@ mod tests {
             cli_deny: Vec::new(),
             cli_no_memory: false,
             cli_sandbox: None,
+            cli_disable_web_search: false,
         });
         assert!(effective.memory.enabled(), "{:?}", effective.memory);
         let store = memory::open_store(&effective.grok_home, &effective.cwd).unwrap();
@@ -9676,6 +9678,7 @@ enabled = {enabled}
             cli_deny: Vec::new(),
             cli_no_memory: false,
             cli_sandbox: None,
+            cli_disable_web_search: false,
         });
         assert!(effective.ready, "{:?}", effective.errors);
         effective

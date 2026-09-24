@@ -715,10 +715,10 @@ fn directory_ancestors(path: &Path, write_roots: &[PathBuf]) -> Result<Vec<Strin
             break;
         }
         if write_root_reached(directory, write_roots)? {
-            if !is_temp_write_root(directory) {
-                if let Some(text) = directory.to_str() {
-                    ancestors.push(text.to_string());
-                }
+            if !is_temp_write_root(directory)
+                && let Some(text) = directory.to_str()
+            {
+                ancestors.push(text.to_string());
             }
             break;
         }
