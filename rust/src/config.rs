@@ -2740,14 +2740,24 @@ pub fn compact_env(config: &EffectiveConfig) -> Vec<(String, String)> {
 }
 
 pub fn permission_env(config: &EffectiveConfig) -> Vec<(String, String)> {
-    vec![(
-        "CODSH_PERMISSION_POLICY".into(),
-        config
-            .dsh_home
-            .join(permission::POLICY_FILE_NAME)
-            .display()
-            .to_string(),
-    )]
+    vec![
+        (
+            "CODSH_PERMISSION_POLICY".into(),
+            config
+                .dsh_home
+                .join(permission::POLICY_FILE_NAME)
+                .display()
+                .to_string(),
+        ),
+        (
+            "CODSH_WORKSPACE_TRUSTED".into(),
+            if config.workspace_trusted {
+                "1".into()
+            } else {
+                "0".into()
+            },
+        ),
+    ]
 }
 
 fn generated_settings_yaml(config: &EffectiveConfig) -> Result<String, io::Error> {

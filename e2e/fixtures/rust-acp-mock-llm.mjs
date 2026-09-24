@@ -533,6 +533,39 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_STEPS_DONE calls=${done.length}`)
       return
     }
+    if (MODE === 'hook-bash') {
+      const done = toolResults(options)
+      if (done.length > 0) {
+        const last = done.at(-1)
+        const text = resultText(last)
+        if (last?.isError === true) {
+          yield* mockText(`RUST_ACP_HOOK_DENIED ${text}`)
+          return
+        }
+        yield* mockText(`RUST_ACP_HOOK_DONE ${text}`)
+        return
+      }
+      const prompt = latestUserText(options)
+      if (prompt.includes('BLOCK_THIS_PROMPT')) {
+        yield* mockText('RUST_ACP_HOOK_PROMPT_RAN')
+        return
+      }
+      yield* mockToolCall('rust-acp-hook-bash', 'bash', { command: 'printf HOOK_SIDE_EFFECT', description: 'hook fixture' })
+      return
+    }
+    if (MODE === 'hook-prompt-block') {
+      yield* mockText('RUST_ACP_HOOK_PROMPT_RAN')
+      return
+    }
+    if (MODE === 'hook-stop') {
+      const texts = userTexts(options).join('\n')
+      if (texts.includes('\u241ehook\u241estop hook')) {
+        yield* mockText('RUST_ACP_HOOK_CONTINUED')
+        return
+      }
+      yield* mockText('RUST_ACP_HOOK_STOP_READY')
+      return
+    }
     if (MODE === 'web-search' || MODE === 'web-search-hang' || MODE === 'web-fetch' || MODE === 'web-missing') {
       const done = toolResults(options)
       if (done.length === 0) {

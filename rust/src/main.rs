@@ -3978,13 +3978,24 @@ fn apply_events(
                 }
             }
             AcpEvent::Answer {
-                message_id, text, ..
+                message_id,
+                text,
+                hook,
+                ..
             } => {
                 if let Some(turn) = turns.last_mut()
                     && turn.message_id.as_ref().is_none_or(|id| id == &message_id)
                 {
                     turn.message_id = Some(message_id);
+                    // Hook output stays in the transcript, labeled, and is not
+                    // the model answer.
+                    if hook {
+                        turn.answer.push_str("hook: ");
+                    }
                     turn.answer.push_str(&text);
+                    if hook && !text.ends_with('\n') {
+                        turn.answer.push('\n');
+                    }
                 }
             }
             AcpEvent::ToolCall {
@@ -4114,6 +4125,19 @@ fn apply_events(
             AcpEvent::PermissionCancelled { .. } => {
                 if let Some(turn) = turns.last_mut() {
                     turn.permission = None;
+                }
+            }
+            AcpEvent::Stderr { text } => {
+                if let Some(turn) = turns.last_mut() {
+                    let line = if text.contains("hook") {
+                        format!("hook: {text}")
+                    } else {
+                        text
+                    };
+                    turn.answer.push_str(&line);
+                    if !line.ends_with('\n') {
+                        turn.answer.push('\n');
+                    }
                 }
             }
             AcpEvent::Usage { used, size, cost } => {
@@ -5610,7 +5634,8 @@ fn run_plain_turn(
                 | AcpEvent::ToolCallUpdate { .. }
                 | AcpEvent::Usage { .. }
                 | AcpEvent::ConfigOptions { .. }
-                | AcpEvent::PermissionCancelled { .. } => {}
+                | AcpEvent::PermissionCancelled { .. }
+                | AcpEvent::Stderr { .. } => {}
                 AcpEvent::PermissionRequest {
                     request_id,
                     options,

@@ -223,7 +223,13 @@ another principal, a deployment-key caller with no team, an on-disk sidecar
 that does not name this caller, and fail-closed files with no pubkey and no sidecar.
 Permission modes, allow/ask/deny rules, and remembered project grants are compiled
 into isolated `$DSH_HOME/permission-policy.json` and enforced in the dsh
-`tools/pre-execute` plugin before a real tool body runs. Deny and hook blocks have
+`tools/pre-execute` plugin before a real tool body runs. Released dsh does not
+run Grok lifecycle hooks, so the client plugin runs command hooks at
+SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop, and SessionEnd.
+Exit 2 and `decision: deny` block; other failures are recorded and are not
+success. Hook stdout and stderr stay hook output. An allow does not skip
+permission checks, and a hook cannot widen a sandbox or permission deny.
+Untrusted project hooks stay skipped. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

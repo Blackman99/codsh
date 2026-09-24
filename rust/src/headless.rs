@@ -75,6 +75,8 @@ pub struct HeadlessOutput {
     closed: bool,
     /// Model/tool error text. Empty when the turn itself did not fail.
     error: Option<String>,
+    /// Hook stdout, stderr, and failure lines. Never copied into `text`.
+    diagnostics: Vec<String>,
     /// A non-interactive permission was rejected. Not a successful edit.
     rejected: bool,
     max_turns: bool,
@@ -122,6 +124,7 @@ impl HeadlessOutput {
             begun: Some(Instant::now()),
             closed: false,
             error: None,
+            diagnostics: Vec::new(),
             rejected: false,
             max_turns: false,
             partial_seq: 0,
@@ -208,10 +211,18 @@ impl HeadlessOutput {
                 }
             }
             AcpEvent::Answer {
-                session_id, text, ..
+                session_id,
+                text,
+                hook,
+                ..
             } => {
                 self.note_session(session_id);
                 if text.is_empty() {
+                    return;
+                }
+                // Hook stdout and stderr are not the model answer.
+                if *hook {
+                    self.diagnostics.push(text.clone());
                     return;
                 }
                 self.text.push_str(text);
@@ -332,6 +343,11 @@ impl HeadlessOutput {
             | AcpEvent::PermissionCancelled { .. }
             | AcpEvent::ProtocolMismatch { .. }
             | AcpEvent::Disconnected { .. } => {}
+            AcpEvent::Stderr { text } => {
+                if text.contains("hook") {
+                    self.diagnostics.push(text.clone());
+                }
+            }
         }
     }
 
@@ -645,6 +661,9 @@ impl HeadlessOutput {
     pub fn finish(&mut self, failed: bool, message: &str) {
         match self.format {
             OutputFormat::Plain => {
+                for line in &self.diagnostics {
+                    eprintln!("hook: {line}");
+                }
                 if !self.text.is_empty() {
                     let mut answer = self.text.clone();
                     if !answer.ends_with('\n') {
@@ -885,6 +904,7 @@ mod tests {
             session_id: "session-1".into(),
             message_id: "m1".into(),
             text: "I could not edit the file.".into(),
+            hook: false,
         });
         output.on_event(&AcpEvent::PromptFinished {
             request_id: 4,
@@ -956,6 +976,7 @@ mod tests {
             session_id: "session-1".into(),
             message_id: "m1".into(),
             text: "partial".into(),
+            hook: false,
         });
         let events = parsed_lines(&sink);
         let start = events

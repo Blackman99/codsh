@@ -20,6 +20,8 @@ pub enum AcpEvent {
         session_id: String,
         message_id: String,
         text: String,
+        /// Plugin hook output, not a model answer. Headless stdout omits it.
+        hook: bool,
     },
     PromptFinished {
         request_id: u64,
@@ -72,6 +74,10 @@ pub enum AcpEvent {
     },
     PermissionCancelled {
         session_id: String,
+    },
+    /// A dsh stderr line. Hook failures are labeled; other lines stay raw.
+    Stderr {
+        text: String,
     },
     Usage {
         used: Option<u64>,
@@ -336,6 +342,7 @@ pub struct AcpClient {
 
 enum Line {
     Text(String),
+    Stderr(String),
     Eof,
 }
 
@@ -409,6 +416,7 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_TEST_PRUNE_THRESHOLD",
     "CODSH_PERMISSION_POLICY",
     "CODSH_HOOK_DENY",
+    "CODSH_WORKSPACE_TRUSTED",
     "CODSH_PERMISSION_REMEMBER",
     "CODSH_REVIEW_TRACE",
     "CODSH_WEB_SEARCH",
@@ -516,23 +524,22 @@ impl AcpClient {
             .take()
             .ok_or_else(|| io::Error::other("missing ACP stdout"))?;
         let stderr = child.stderr.take();
-        if let Some(log_path) = spec.stderr_log {
+        let (tx, rx) = mpsc::channel();
+        if let Some(stderr) = stderr {
+            let log_path = spec.stderr_log.clone();
+            let stderr_tx = tx.clone();
             thread::spawn(move || {
-                if let Some(mut stderr) = stderr
-                    && let Ok(mut file) = std::fs::File::create(log_path)
-                {
-                    let _ = io::copy(&mut stderr, &mut file);
-                }
-            });
-        } else {
-            thread::spawn(move || {
-                if let Some(mut stderr) = stderr {
-                    let mut sink = io::sink();
-                    let _ = io::copy(&mut stderr, &mut sink);
+                let mut file = log_path.and_then(|path| std::fs::File::create(path).ok());
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    let Ok(text) = line else { break };
+                    if let Some(file) = file.as_mut() {
+                        let _ = writeln!(file, "{text}");
+                    }
+                    let _ = stderr_tx.send(Line::Stderr(text));
                 }
             });
         }
-        let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
@@ -971,6 +978,7 @@ impl AcpClient {
             };
             match self.rx.recv_timeout(wait) {
                 Ok(Line::Text(line)) => events.extend(self.handle_line(&line)),
+                Ok(Line::Stderr(text)) => events.push(AcpEvent::Stderr { text }),
                 Ok(Line::Eof) => {
                     let detail = self
                         .disconnected
@@ -992,6 +1000,7 @@ impl AcpClient {
                 while let Ok(line) = self.rx.try_recv() {
                     match line {
                         Line::Text(text) => events.extend(self.handle_line(&text)),
+                        Line::Stderr(text) => events.push(AcpEvent::Stderr { text }),
                         Line::Eof => {
                             events.push(AcpEvent::Disconnected {
                                 detail: "ACP connection ended".into(),
@@ -1226,7 +1235,8 @@ impl AcpClient {
             "agent_message_chunk" => vec![AcpEvent::Answer {
                 session_id,
                 message_id,
-                text,
+                text: text.clone(),
+                hook: text.contains("\u{241e}hook\u{241e}"),
             }],
             "tool_call" => {
                 let tool_call_id = update

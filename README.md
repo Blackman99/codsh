@@ -161,7 +161,18 @@ workspace-write fence. Linux and Windows are not marked supported by a macOS
 run. Allow/ask/deny rules, remembered project grants, and permission modes
 (`ask`, `auto`, `always-approve`/`--yolo`, `dontAsk`, `acceptEdits`) are
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
-always-approve survive `--always-approve` and old grants. Unsplittable shell
+always-approve survive `--always-approve` and old grants. Released dsh does
+not run Grok hooks, so `codsh --rust` runs command hooks from
+`$GROK_HOME/hooks/*.json`, trusted `<project>/.grok/hooks/*.json`, and the
+`hooks` table in `config.toml` at SessionStart, UserPromptSubmit, PreToolUse,
+PostToolUse, Stop, and SessionEnd (Cursor camelCase aliases included). Exit 2
+or `{"decision":"deny"}` blocks the prompt or tool; any other non-zero exit,
+timeout, or malformed output is a recorded failure and does not look like
+success. Hook stdout and stderr are shown as hook output, not as the model
+answer. An allowing hook does not skip the permission check, and a hook
+cannot widen a sandbox or permission deny. Untrusted project hooks stay
+skipped. HTTP hooks are not run. A `updatedInput` rewrite is not applied;
+that call is blocked instead of running the original arguments. Unsplittable shell
 (`$(...)`, a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, control flow) is not glob-allowed as a unit; Read/Edit deny also
 covers shell operands; wrappers such as `timeout`, `nice`, `ionice`,
 `sudo`, `nohup`, `xargs`, and
