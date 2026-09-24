@@ -27,4 +27,6 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 with open(port_path, "w", encoding="utf-8") as handle:
     handle.write(str(server.server_address[1]))
+# One process can prove both CODSH_SHARE_URL and an explicit --url.
+server.handle_request()
 server.handle_request()

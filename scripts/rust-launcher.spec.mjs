@@ -78,6 +78,44 @@ describe('Rust import command wiring', () => {
   })
 })
 
+describe('packed share destination', () => {
+  it('forwards CODSH_SHARE_URL so share --help names the substitute the process can see', () => {
+    const binary = join(root, 'packages/cli/native/darwin-arm64/codsh-rust')
+    if (process.platform !== 'darwin' || process.arch !== 'arm64' || !existsSync(binary)) return
+    const dir = mkdtempSync(join(tmpdir(), 'codsh-rust-share-url-'))
+    try {
+      const pack = JSON.parse(execFileSync('npm', ['pack', '--json', '--ignore-scripts', '--offline', '--pack-destination', dir], {
+        cwd: join(root, 'packages/cli'), encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: dir,
+          npm_config_cache: join(dir, 'cache'),
+          npm_config_update_notifier: 'false',
+        },
+      }))[0].filename
+      execFileSync('tar', ['-xzf', join(dir, pack), '-C', dir])
+      const marker = 'http://127.0.0.1:9/codsh-share-marker'
+      const home = join(dir, 'home')
+      mkdirSync(home, { recursive: true })
+      const result = spawnSync(process.execPath, [join(dir, 'package/bin/codsh.mjs'), '--rust', 'share', '--help'], {
+        encoding: 'utf8',
+        timeout: 20000,
+        env: {
+          PATH: process.env.PATH,
+          HOME: home,
+          TERM: 'xterm-256color',
+          CODSH_SHARE_URL: marker,
+        },
+      })
+      expect(result.error).toBeUndefined()
+      expect(result.status, result.stderr).toBe(0)
+      expect(`${result.stdout}\n${result.stderr}`).toContain(marker)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20000)
+})
+
 describe('packed vendor skill overrides', () => {
   it('forwards GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED so off skips vendor scans', () => {
     const binary = join(root, 'packages/cli/native/darwin-arm64/codsh-rust')

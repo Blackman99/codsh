@@ -331,6 +331,7 @@ enum LaunchMode {
     Dashboard,
     Export(session_data::ExportRequest),
     Share(session_data::ShareRequest),
+    ShareHelp,
     DiskUsage {
         json: bool,
     },
@@ -729,7 +730,10 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         ["sessions", flags @ ..] => LaunchMode::Sessions(session_catalog::parse_sessions(flags)?),
         ["export"] => return Err(io::Error::other(session_data::export_help())),
         ["export", flags @ ..] => LaunchMode::Export(session_data::parse_export(flags)?),
-        ["share"] => return Err(io::Error::other(session_data::share_help())),
+        ["share"] => LaunchMode::ShareHelp,
+        ["share", flags @ ..] if flags.iter().any(|flag| *flag == "--help" || *flag == "-h") => {
+            LaunchMode::ShareHelp
+        }
         ["share", flags @ ..] => LaunchMode::Share(session_data::parse_share(flags)?),
         ["du"] | ["disk-usage"] => LaunchMode::DiskUsage { json: false },
         ["du", flags @ ..] | ["disk-usage", flags @ ..] => LaunchMode::DiskUsage {
@@ -4051,6 +4055,12 @@ fn run() -> io::Result<()> {
                 Ok(_) => Ok(()),
                 Err(error) => Err(io::Error::other(error.message)),
             };
+        }
+        LaunchMode::ShareHelp => {
+            let loaded = load_runtime_config(&launch);
+            let visible = share_destination(&loaded, None);
+            println!("{}", session_data::share_help_visible(visible.as_deref()));
+            return Ok(());
         }
         LaunchMode::Share(request) => {
             let loaded = load_runtime_config(&launch);

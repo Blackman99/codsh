@@ -222,6 +222,16 @@ Options:\n      \
 Sharing is off unless this command is explicit and a substitute service is configured. Official grok.com, api.x.ai, and sentry hosts are refused. A missing service is an error, not a local success URL."
 }
 
+/// Help that names the substitute this process can see. Official hosts stay unnamed.
+pub fn share_help_visible(configured: Option<&str>) -> String {
+    match configured.map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) if !privacy::is_official_endpoint(url) => {
+            format!("{}\n\nConfigured substitute: {url}", share_help())
+        }
+        _ => share_help().to_string(),
+    }
+}
+
 pub fn parse_delete(flags: &[&str]) -> io::Result<DeleteRequest> {
     if flags.iter().any(|flag| *flag == "--help" || *flag == "-h") {
         return Err(io::Error::other(delete_help()));
@@ -270,7 +280,7 @@ Usage: codsh --rust du [OPTIONS]\n       codsh --rust disk-usage [OPTIONS]\n\n\
 Options:\n      \
 --json                  Emit machine-readable JSON output\n  \
 -h, --help              Print help\n\n\
-Lists top-level directories under $GROK_HOME, largest first, plus the isolated dsh sessions directory when it is outside that home. Worktree pools and Grove redirections are not measured here. A directory that cannot be read is counted in unreadable_dirs and is not deleted."
+Lists top-level directories under $GROK_HOME, largest first, plus the isolated dsh tree when it sits beside that home. Worktree pools and Grove redirections are not measured here. A directory that cannot be read is counted in unreadable_dirs and is not deleted."
 }
 
 pub fn export_session(
@@ -517,7 +527,20 @@ pub fn collect_disk(grok_home: &Path, dsh_home: &Path) -> Result<DiskReport, Dat
         }
     }
     let sessions = dsh_home.join("sessions");
-    if sessions.is_dir() && !sessions.starts_with(grok_home) {
+    // Isolated layout is ~/.codsh-rust/.grok beside ~/.codsh-rust/dsh. Name
+    // that dsh tree once. A sessions directory that is not inside it is still
+    // listed on its own; counting both would double the same bytes.
+    let dsh_beside =
+        dsh_home.is_dir() && !dsh_home.starts_with(grok_home) && !grok_home.starts_with(dsh_home);
+    if dsh_beside {
+        match dir_size(dsh_home) {
+            Ok(bytes) => dirs.push(DirUsage {
+                name: "dsh".into(),
+                bytes,
+            }),
+            Err(_) => unreadable += 1,
+        }
+    } else if sessions.is_dir() && !sessions.starts_with(grok_home) {
         match dir_size(&sessions) {
             Ok(bytes) => dirs.push(DirUsage {
                 name: "dsh-sessions".into(),
@@ -719,6 +742,11 @@ fn render_markdown(
                 let id = message
                     .get("toolCallId")
                     .or_else(|| message.get("callId"))
+                    .or_else(|| {
+                        message
+                            .get("source")
+                            .and_then(|source| source.get("callId"))
+                    })
                     .or_else(|| data.get("callId"))
                     .and_then(Value::as_str)
                     .unwrap_or("");
@@ -761,6 +789,26 @@ fn message_text(event: &Value) -> String {
             && let Some(text) = block.get("text").and_then(Value::as_str)
         {
             parts.push(text.to_string());
+        } else if kind == "tool-result" {
+            // Live dsh nests the result text one level under content[].content[].
+            parts.push(message_text_from_blocks(block.get("content")));
+        }
+    }
+    parts.join("")
+}
+
+fn message_text_from_blocks(content: Option<&Value>) -> String {
+    let Some(blocks) = content.and_then(Value::as_array) else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for block in blocks {
+        if matches!(
+            block.get("type").and_then(Value::as_str),
+            Some("text" | "reasoning")
+        ) && let Some(text) = block.get("text").and_then(Value::as_str)
+        {
+            parts.push(text.to_string());
         }
     }
     parts.join("")
@@ -781,10 +829,12 @@ fn attachment_lines(event: &Value) -> String {
     for block in content {
         let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
         if kind == "resource_link" || kind == "image" || kind == "file" {
+            let attachment = block.get("attachment");
             let path = block
                 .get("uri")
                 .or_else(|| block.get("path"))
                 .or_else(|| block.get("name"))
+                .or_else(|| attachment.and_then(|item| item.get("name")))
                 .and_then(Value::as_str)
                 .unwrap_or("(unnamed)");
             lines.push(format!("- {kind}: {path}"));
@@ -1050,6 +1100,123 @@ mod tests {
     }
 
     #[test]
+    fn export_reads_live_dsh_shapes_and_skips_plugin_snapshots() {
+        let home = temp_home();
+        let cwd = home.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let id = "33333333-3333-4333-8333-333333333333";
+        let project = session_catalog::project_key_for_test(cwd.to_str().unwrap());
+        let encoded: String = id
+            .chars()
+            .map(|ch| {
+                if ch == '-' {
+                    "~002D".to_string()
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect();
+        let dir = home.join("sessions").join(&project).join(encoded);
+        fs::create_dir_all(&dir).unwrap();
+        let cwd_text = cwd.to_str().unwrap();
+        let body = format!(
+            "{header}\n{agents}\n{skills}\n{user}\n{call}\n{result}\n{answer}\n",
+            header = json!({
+                "type": "session",
+                "version": 3,
+                "id": id,
+                "createdAt": 10,
+                "isSeeded": false,
+                "delegationDepth": 0,
+                "cwd": cwd_text,
+            }),
+            agents = json!({
+                "type": "user/message",
+                "seq": 1,
+                "data": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "AGENT_INSTRUCTIONS_SECRET"}],
+                    "source": {"kind": "plugin", "plugin": "agent-instructions"}
+                }
+            }),
+            skills = json!({
+                "type": "user/message",
+                "seq": 2,
+                "data": {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "SKILL_CATALOG_SECRET"}],
+                    "source": {"kind": "plugin", "plugin": "skill-catalog"}
+                }
+            }),
+            user = json!({
+                "type": "user/message",
+                "seq": 3,
+                "data": {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "LIVE_USER_PROMPT"},
+                        {"type": "image", "attachment": {"name": "shot.png", "mediaType": "image/png"}}
+                    ],
+                    "source": {"kind": "user"}
+                }
+            }),
+            call = json!({
+                "type": "tool/call",
+                "seq": 4,
+                "data": {"callId": "call-live", "name": "read", "arguments": "{\"file_path\":\"shot.png\"}", "step": 1, "turn": 1}
+            }),
+            result = json!({
+                "type": "tool/result",
+                "seq": 5,
+                "data": {
+                    "message": {
+                        "role": "user",
+                        "content": [{
+                            "type": "tool-result",
+                            "toolCallId": "call-live",
+                            "isError": false,
+                            "content": [{"type": "text", "text": "NESTED_TOOL_TEXT"}]
+                        }],
+                        "source": {"kind": "tool", "callId": "call-live"}
+                    }
+                }
+            }),
+            answer = json!({
+                "type": "assistant/message",
+                "seq": 6,
+                "data": {"message": {"content": [{"type": "text", "text": "saw LIVE_USER_PROMPT"}]}}
+            }),
+        );
+        let encoded_log = zstd::encode_all(body.as_bytes(), 0).unwrap();
+        fs::write(dir.join("session.v3.jsonl.zstd"), encoded_log).unwrap();
+        let out_path = home.join("live.md");
+        let mut sink = Vec::new();
+        export_session(
+            &home,
+            &cwd,
+            &ExportRequest {
+                session_id: id.into(),
+                target: ExportTarget::File(out_path.clone()),
+            },
+            &mut sink,
+        )
+        .unwrap();
+        let written = fs::read_to_string(&out_path).unwrap();
+        assert!(written.contains("LIVE_USER_PROMPT"), "{written}");
+        assert!(written.contains("shot.png"), "{written}");
+        assert!(written.contains("call-live"), "{written}");
+        assert!(written.contains("NESTED_TOOL_TEXT"), "{written}");
+        assert!(written.contains("## User"), "{written}");
+        assert!(!written.contains("AGENT_INSTRUCTIONS_SECRET"), "{written}");
+        assert!(!written.contains("SKILL_CATALOG_SECRET"), "{written}");
+        let user_blocks: Vec<_> = written
+            .split("## ")
+            .filter(|section| section.starts_with("User"))
+            .collect();
+        assert_eq!(user_blocks.len(), 1, "{written}");
+    }
+
+    #[test]
     fn share_without_a_service_does_not_claim_success() {
         let home = temp_home();
         let cwd = home.join("workspace");
@@ -1219,5 +1386,38 @@ mod tests {
         let text = format_disk(&report);
         assert!(text.contains("sessions"));
         assert!(text.contains("does not delete"));
+    }
+
+    #[test]
+    fn disk_json_names_the_isolated_dsh_tree_beside_grok_home() {
+        let root = temp_home();
+        let grok = root.join(".grok");
+        let dsh = root.join("dsh");
+        fs::create_dir_all(grok.join("config")).unwrap();
+        fs::create_dir_all(dsh.join("sessions").join("one")).unwrap();
+        touch_for_size(&grok.join("config").join("note"), 8).unwrap();
+        touch_for_size(
+            &dsh.join("sessions").join("one").join("session.v1.jsonl"),
+            2048,
+        )
+        .unwrap();
+        let report = collect_disk(&grok, &dsh).unwrap();
+        let names: Vec<_> = report
+            .top_level_dirs
+            .iter()
+            .map(|dir| dir.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"dsh"),
+            "isolated dsh tree missing from {names:?}"
+        );
+        let dsh_bytes = report
+            .top_level_dirs
+            .iter()
+            .find(|dir| dir.name == "dsh")
+            .map(|dir| dir.bytes)
+            .unwrap_or(0);
+        assert!(dsh_bytes >= 2048, "{dsh_bytes}");
+        assert!(report.note.contains("does not delete"));
     }
 }

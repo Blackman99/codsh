@@ -133,6 +133,11 @@ def main():
                     port = port_file.read_text().strip()
                 time.sleep(0.02)
             assert port, 'share fixture did not bind'
+            env_shared = cli(
+                launcher, cwd, {**base_env, 'CODSH_SHARE_URL': f'http://127.0.0.1:{port}/share'},
+                'share', drop_id)
+            assert env_shared.returncode == 0, env_shared.stderr + env_shared.stdout
+            assert 'http://127.0.0.1/shared/selected' in env_shared.stdout
             shared = cli(
                 launcher, cwd, base_env, 'share', '--url', f'http://127.0.0.1:{port}/share', drop_id)
             server.wait(timeout=5)
@@ -173,6 +178,8 @@ def main():
         assert report['schema_version'] == 1
         assert report['total_bytes'] >= 0
         assert 'does not delete' in report['note']
+        names = [item['name'] for item in report['top_level_dirs']]
+        assert 'dsh' in names, names
         print('session-data-pty ok', drop_id, keep_id)
 
 

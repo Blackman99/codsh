@@ -505,6 +505,7 @@ fn read_session_dir(
             continue;
         };
         if event.get("type").and_then(Value::as_str) == Some("user/message")
+            && !plugin_user_snapshot(&event)
             && let Some(prompt) = user_prompt(&event)
         {
             prompts.push(prompt);
@@ -637,6 +638,22 @@ fn read_session_log(path: &Path) -> io::Result<String> {
         bytes
     };
     String::from_utf8(plain).map_err(io::Error::other)
+}
+
+fn plugin_user_snapshot(event: &Value) -> bool {
+    let source = event
+        .get("data")
+        .and_then(|data| data.get("source"))
+        .or_else(|| {
+            event
+                .get("data")
+                .and_then(|data| data.get("message"))
+                .and_then(|message| message.get("source"))
+        });
+    source
+        .and_then(|value| value.get("kind"))
+        .and_then(Value::as_str)
+        == Some("plugin")
 }
 
 fn user_prompt(event: &Value) -> Option<String> {
@@ -1611,7 +1628,12 @@ pub fn handle_dashboard_key(
             if view.cursor > 0 {
                 view.cursor -= 1;
             }
-            view.selected = rows.get(view.cursor).map(|session| session.id.clone());
+            let next = rows.get(view.cursor).map(|session| session.id.clone());
+            if view.delete_armed.is_some() && view.delete_armed != next {
+                view.delete_armed = None;
+                view.notice = "delete cancelled".into();
+            }
+            view.selected = next;
             None
         }
         (DashboardFocus::List, DashKey::Down) | (DashboardFocus::Dispatch, DashKey::Down)
@@ -1620,7 +1642,12 @@ pub fn handle_dashboard_key(
             if view.cursor + 1 < rows.len() {
                 view.cursor += 1;
             }
-            view.selected = rows.get(view.cursor).map(|session| session.id.clone());
+            let next = rows.get(view.cursor).map(|session| session.id.clone());
+            if view.delete_armed.is_some() && view.delete_armed != next {
+                view.delete_armed = None;
+                view.notice = "delete cancelled".into();
+            }
+            view.selected = next;
             None
         }
         (DashboardFocus::Dispatch, DashKey::Char(ch)) => {
@@ -2403,6 +2430,40 @@ mod tests {
         assert!(rows.iter().all(|line| !line.contains(second)), "{shown}");
         let open = handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Enter);
         assert_eq!(open.as_deref(), Some(format!("open {first}").as_str()));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn moving_the_highlight_clears_an_armed_delete() {
+        let home = temp_home();
+        let cwd = home.join("work");
+        fs::create_dir_all(&cwd).unwrap();
+        let first = "11111111-1111-4111-8111-111111111111";
+        let second = "22222222-2222-4222-8222-222222222222";
+        write_session(&home, first, cwd.to_str().unwrap(), &["alpha"], 1);
+        write_session(&home, second, cwd.to_str().unwrap(), &["beta"], 2);
+        let catalog = load_catalog(&home, &cwd);
+        let mut view = DashboardView::open(&catalog.sessions);
+        view.selected = Some(first.into());
+        view.cursor = catalog
+            .sessions
+            .iter()
+            .position(|session| session.id == first)
+            .unwrap_or(0);
+        assert!(handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Ctrl('x')).is_none());
+        assert_eq!(view.delete_armed.as_deref(), Some(first));
+        handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Down);
+        assert!(
+            view.delete_armed.is_none(),
+            "highlight moved but delete stayed armed for {}",
+            view.delete_armed.as_deref().unwrap_or("")
+        );
+        let again = handle_dashboard_key(&mut view, &catalog.sessions, DashKey::Ctrl('x'));
+        assert!(
+            again.is_none(),
+            "first Ctrl+X after a move must re-arm, not delete"
+        );
+        assert_eq!(view.delete_armed.as_deref(), view.selected.as_deref());
         let _ = fs::remove_dir_all(home);
     }
 
