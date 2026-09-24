@@ -81,11 +81,14 @@ failed submit keeps the draft for edit or delete. Draft text is included only
 when `privacy.share_content` is on. `privacy.share_session` attaches the session
 id to an enabled trace upload and nothing else. `export` writes one session's
 stored transcript as Markdown and does not claim redaction; an extra argument
-is rejected before a file is created. `share` posts that transcript only to
+is rejected before a file is created. A symlink at the sessions root, a
+project directory, a session directory, or the log file is not read, so
+export and share stay inside the real sessions tree. `share` posts that transcript only to
 the explicitly selected substitute and does not follow a redirect. Session
 deletion is blocked: released dsh persistence has create, open, flush, stat,
 and list, and no deletion operation, so CLI delete, `/delete`, the resume
-picker, and the dashboard remove nothing. `du` reports isolated-home sizes
+picker, and the dashboard remove nothing. The picker says that asking to
+delete is blocked. `du` reports isolated-home sizes
 and deletes nothing. Diagnostic previews and
 `GROK_DEBUG_LOG` contain kind/ok/count only. `GROK_LOG_FILE` and
 `GROK_HOOKS_LOG` are unwired: the launcher does not pass them, and no Rust

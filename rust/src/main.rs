@@ -369,7 +369,8 @@ enum Overlay {
         query: String,
         /// A refused resume stays on this picker. Empty while the list is clean.
         refusal: String,
-        /// `d` then `y` deletes the highlighted session. Esc or any other key cancels.
+        /// `d` then `y` asks to delete the highlighted session. Deletion is
+        /// blocked, so nothing is removed. Esc or any other key cancels.
         delete_armed: bool,
     },
     DeleteConfirm {
@@ -2588,7 +2589,7 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
                         .map(|hit| session_data::confirm_delete_prompt(&hit.session.id))
                         .unwrap_or_else(|| "delete cancelled".into())
                 } else {
-                    "d then y deletes the highlighted session".into()
+                    "d then y asks to delete the highlighted session; deletion is blocked and nothing is removed".into()
                 }
             ),
             refusal,

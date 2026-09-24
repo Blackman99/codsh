@@ -973,6 +973,211 @@ mod tests {
         let _ = keep;
     }
 
+    fn outside_log(path: &Path, id: &str, secret: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        let body = format!(
+            "{header}\n{user}\n",
+            header = json!({
+                "type": "session",
+                "version": 1,
+                "id": id,
+                "createdAt": 10,
+                "isSeeded": false,
+                "delegationDepth": 0,
+                "cwd": "/outside",
+            }),
+            user = json!({
+                "type": "user/message",
+                "seq": 1,
+                "data": {"message": {"content": [{"type": "text", "text": secret}]}}
+            }),
+        );
+        fs::write(path, body).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_and_share_refuse_symlinked_session_roots_projects_dirs_and_logs() {
+        use std::os::unix::fs::symlink;
+        let home = temp_home();
+        let cwd = home.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let real_id = "44444444-4444-4444-8444-444444444444";
+        write_session(
+            &home,
+            real_id,
+            &cwd,
+            "REAL_PROMPT",
+            "real-secret",
+            "real-tool",
+        );
+        let outside = home.join("outside");
+        let outside_id = "55555555-5555-4555-8555-555555555555";
+        let outside_secret = "OUTSIDE_SECRET";
+        let outside_dir = outside.join("session-dir");
+        outside_log(
+            &outside_dir.join("session.jsonl"),
+            outside_id,
+            outside_secret,
+        );
+        let project = session_catalog::project_key_for_test(cwd.to_str().unwrap());
+        let sessions = home.join("sessions");
+        let project_dir = sessions.join(&project);
+        symlink(&outside_dir, project_dir.join("linked-session")).unwrap();
+        let outside_project = outside.join("project");
+        outside_log(
+            &outside_project.join("nested").join("session.jsonl"),
+            outside_id,
+            outside_secret,
+        );
+        symlink(&outside_project, sessions.join("linked-project")).unwrap();
+        let real_encoded: String = real_id
+            .chars()
+            .map(|ch| {
+                if ch == '-' {
+                    "~002D".to_string()
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect();
+        let real_log = project_dir.join(&real_encoded).join("session.jsonl");
+        let parked = project_dir.join(&real_encoded).join("session.jsonl.real");
+        let decoy = project_dir.join(&real_encoded).join("session.jsonl.link");
+        symlink(outside_dir.join("session.jsonl"), &decoy).unwrap();
+        fs::rename(&real_log, &parked).unwrap();
+        symlink(outside_dir.join("session.jsonl"), &real_log).unwrap();
+        let linked_root_home = home.join("linked-root-home");
+        fs::create_dir_all(&linked_root_home).unwrap();
+        symlink(&outside, linked_root_home.join("sessions")).unwrap();
+        let outside_before = fs::read(outside_dir.join("session.jsonl")).unwrap();
+        let hidden = session_catalog::load_catalog(&home, &cwd);
+        assert!(
+            hidden
+                .sessions
+                .iter()
+                .all(|session| session.id != outside_id),
+            "catalog published a symlinked session: {:?}",
+            hidden
+                .sessions
+                .iter()
+                .map(|session| &session.id)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            hidden.sessions.iter().all(|session| session.id != real_id),
+            "catalog followed a symlinked log"
+        );
+        let export_path = home.join("leaked.md");
+        let mut sink = Vec::new();
+        let export_error = export_session(
+            &home,
+            &cwd,
+            &ExportRequest {
+                session_id: outside_id.into(),
+                target: ExportTarget::File(export_path.clone()),
+            },
+            &mut sink,
+        )
+        .unwrap_err();
+        assert!(
+            export_error.message.contains("not found")
+                || export_error.message.contains("refusing symlinked"),
+            "{export_error}"
+        );
+        assert!(!export_path.exists(), "symlink export created a file");
+        assert!(
+            !String::from_utf8_lossy(&sink).contains(outside_secret),
+            "export wrote the outside secret"
+        );
+        let share_error = share_session(
+            &home,
+            &cwd,
+            &ShareRequest {
+                session_id: outside_id.into(),
+                url: Some("http://127.0.0.1:9/share".into()),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            share_error.message.contains("not found")
+                || share_error.message.contains("refusing symlinked"),
+            "{share_error}"
+        );
+        assert!(
+            !share_error.message.contains(outside_secret),
+            "share error included the outside secret"
+        );
+        let root_error = export_session(
+            &linked_root_home,
+            &cwd,
+            &ExportRequest {
+                session_id: outside_id.into(),
+                target: ExportTarget::File(export_path.clone()),
+            },
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+        assert!(root_error.message.contains("not found"), "{root_error}");
+        assert!(!export_path.exists());
+        assert_eq!(
+            fs::read(outside_dir.join("session.jsonl")).unwrap(),
+            outside_before
+        );
+        fs::remove_file(&real_log).unwrap();
+        fs::rename(&parked, &real_log).unwrap();
+        fs::remove_file(&decoy).unwrap();
+        let plain = fs::read_to_string(&real_log).unwrap();
+        let compressed = zstd::encode_all(plain.as_bytes(), 0).unwrap();
+        fs::write(
+            real_log.with_file_name("session.v1.jsonl.zstd"),
+            &compressed,
+        )
+        .unwrap();
+        fs::remove_file(&real_log).unwrap();
+        let zstd_out = home.join("real.md");
+        let mut sink = Vec::new();
+        export_session(
+            &home,
+            &cwd,
+            &ExportRequest {
+                session_id: real_id.into(),
+                target: ExportTarget::File(zstd_out.clone()),
+            },
+            &mut sink,
+        )
+        .unwrap();
+        let written = fs::read_to_string(&zstd_out).unwrap();
+        assert!(written.contains("REAL_PROMPT"), "{written}");
+        assert!(written.contains("real-secret"), "{written}");
+        assert!(!written.contains(outside_secret), "{written}");
+        assert_eq!(
+            fs::read(outside_dir.join("session.jsonl")).unwrap(),
+            outside_before,
+            "outside file changed"
+        );
+        let catalog = session_catalog::load_catalog(&home, &cwd);
+        assert!(
+            catalog
+                .sessions
+                .iter()
+                .all(|session| session.id != outside_id)
+        );
+        let resolved = catalog
+            .sessions
+            .iter()
+            .find(|session| session.id == real_id)
+            .expect("real session missing after the log was restored");
+        assert!(
+            resolved.log_path.ends_with("session.v1.jsonl.zstd"),
+            "{}",
+            resolved.log_path.display()
+        );
+        assert!(!resolved.log_path.as_os_str().is_empty());
+    }
+
     #[test]
     fn export_reads_live_dsh_shapes_and_skips_plugin_snapshots() {
         let home = temp_home();

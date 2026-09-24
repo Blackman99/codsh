@@ -131,9 +131,8 @@ pub struct SessionRecord {
     pub owner_pid: Option<u32>,
     pub foreign: Option<String>,
     pub damaged: bool,
-    /// Directory the catalog already resolved, and the newest log inside it.
+    /// Newest real log the catalog walk already resolved.
     /// Empty when the record came from a projection or a foreign index.
-    pub log_dir: PathBuf,
     pub log_path: PathBuf,
 }
 
@@ -301,7 +300,6 @@ pub fn load_catalog(dsh_home: &Path, cwd: &Path) -> Catalog {
             let located = read_plaintext_sessions(dsh_home, &titles, &activity, &mut Vec::new());
             for session in &mut projected {
                 if let Some(found) = located.iter().find(|item| item.id == session.id) {
-                    session.log_dir.clone_from(&found.log_dir);
                     session.log_path.clone_from(&found.log_path);
                 }
             }
@@ -426,7 +424,6 @@ fn session_from_projection(
         owner_pid,
         foreign: None,
         damaged: row.get("damaged").and_then(Value::as_bool).unwrap_or(false),
-        log_dir: PathBuf::new(),
         log_path: PathBuf::new(),
     })
 }
@@ -439,13 +436,14 @@ fn read_plaintext_sessions(
 ) -> Vec<SessionRecord> {
     let mut sessions = Vec::new();
     let root = dsh_home.join("sessions");
-    if !root.is_dir() {
+    // A symlinked sessions root points outside the isolated tree. Do not walk it.
+    if !real_directory(&root) {
         return sessions;
     }
     let projects = fs::read_dir(&root).into_iter().flatten();
     for project in projects.flatten() {
         let project_path = project.path();
-        if !project_path.is_dir() {
+        if !real_directory(&project_path) {
             continue;
         }
         collect_session_dirs(&project_path, titles, activity, &mut sessions, warnings);
@@ -471,7 +469,7 @@ fn collect_session_dirs(
     let entries = fs::read_dir(dir).into_iter().flatten();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if real_directory(&path) {
             collect_session_dirs(&path, titles, activity, sessions, warnings);
         }
     }
@@ -553,7 +551,6 @@ fn read_session_dir(
         owner_pid,
         foreign: None,
         damaged,
-        log_dir: dir.to_path_buf(),
         log_path: log,
     }))
 }
@@ -622,19 +619,41 @@ fn encode_segment(raw: &str) -> String {
 }
 
 pub(crate) fn newest_session_log(dir: &Path) -> Option<PathBuf> {
+    if !real_directory(dir) {
+        return None;
+    }
     let mut best: Option<(u64, PathBuf)> = None;
     let entries = fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
+        let path = entry.path();
+        // A log symlink can point outside the session directory. Skip it.
+        if !real_file(&path) {
+            continue;
+        }
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let Some(version) = generation_version(&name) else {
             continue;
         };
         if best.as_ref().is_none_or(|(current, _)| version >= *current) {
-            best = Some((version, entry.path()));
+            best = Some((version, path));
         }
     }
     best.map(|(_, path)| path)
+}
+
+/// A directory the catalog may walk. `is_dir` follows links, so a symlink
+/// under `sessions/` would otherwise be treated as a real session tree.
+fn real_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+}
+
+fn real_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|meta| meta.is_file() && !meta.file_type().is_symlink())
 }
 
 pub(crate) fn generation_version(name: &str) -> Option<u64> {
@@ -651,6 +670,13 @@ pub(crate) fn generation_version(name: &str) -> Option<u64> {
 }
 
 pub(crate) fn read_session_log(path: &Path) -> io::Result<String> {
+    // Catalog selection already skips links. Refuse again so a stored path
+    // cannot be swapped for a symlink before export or share reads it.
+    if !real_file(path) {
+        return Err(io::Error::other(
+            "refusing symlinked or non-file session log",
+        ));
+    }
     let bytes = fs::read(path)?;
     let plain = if path.extension().and_then(|ext| ext.to_str()) == Some("zstd") {
         zstd::decode_all(bytes.as_slice()).map_err(|error| io::Error::other(error.to_string()))?
@@ -1631,7 +1657,8 @@ pub fn handle_dashboard_key(
                 Some(format!("delete {id}"))
             } else {
                 view.delete_armed = Some(id.clone());
-                view.notice = format!("Ctrl+X again deletes {id}; Esc cancels");
+                view.notice =
+                    format!("Ctrl+X again asks to delete {id}, which is blocked; Esc cancels");
                 None
             }
         }
@@ -1896,7 +1923,6 @@ fn read_foreign(dsh_home: &Path, warnings: &mut Vec<String>) -> Vec<SessionRecor
                 owner_pid: None,
                 foreign: Some(vendor.to_string()),
                 damaged: false,
-                log_dir: PathBuf::new(),
                 log_path: PathBuf::new(),
             });
         }
