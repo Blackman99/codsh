@@ -32,6 +32,10 @@ pub struct Browser {
     /// Session gate. Independent of the process/config enablement.
     pub session_enabled: bool,
     pub force_off: bool,
+    /// True once this session already sent a turn (its first-turn injection
+    /// window is closed). A fresh `t` toggle to on then only takes effect
+    /// starting the next new session, not the rest of this one.
+    pub turn_sent: bool,
     pub pending_note: String,
     pub pending_scope: Scope,
     pub fullscreen: bool,
@@ -66,6 +70,7 @@ impl Default for Browser {
             notice: String::new(),
             session_enabled: false,
             force_off: false,
+            turn_sent: false,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -76,7 +81,7 @@ impl Default for Browser {
 }
 
 impl Browser {
-    pub fn open(store: &Store, session_enabled: bool, force_off: bool) -> Self {
+    pub fn open(store: &Store, session_enabled: bool, force_off: bool, turn_sent: bool) -> Self {
         let notes = memory::list_notes(store).unwrap_or_default();
         Self {
             cursor: 0,
@@ -91,6 +96,7 @@ impl Browser {
             notes,
             session_enabled,
             force_off,
+            turn_sent,
             pending_note: String::new(),
             pending_scope: Scope::Workspace,
             fullscreen: false,
@@ -243,7 +249,14 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Stri
         Key::Char('t') => {
             browser.session_enabled = !browser.session_enabled;
             browser.notice = if browser.session_enabled {
-                "memory on for this session; config.toml was not changed".into()
+                if browser.turn_sent {
+                    // First-turn injection already ran or was skipped for
+                    // this session; turning memory on now cannot reach an
+                    // already-sent prompt, only the next new session.
+                    "memory on from the next new session; config.toml was not changed".into()
+                } else {
+                    "memory on for this session; config.toml was not changed".into()
+                }
             } else {
                 let kept = memory::disable_keeps_files(store)
                     .map(|files| files.len())
@@ -659,7 +672,7 @@ mod tests {
             )
             .unwrap();
         }
-        let mut browser = Browser::open(&store, true, false);
+        let mut browser = Browser::open(&store, true, false, false);
         browser.set_columns(100);
         for _ in 0..browser.visible().len().saturating_sub(1) {
             handle_key(&mut browser, &store, Key::Down);
@@ -704,7 +717,7 @@ mod tests {
         let sessions = store.workspace_dir.join("sessions");
         fs::create_dir_all(&sessions).unwrap();
         fs::write(sessions.join("day.md"), "session log\n").unwrap();
-        let mut browser = Browser::open(&store, true, false);
+        let mut browser = Browser::open(&store, true, false, false);
         let text = render(&browser, &store);
         assert!(text.contains("[workspace]"));
         assert!(text.contains("[global]"));
@@ -745,7 +758,7 @@ mod tests {
     #[test]
     fn remember_writes_only_after_confirm_and_toggle_keeps_files() {
         let (_dir, store) = store();
-        let mut browser = Browser::open(&store, false, false);
+        let mut browser = Browser::open(&store, false, false, false);
         assert!(render(&browser, &store).contains("No memory notes"));
         begin_remember(&mut browser, &store, "always open PR links", Scope::Global);
         assert!(browser.notice.contains("Save this note"));
@@ -772,13 +785,44 @@ mod tests {
     }
 
     #[test]
+    fn toggle_notice_says_next_new_session_once_a_turn_already_ran() {
+        let (_dir, store) = store();
+        // Fresh session, no turn sent yet: `t` still reaches this session.
+        let mut fresh = Browser::open(&store, false, false, false);
+        handle_key(&mut fresh, &store, Key::Char('t'));
+        assert!(fresh.session_enabled);
+        assert!(
+            fresh.notice.contains("memory on for this session"),
+            "{}",
+            fresh.notice
+        );
+        assert!(
+            !fresh.notice.contains("next new session"),
+            "{}",
+            fresh.notice
+        );
+
+        // A turn already ran this session: turning memory on now cannot
+        // reach an already-sent prompt, only the next new session.
+        let mut mid = Browser::open(&store, false, false, true);
+        handle_key(&mut mid, &store, Key::Char('t'));
+        assert!(mid.session_enabled);
+        assert!(
+            mid.notice.contains("memory on from the next new session"),
+            "{}",
+            mid.notice
+        );
+        assert!(mid.notice.contains("config.toml was not changed"));
+    }
+
+    #[test]
     fn damaged_index_warning_is_visible() {
         let (dir, store) = store();
         memory::save_note(&store, Scope::Workspace, "visible fact").unwrap();
         fs::write(store.workspace_dir.join("index.sqlite"), b"not sqlite").unwrap();
         let reopened =
             memory::open_store(&dir.path().join(".grok"), &dir.path().join("repo")).unwrap();
-        let browser = Browser::open(&reopened, true, false);
+        let browser = Browser::open(&reopened, true, false, false);
         let text = render(&browser, &reopened);
         assert!(text.contains("damaged"), "{text}");
         assert!(text.contains("MEMORY.md"));
@@ -794,7 +838,7 @@ mod tests {
     fn force_off_hides_the_browser() {
         let (_dir, store) = store();
         memory::save_note(&store, Scope::Global, "secret fact").unwrap();
-        let browser = Browser::open(&store, false, true);
+        let browser = Browser::open(&store, false, true, false);
         let text = render(&browser, &store);
         assert!(text.contains("force-disabled") || text.contains("off for this process"));
         assert!(!text.contains("secret fact"));

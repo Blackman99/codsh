@@ -164,6 +164,75 @@ enabled = true
             session.pump(0.3)
             session.write('\x1b')  # close the browser
             session.wait_visible('memory on for this session', 5)
+
+            # Regression for ticket 53 / issue 185: an empty `/remember`
+            # (bare two-step draft, no inline text) used to open the
+            # confirmation modal with the config value instead of the live
+            # `t` toggle. Saving or cancelling then silently reset the
+            # session switch back to config.toml's `enabled = true`.
+            session.write('/memory\r')
+            session.wait_visible('Memory', 10)
+            session.write('t')
+            session.wait_visible('memory off for this session', 5)
+            session.write('\x1b')
+            session.wait_visible('memory off for this session; files kept', 5)
+            session.write('/remember\r')
+            session.wait_visible('Next line becomes the note', 10)
+            session.write('temporary note while memory is off\r')
+            session.wait_visible('Save this note', 10)
+            session.write('n')
+            session.wait_visible('nothing was written', 5)
+            assert 'temporary note while memory is off' not in saved[0].read_text()
+            session.write('/memory\r')
+            session.wait_visible('session=off', 5)
+            # Turn memory back on for this session (still before any turn,
+            # so `t` still reaches the very next prompt).
+            session.write('t')
+            session.wait_visible('memory on for this session; config.toml was not changed', 5)
+            session.write('\x1b')
+            session.wait_visible('memory on for this session', 5)
+
+            # Evidence gap for ticket 53 / issue 185: assert on the ACTUAL
+            # request the mock model receives, not just UI state. Save a
+            # distinctive note, then check the mock's echoed reply (its
+            # `history=` field mirrors `options.messages`) for it.
+            session.write('/remember\r')
+            session.wait_visible('Next line becomes the note', 10)
+            session.write('MEMORY_ECHO_TOKEN_MAIN\r')
+            session.wait_visible('Save this note', 10)
+            session.write('y')
+            session.wait_visible('Memory saved to', 10)
+            session.write('probe memory injection on the first turn\r')
+            shown = session.wait_visible('RUST_ACP_ANSWER', 20)
+            assert 'MEMORY_ECHO_TOKEN_MAIN' in shown, shown
+
+            # Cross-project isolation: /cd to another project + /new must
+            # not leak this workspace's note into the other project's
+            # request, and must not leak the other project's note back.
+            session.write(f'/cd {other}\r')
+            session.wait_visible('next new agent cwd', 10)
+            session.write('/new\r')
+            session.wait_visible('new session', 20)
+            session.write('/remember\r')
+            session.wait_visible('Next line becomes the note', 10)
+            session.write('MEMORY_ECHO_TOKEN_OTHER\r')
+            session.wait_visible('Save this note', 10)
+            session.write('y')
+            session.wait_visible('Memory saved to', 10)
+            session.write('probe memory injection in the other project\r')
+            shown = session.wait_visible('RUST_ACP_ANSWER', 20)
+            assert 'MEMORY_ECHO_TOKEN_OTHER' in shown, shown
+            assert 'MEMORY_ECHO_TOKEN_MAIN' not in shown, shown
+
+            session.write(f'/cd {cwd}\r')
+            session.wait_visible('next new agent cwd', 10)
+            session.write('/new\r')
+            session.wait_visible('new session', 20)
+            session.write('probe memory injection back in the main project\r')
+            shown = session.wait_visible('RUST_ACP_ANSWER', 20)
+            assert 'MEMORY_ECHO_TOKEN_MAIN' in shown, shown
+            assert 'MEMORY_ECHO_TOKEN_OTHER' not in shown, shown
+
             hidden = dict(base_env)
             hidden['GROK_MEMORY'] = '0'
             blocked = screen.Session('memory-force-off', launcher, cwd, hidden, output)
@@ -194,17 +263,44 @@ enabled = true
                 quiet.write('\x1b')
                 quiet.wait_visible('memory off for this session', 5)
                 quiet.write('memory-off-token\r')
-                quiet.wait_visible('memory-off-token', 15)
-                off_screen = quiet.visible()
-                assert 'synthetic PR links' not in off_screen, off_screen
+                shown = quiet.wait_visible('RUST_ACP_ANSWER', 15)
+                assert 'synthetic PR links' not in shown, shown
+                assert 'MEMORY_ECHO_TOKEN_MAIN' not in shown, shown
                 quiet.write('/memory\r')
                 quiet.wait_visible('session=off', 5)
                 quiet.write('t')
-                quiet.wait_visible('memory on for this session', 5)
+                # Honesty fix for ticket 53 / issue 185: this session already
+                # sent its first turn (memory-off-token, above), so `t` on
+                # cannot reach it; the notice must say so, not "for this
+                # session" as if the very next prompt were still eligible.
+                quiet.wait_visible('memory on from the next new session', 5)
                 assert 'config.toml was not changed' in quiet.visible()
+                quiet.write('\x1b')
+                quiet.wait_visible('memory on from the next new session', 5)
+
+                # Regression for ticket 53 / issue 185, symmetric case: an
+                # empty `/remember` must not silently reset this session's
+                # explicit `t on` back to config.toml's `enabled = false`.
+                quiet.write('/remember\r')
+                quiet.wait_visible('Next line becomes the note', 10)
+                quiet.write('temporary note while memory is on\r')
+                quiet.wait_visible('Save this note', 10)
+                quiet.write('n')
+                quiet.wait_visible('nothing was written', 5)
+                assert 'temporary note while memory is on' not in saved[0].read_text()
+                quiet.write('/memory\r')
+                quiet.wait_visible('session=on', 5)
                 quiet.write('\x1b')
                 quiet.pump(0.3)
                 assert saved[0].is_file()
+
+                # And the mechanism itself: turning memory on this late does
+                # not retroactively inject it into a later prompt either
+                # (notes are only sent on a session's first turn).
+                quiet.write('memory-still-unaffected\r')
+                shown = quiet.wait_visible('RUST_ACP_ANSWER', 15)
+                assert 'memory-still-unaffected' in shown, shown
+                assert 'MEMORY_ECHO_TOKEN_MAIN' not in shown, shown
             finally:
                 quiet.write('\x11')
                 quiet.pump(0.5)

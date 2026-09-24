@@ -56,7 +56,7 @@ function userTexts(options) {
     .filter(message => message.role === 'user')
     .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
     .filter(text => !/Current runtime context|This snapshot supersedes/i.test(text))
-    .filter(text => !text.startsWith('<') || text.includes('<human_rules>') || text.includes('<agent-definitions>') || text.includes('Follow the `') || text.includes('Run the custom command'))
+    .filter(text => !text.startsWith('<') || text.includes('<human_rules>') || text.includes('<agent-definitions>') || text.includes('Follow the `') || text.includes('Run the custom command') || text.includes('<local-memory>'))
 }
 
 function latestUserText(options) {

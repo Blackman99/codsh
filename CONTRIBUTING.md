@@ -409,10 +409,21 @@ skill must stay out of the menu. The memory PTY uses a synthetic isolated home:
 `/remember` writes the confirmed note into `MEMORY.md` only after `y`, `/memory`
 opens a modal that keeps the selected row highlighted, a width under 80 columns
 hides the preview until Enter, `x` cannot delete `MEMORY.md`, `[memory] enabled = false`
-stays off for the next prompt until `t`, `/new` drops that session toggle,
+stays off until `t`, `/new` drops that session toggle,
 `GROK_MEMORY=0` hides the browser
 without deleting the file, `x` deletes only a session file, and `memory clear --workspace --yes` removes that
-scope's `MEMORY.md`, `sessions/`, and `index.sqlite`. `index.sqlite` is a
+scope's `MEMORY.md`, `sessions/`, and `index.sqlite`. An empty `/remember` (the
+two-step draft, no inline text) must keep the live `t` toggle on save or cancel
+instead of re-deriving `config.toml`'s value (ticket 53 / issue 185), in both
+directions (`t off` over an enabled config, `t on` over a disabled one). It
+asserts on the mock model's actual received request (via the mock adapter's
+echoed reply, not just UI state): the first turn's request contains a saved
+note's text when memory is on, omits it when memory is off, and after `/cd` to
+another project plus `/new` contains only that project's own note, never the
+previous project's. Turning memory on with `t` after a session's first turn
+already ran must say it takes effect "from the next new session", not "for
+this session", and a later prompt in that same session must still omit the
+note. `index.sqlite` is a
 SQLite FTS5 database rebuilt from the notes. A damaged file is reported and
 replaced only after the new database is complete. A foreign SQLite file is
 left unchanged. The bundled SQLite amalgamation comes from `rusqlite` 0.37 /
