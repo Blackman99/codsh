@@ -204,6 +204,10 @@ pub fn prepare(
         "dsh's own per-call file sandbox cannot nest inside this policy and is set to danger-full-access; approvals are unchanged and writes are bounded by this profile's write roots."
             .into(),
     );
+    limits.push(
+        "The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under this profile, matching the reference nono profile's mach-lookup rules; a directory created after launch under a deny glob is not pre-pinned against rename (launch-time, as in the reference)."
+            .into(),
+    );
     if resolved.devbox {
         limits.push(
             "devbox does not write-protect global hook, config, or trust files (disposable VM profile)."
@@ -544,14 +548,18 @@ fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
 /// The containing write root is included. `$GROK_HOME` is that root for
 /// config and hooks, and a workspace root is that root for a nested hook.
 /// Ancestors above the write root are not pinned.
+///
+/// A deny glob is anchored at its literal prefix, so renaming that prefix
+/// directory (or an ancestor of it under the write root) moves the whole
+/// matched subtree out from under the runtime regex. The glob's literal
+/// root is therefore pinned starting at the directory itself, not its parent.
+/// A rename that only changes a component inside the glob tail keeps matching
+/// the regex, so it does not escape; that is the same runtime-regex behaviour
+/// as the reference.
 fn pinned_directories(prepared: &Prepared) -> Vec<PathBuf> {
     let mut directories = Vec::new();
-    for path in prepared
-        .write_denied
-        .iter()
-        .chain(prepared.read_denied.iter())
-    {
-        let mut current = path.parent();
+    let pin_chain = |start: Option<&Path>, directories: &mut Vec<PathBuf>| {
+        let mut current = start;
         while let Some(directory) = current {
             if directory.as_os_str().is_empty() || directory == Path::new("/") {
                 break;
@@ -568,6 +576,16 @@ fn pinned_directories(prepared: &Prepared) -> Vec<PathBuf> {
             }
             current = directory.parent();
         }
+    };
+    for path in prepared
+        .write_denied
+        .iter()
+        .chain(prepared.read_denied.iter())
+    {
+        pin_chain(path.parent(), &mut directories);
+    }
+    for glob in &prepared.read_denied_globs {
+        pin_chain(Some(glob.root.as_path()), &mut directories);
     }
     directories
 }
@@ -2363,6 +2381,49 @@ mod tests {
             prepared.write_denied.is_empty(),
             "{:?}",
             prepared.write_denied
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn glob_literal_prefix_directory_is_pinned() {
+        let root = temp_tree("glob-pin");
+        let home = root.join(".grok");
+        fs::create_dir_all(root.join("secrets/sub")).unwrap();
+        fs::write(root.join("secrets/a.key"), "key").unwrap();
+        fs::write(
+            home.join("sandbox.toml"),
+            "[profiles.gr]\nextends = \"workspace\"\ndeny = [\"secrets/**/*.key\"]\n",
+        )
+        .unwrap();
+        let prepared = prepare("gr", &root, &home, None, true).unwrap().unwrap();
+        let tail = deny_tail(&prepared).unwrap();
+        // The glob root itself is pinned against rename/unlink.
+        let secrets = root.join("secrets").display().to_string();
+        assert!(
+            tail.contains(&format!(
+                "(deny file-write-unlink (literal {}))",
+                seatbelt_string(&secrets)
+            )),
+            "glob root pin missing from {tail}"
+        );
+        // The workspace write root that contains it is pinned too.
+        assert!(
+            tail.contains(&format!(
+                "(deny file-write-unlink (literal {}))",
+                seatbelt_string(&root.display().to_string())
+            )),
+            "write root pin missing from {tail}"
+        );
+        // A directory inside the glob tail is not pinned: a rename there keeps
+        // matching the runtime regex, so it does not escape.
+        let sub = root.join("secrets/sub").display().to_string();
+        assert!(
+            !tail.contains(&format!(
+                "(deny file-write-unlink (literal {}))",
+                seatbelt_string(&sub)
+            )),
+            "a directory inside the glob tail must not be pinned: {tail}"
         );
         let _ = fs::remove_dir_all(root);
     }

@@ -150,7 +150,9 @@ list. Deny paths and glob literal prefixes are resolved to the paths Seatbelt
 checks, and one that cannot be resolved or expressed refuses startup. dsh's per-call
 Seatbelt cannot nest inside a profile, so while one is applied codsh starts
 dsh with its per-call file mode at `danger-full-access` and unchanged
-approvals; the kernel policy confines bash children and child agents.
+approvals; the kernel policy confines bash children and child agents. A deny
+glob's literal prefix is pinned against rename; the launchd escape is
+kernel-blocked, matching the reference `mach-lookup` rules.
  After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested

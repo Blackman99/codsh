@@ -175,8 +175,16 @@ a `*.pem` glob, a workspace `**/.env` and `certs/**/*.pem` (without denying the 
 `devbox`-based profile whose `deny` list must still hold, absolute globs and an
 exact not-yet-existing file under `/tmp` and under a symlinked directory (denied
 at the resolved path), a workspace named `ws[12]*?` whose relative glob must not
-hit the sibling `ws1ab`, and refusals for a deny under a dangling symlink or
-with a control character. Its fixture is created
+hit the sibling `ws1ab`, refusals for a deny under a dangling symlink or with
+a control character, a glob whose literal-prefix directory cannot be renamed
+out of the deny (while a rename inside the glob tail stays allowed), and a
+launchd escape probe: a sandboxed child running `launchctl submit` and
+`launchctl bootstrap gui/$UID` must not get an unconfined process to read a
+denied file. That probe uses a unique `codsh.sandboxprobe.<pid>` user-domain
+label, targets a throwaway secret, and tears the job down (the harness sweeps
+`launchctl list` afterward); unsandboxed both launchctl paths do exfiltrate
+the secret, so the block is real and matches the reference nono `mach-lookup`
+rules. Its fixture is created
 outside `/tmp`, `/private/tmp`, `/var/tmp`, and `TMPDIR`, because those directories
 are write roots. `python3 scripts/rust-sandbox-pty-test.py` is the
 installed-product check: it packs `codsh`, runs `codsh --rust --sandbox session`

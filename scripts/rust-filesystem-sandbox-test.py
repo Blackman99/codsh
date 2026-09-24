@@ -5,6 +5,11 @@ Launches the staged native candidate directly so the probe is not filtered by
 the launcher environment allowlist. A requested profile must deny an outside
 write, a rename of a protected file, and a symlink escape, while an allowed
 sibling write still succeeds. Unavailable enforcement must refuse startup.
+
+It also proves the glob literal-prefix rename is pinned, and probes the
+launchd escape (`launchctl submit` / `bootstrap gui/$UID`) with a unique
+user-domain job label and strict teardown, asserting a sandboxed child cannot
+get an unconfined process to read a denied file.
 """
 
 import json
@@ -396,6 +401,172 @@ def refuse_unresolvable(binary, work):
     return refused
 
 
+def probe_glob_parent_rename(binary, work):
+    """A deny glob is anchored at its literal prefix. Renaming that prefix
+    directory would move the matched subtree out from under the runtime regex,
+    so the literal prefix and its ancestors up to the write root are pinned.
+    A rename inside the glob tail still matches the regex and stays allowed."""
+    base = work / "glob-rename"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "workspace"
+    for path in (grok, dsh, workspace / "secrets" / "sub"):
+        path.mkdir(parents=True)
+    (workspace / "secrets" / "a.key").write_text("KEY")
+    (workspace / "secrets" / "sub" / "deep.key").write_text("DEEP")
+    (grok / "sandbox.toml").write_text(
+        "[profiles.gr]\nextends = \"workspace\"\ndeny = [\"secrets/**/*.key\"]\n"
+    )
+    env = fixture_env(home, grok, dsh)
+    completed, payload, effects = run_checks(
+        binary, workspace, env, "gr",
+        [
+            ("glob_read", "read", workspace / "secrets" / "a.key", None),
+            ("deep_read", "read", workspace / "secrets" / "sub" / "deep.key", None),
+            # Renaming the glob root out of the anchor must be denied.
+            ("rename_glob_root", "rename", workspace / "secrets", workspace / "public"),
+            # A rename inside the tail keeps matching the regex, so it is
+            # allowed and does not expose the key.
+            ("rename_intermediate", "rename", workspace / "secrets" / "sub", workspace / "secrets" / "moved"),
+            ("deep_read_after", "read", workspace / "secrets" / "moved" / "deep.key", None),
+        ],
+        workspace / "glob-rename-marker.json",
+        base / "glob-rename-report.json",
+    )
+    status = expect_effects(
+        "glob parent rename", completed, payload, effects,
+        denied=("glob_read", "deep_read", "rename_glob_root", "deep_read_after"),
+        allowed=("rename_intermediate",),
+    )
+    if status:
+        return status
+    if not (workspace / "secrets" / "a.key").is_file() or (workspace / "public").exists():
+        return fail(f"glob parent rename: the glob root was moved: {effects}")
+    return {"profile": "gr", "effects": effects}
+
+
+def launchctl_present():
+    return Path("/bin/launchctl").is_file()
+
+
+def sweep_launchd(label):
+    """Authoritative cleanup from the unsandboxed harness. No sudo, no system
+    domain; only the throwaway user-domain job this probe may have created."""
+    uid = os.getuid()
+    for argv in (
+        ["/bin/launchctl", "remove", label],
+        ["/bin/launchctl", "bootout", f"gui/{uid}/{label}"],
+    ):
+        try:
+            subprocess.run(argv, capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        listed = subprocess.run(["/bin/launchctl", "list"], capture_output=True, text=True, timeout=10)
+        return label not in listed.stdout
+    except (OSError, subprocess.SubprocessError):
+        return True
+
+
+def probe_launchd_escape(binary, work):
+    """Item 4 (#143). A sandboxed child must not use launchd to get an
+    unconfined process to read a denied file. Unsandboxed both `launchctl
+    submit` and `launchctl bootstrap gui/$UID` do exactly that; under the
+    applied Seatbelt profile they must not. The job label is unique and the
+    job is torn down here and swept by the harness — no persistent launchd
+    job is left behind."""
+    if platform.system() != "Darwin" or not launchctl_present():
+        return {"skipped": "launchctl unavailable"}
+    base = work / "launchd"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "workspace"
+    for path in (grok, dsh, workspace):
+        path.mkdir(parents=True)
+    secret = workspace / "secret.txt"
+    secret.write_text("LAUNCHD_SECRET")
+    (grok / "sandbox.toml").write_text(
+        "[profiles.ld]\nextends = \"workspace\"\ndeny = [\"secret.txt\"]\n"
+    )
+    label = f"codsh.sandboxprobe.{os.getpid()}.{int.from_bytes(os.urandom(3), 'big')}"
+    exfil = Path("/tmp") / f"{label}.exfil"
+    plist = workspace / "job.plist"
+    exfil.unlink(missing_ok=True)
+    uid = os.getuid()
+    plist.write_text(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict>"
+        f"<key>Label</key><string>{label}</string>"
+        "<key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string>"
+        f"<string>cat {secret} > {exfil}</string></array>"
+        "<key>RunAtLoad</key><true/></dict></plist>\n"
+    )
+    marker = workspace / "launchd-marker.json"
+    report = base / "launchd-report.json"
+    script = workspace / "launchd-probe.py"
+    script.write_text(
+        "import json, os, pathlib, subprocess, time\n"
+        f"label = {label!r}\n"
+        f"secret = {str(secret)!r}\n"
+        f"exfil = {str(exfil)!r}\n"
+        f"plist = {str(plist)!r}\n"
+        f"uid = {uid}\n"
+        "res = {}\n"
+        "def attempt(argv):\n"
+        "    try:\n"
+        "        c = subprocess.run(argv, capture_output=True, text=True, timeout=15)\n"
+        "        return {'rc': c.returncode, 'err': (c.stderr or c.stdout).strip()[:200]}\n"
+        "    except OSError as e:\n"
+        "        return {'rc': 'oserr', 'err': str(e)}\n"
+        "try:\n"
+        "    res['direct'] = 'allowed:' + open(secret).read()\n"
+        "except OSError as e:\n"
+        "    res['direct'] = f'denied:{e.errno}'\n"
+        "res['submit'] = attempt(['/bin/launchctl', 'submit', '-l', label, '--', '/bin/sh', '-c', f'cat {secret} > {exfil}'])\n"
+        "time.sleep(2)\n"
+        "res['bootstrap'] = attempt(['/bin/launchctl', 'bootstrap', f'gui/{uid}', plist])\n"
+        "time.sleep(2)\n"
+        "try:\n"
+        "    res['exfil'] = 'read:' + open(exfil).read()\n"
+        "except OSError as e:\n"
+        "    res['exfil'] = f'absent:{e.errno}'\n"
+        "# Best-effort teardown from inside the sandbox; the harness sweeps too.\n"
+        "attempt(['/bin/launchctl', 'remove', label])\n"
+        "attempt(['/bin/launchctl', 'bootout', f'gui/{uid}/{label}'])\n"
+        "pathlib.Path(os.environ['PROBE_OUT']).write_text(json.dumps(res))\n"
+    )
+    env = fixture_env(home, grok, dsh)
+    env["PROBE_OUT"] = str(marker)
+    try:
+        completed = subprocess.run(
+            [str(binary), "--sandbox", "ld", "--sandbox-report", str(report), "--sandbox-probe", str(script)],
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=60,
+        )
+        if completed.returncode != 0 or not marker.is_file():
+            return fail(
+                f"launchd probe did not run: status={completed.returncode} "
+                f"stderr={completed.stderr.strip()} stdout={completed.stdout.strip()}"
+            )
+        res = json.loads(marker.read_text())
+        if not str(res.get("direct", "")).startswith("denied"):
+            return fail(f"launchd probe: the denied secret was directly readable: {res}")
+        # The escape is blocked when the exfil file never receives the secret.
+        if not str(res.get("exfil", "")).startswith("absent") or "LAUNCHD_SECRET" in str(res.get("exfil", "")):
+            return fail(f"launchd escape succeeded: an unconfined job exfiltrated the secret: {res}")
+        if exfil.exists() and "LAUNCHD_SECRET" in exfil.read_text():
+            return fail(f"launchd escape succeeded: exfil file holds the secret: {res}")
+        return {"profile": "ld", "submit": res.get("submit"), "bootstrap": res.get("bootstrap"), "exfil": res.get("exfil")}
+    finally:
+        exfil.unlink(missing_ok=True)
+        if not sweep_launchd(label):
+            return fail(f"launchd probe left a job behind: {label}")
+
+
 def probe(binary, work, outside_env):
     home = work / "home"
     # The native candidate resolves config under $HOME/.grok unless GROK_HOME
@@ -662,6 +833,8 @@ def probe(binary, work, outside_env):
         ("devbox", probe_devbox_deny),
         ("symlinked", probe_symlinked_prefix),
         ("metachar", probe_metachar_workspace),
+        ("glob_rename", probe_glob_parent_rename),
+        ("launchd", probe_launchd_escape),
     ):
         result = scenario(binary, work)
         if isinstance(result, int):
