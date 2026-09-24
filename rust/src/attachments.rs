@@ -1153,7 +1153,11 @@ mod tests {
             rejected.detail
         );
         fs::create_dir_all(root.join("logs")).unwrap();
-        fs::write(root.join(".gitignore"), "**/*.log\nlogs/*.log\n/secret.rs\n").unwrap();
+        fs::write(
+            root.join(".gitignore"),
+            "**/*.log\nlogs/*.log\n/secret.rs\n",
+        )
+        .unwrap();
         fs::write(root.join("logs/nested.log"), "PROBE_SLASH_LOG\n").unwrap();
         let ignored = WorkspaceIndex::new(&root);
         let pasted = root.join("logs/nested.log");
