@@ -279,8 +279,9 @@ qualified name. Nested `SKILL.md` files use the frozen walk: depth starts
 at the first directory under the skill root and returns only when depth is
 greater than five, so `.grok/skills/a/b/c/d/e/f/SKILL.md` loads and a seventh
 directory does not. A directory that already has `SKILL.md` is still entered,
-so its child is recorded. A configured `[skills] paths` directory uses that
-same walk: its own `SKILL.md` loads, and children stop at the same depth.
+so its child is recorded. A configured `[skills] paths` directory is
+depth 0: its own `SKILL.md` loads, its children start at depth 1, and a sixth
+child is not loaded.
 `paths.extra_skill_dirs` is not a discovery root. `[skills] ignore` hides a
 path. `[skills] disabled` keeps the skill listed, including its body, but not
 invocable. `user-invocable` defaults to true; only `false`, `no`, `off`, or

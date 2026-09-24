@@ -190,7 +190,7 @@ extra_rule_dirs`）对每个项目生效。相对路径或缺失目录不会加�
 单个规则文件没有字符上限。Skills 来自当前目录、再到 git 根的每一层祖先里的 `.grok/skills/` 与
 `.agents/skills/`，然后是用户目录、已启用的 Claude/Cursor 根和 `[skills] paths`。
 更靠近当前目录的定义优先；同一目录里同名的两项都保持可调用，并使用限定名。
-嵌套的 `SKILL.md` 按冻结遍历：深度从技能根下的第一层目录起算，只有深度大于 5 才返回，因此 `.grok/skills/a/b/c/d/e/f/SKILL.md` 会加载，第七层不会。已经有 `SKILL.md` 的目录仍会进入，其子目录里的 Skill 也会记录。配置的 `[skills] paths` 目录使用同一遍历：它自己的 `SKILL.md` 会加载，子目录停在同一深度。`paths.extra_skill_dirs` 不是发现根。
+嵌套的 `SKILL.md` 按冻结遍历：深度从技能根下的第一层目录起算，只有深度大于 5 才返回，因此 `.grok/skills/a/b/c/d/e/f/SKILL.md` 会加载，第七层不会。已经有 `SKILL.md` 的目录仍会进入，其子目录里的 Skill 也会记录。配置的 `[skills] paths` 目录本身是深度 0：它自己的 `SKILL.md` 会加载，子目录从深度 1 起算，第六层子目录不会加载。`paths.extra_skill_dirs` 不是发现根。
 `[skills] ignore` 隐藏路径。`[skills] disabled` 仍列出 Skill（含正文）但不可调用。
 `user-invocable` 默认开启，只有 `false`、`no`、`off` 或 `0` 会把它从菜单隐藏。
 发给 dsh 的 Skill 正文最多 25,000 token，截断会被诊断。`.grok/commands/`、

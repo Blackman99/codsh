@@ -122,27 +122,33 @@ extra_rule_dirs = [{json.dumps(str(extra))}, "relative/nope"]
 [skills]
 paths = [{json.dumps(str(configured))}]
 """)
+    write(configured / 'SKILL.md', """---
+name: config-root
+description: The configured directory itself.
+---
+CONFIG_ROOT
+""")
     at_limit = configured
     for part in ('a', 'b', 'c', 'd', 'e'):
         at_limit = at_limit / part
     write(at_limit / 'SKILL.md', """---
-name: config-deep6
-description: Configured path at depth five.
+name: config-deep5
+description: Fifth child under a configured path.
 ---
-CONFIG_DEEP6
+CONFIG_DEEP5
 """)
     write(at_limit / 'child' / 'SKILL.md', """---
-name: config-child
-description: Child of a configured skill directory.
+name: config-sixth
+description: Sixth child under a configured path.
 ---
-CONFIG_CHILD
+CONFIG_SIXTH
 """)
     too_deep = configured
     for part in ('z', 'a', 'b', 'c', 'd', 'e', 'f'):
         too_deep = too_deep / part
     write(too_deep / 'SKILL.md', """---
 name: config-deep7
-description: Configured path past depth five.
+description: Seventh child under a configured path.
 ---
 CONFIG_DEEP7
 """)
@@ -236,11 +242,24 @@ def main():
             trusted.write('/child now\r')
             shown = trusted.wait_visible('CHILD_BODY', 30)
             trusted.write('\x03')
-            trusted.write('/config-deep6 now\r')
-            shown = trusted.wait_visible('CONFIG_DEEP6', 30)
+            trusted.write('/config-root now\r')
+            shown = trusted.wait_visible('CONFIG_ROOT', 30)
             trusted.write('\x03')
-            trusted.write('/config-child now\r')
-            shown = trusted.wait_visible('CONFIG_CHILD', 30)
+            trusted.write('/config-deep5 now\r')
+            shown = trusted.wait_visible('CONFIG_DEEP5', 30)
+            trusted.write('\x03')
+            trusted.write('/config-sixth gone\r')
+            shown = trusted.wait_visible('/config-sixth gone', 30)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                trusted.pump()
+                shown = trusted.visible()
+                flat = shown.replace('\n', '')
+                if '/config-sixth gone' in flat and 'Streaming turn' not in flat:
+                    break
+            flat = shown.replace('\n', '')
+            assert 'CONFIG_SIXTH' not in flat
+            assert 'Follow the config:config-sixth skill' not in flat
             trusted.write('\x03')
             trusted.write('/config-deep7 gone\r')
             shown = trusted.wait_visible('/config-deep7 gone', 30)
@@ -291,9 +310,10 @@ SKILL_ADDED
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
             rescanned = trusted.wait_visible('Rescanned assets', 10)
-            # commit, hidden, login, parent, child, deep6, the two configured
-            # skills inside the depth cap, plus the skill added in this session.
-            # Named and configured seventh directories are not counted.
+            # commit, hidden, login, parent, child, deep6, the configured
+            # directory, its fifth child, plus the skill added in this session.
+            # The named seventh directory and the configured sixth child are
+            # not counted.
             assert '9 skills' in rescanned.replace('\n', '')
             trusted.write('/added')
             shown = trusted.wait_visible('/added', 10)

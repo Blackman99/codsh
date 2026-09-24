@@ -847,49 +847,13 @@ fn scan_configured_skill(
         });
         return;
     }
-    if path.join("SKILL.md").is_file()
-        && !ignored_skill(input, &path.join("SKILL.md"))
-        && let Some(skill) = parse_skill(
-            input,
-            &path.join("SKILL.md"),
-            "config",
-            "config",
-            30,
-            diagnostics,
-        )
-    {
-        skills.push(skill);
-    }
-    // The configured directory is the walk root, not depth 0. Its children
-    // start at 0, matching find_skill_md_paths plus walk_for_skill_md.
-    let mut children = match fs::read_dir(path) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|child| child.is_dir())
-            .collect::<Vec<_>>(),
-        Err(error) => {
-            diagnostics.push(AssetDiagnostic {
-                kind: "skill-path".into(),
-                path: path.display().to_string(),
-                detail: error.to_string(),
-            });
-            return;
-        }
-    };
-    children.sort();
-    for child in children {
-        walk_named_skills(
-            input,
-            &child,
-            "config",
-            "config",
-            30,
-            skills,
-            diagnostics,
-            0,
-        );
-    }
+    // find_skill_md_paths loads this directory's own SKILL.md, then calls
+    // walk_for_skill_md(dir, 0). That walk lists children and recurses at
+    // depth + 1, so the configured directory is depth 0 and its children
+    // start at depth 1. A sixth child is depth 6 and is not loaded.
+    // walk_named_skills records SKILL.md before descending, which is the
+    // same order for a directory that is itself a skill.
+    walk_named_skills(input, path, "config", "config", 30, skills, diagnostics, 0);
 }
 
 fn scan_skill_root(
@@ -946,10 +910,11 @@ fn walk_named_skills(
     diagnostics: &mut Vec<AssetDiagnostic>,
     depth: u8,
 ) {
-    // Depth 0 is the first directory under the skill root. The frozen walk
-    // returns only when depth is greater than five, so six directories load
-    // and the seventh does not. A directory that already has SKILL.md is still
-    // entered, so its child is recorded.
+    // The caller chooses depth 0. A named skill root passes each child, so
+    // six directories under that root load. find_skill_md_paths passes the
+    // configured directory itself, so its children start at depth 1 and a
+    // sixth child does not load. The walk returns only when depth is greater
+    // than five. A directory that already has SKILL.md is still entered.
     if depth > SKILL_WALK_DEPTH {
         return;
     }
@@ -2157,17 +2122,21 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         fixture(root.path());
         let base = root.path().join("configured");
+        write(
+            &base.join("SKILL.md"),
+            "---\nname: config-root\ndescription: the configured directory itself\n---\nCONFIG_ROOT\n",
+        );
         let mut at_limit = base.clone();
         for part in ["a", "b", "c", "d", "e"] {
             at_limit.push(part);
         }
         write(
             &at_limit.join("SKILL.md"),
-            "---\nname: config-deep6\ndescription: configured depth five\n---\nCONFIG_DEEP6\n",
+            "---\nname: config-deep5\ndescription: fifth child under a configured path\n---\nCONFIG_DEEP5\n",
         );
         write(
             &at_limit.join("child").join("SKILL.md"),
-            "---\nname: config-child\ndescription: child under a configured skill\n---\nCONFIG_CHILD\n",
+            "---\nname: config-sixth\ndescription: sixth child under a configured path\n---\nCONFIG_SIXTH\n",
         );
         let mut too_deep = base.clone();
         for part in ["z", "a", "b", "c", "d", "e", "f"] {
@@ -2175,7 +2144,7 @@ mod tests {
         }
         write(
             &too_deep.join("SKILL.md"),
-            "---\nname: config-deep7\ndescription: configured past depth five\n---\nCONFIG_DEEP7\n",
+            "---\nname: config-deep7\ndescription: seventh child under a configured path\n---\nCONFIG_DEEP7\n",
         );
         let path = base.display().to_string();
         let catalog = discover(&DiscoverInput {
@@ -2198,15 +2167,22 @@ mod tests {
             catalog
                 .skills
                 .iter()
-                .any(|skill| skill.name == "config-deep6" && skill.body.contains("CONFIG_DEEP6")),
-            "a configured path loads the skill at depth five"
+                .any(|skill| skill.name == "config-root" && skill.body.contains("CONFIG_ROOT")),
+            "a configured directory loads its own SKILL.md"
         );
         assert!(
             catalog
                 .skills
                 .iter()
-                .any(|skill| skill.name == "config-child" && skill.body.contains("CONFIG_CHILD")),
-            "a configured path still records a child of a SKILL.md directory"
+                .any(|skill| skill.name == "config-deep5" && skill.body.contains("CONFIG_DEEP5")),
+            "the fifth child under a configured path is depth five"
+        );
+        assert!(
+            !catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "config-sixth"),
+            "a configured path starts children at depth 1, so the sixth child is not loaded"
         );
         assert!(
             !catalog
