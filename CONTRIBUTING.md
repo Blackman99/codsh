@@ -285,7 +285,10 @@ PTY refusals for `DSH_HOME`/`GROK_HOME` aliases: existing root/dsh/Profile, reve
 spelling, a missing child, and genuinely absent root/dsh/Profile/mixed-case paths.
 Each must fail before terminal entry or any directory/file mutation. Four separate
 missing-Home controls (including a similar prefix) must still launch without
-creating the configured legacy Home. The launcher uses native canonicalization
+creating the configured legacy Home. `scripts/rust-legacy-home-pty-test.py` is the
+focused form: after a submitted prompt, an inherited `GROK_HOME` or `DSH_HOME` that
+names a missing or populated separate Home stays absent or unchanged, and prompt
+history lands in `~/.codsh-rust/.grok`. The launcher uses native canonicalization
 for existing paths and compares device/inode ancestry, not realpath strings alone.
 Each missing suffix stays anchored to its nearest existing directory. Suffixes are
 compared relative to shared directory identities; merely sharing an ancestor does
@@ -380,7 +383,8 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`,
 `scripts/rust-prompt-pty-test.py`, `scripts/rust-content-pty-test.py`,
 `scripts/rust-voice-pty-test.py`, `scripts/rust-assets-pty-test.py`, and
-`scripts/rust-session-data-pty-test.py` and `scripts/rust-memory-pty-test.py` against
+`scripts/rust-session-data-pty-test.py`, `scripts/rust-memory-pty-test.py`, and
+`scripts/rust-legacy-home-pty-test.py` against
 the packed native candidate. The session-data PTY checks Markdown export,
 explicit share to a loopback substitute, and `du`. Rust unit tests also post that
 share over localhost HTTPS: the configured test CA is accepted, a missing or wrong

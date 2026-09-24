@@ -138,8 +138,10 @@ def main():
     try:
         with tempfile.TemporaryDirectory(prefix='codsh-rust-web-', dir='/tmp') as temporary:
             home = Path(temporary)
-            grok = home / '.grok'
-            grok.mkdir()
+            # The packed launcher pins GROK_HOME to the isolated Home, so the
+            # packed sessions below read this same file without GROK_HOME.
+            grok = home / '.codsh-rust' / '.grok'
+            grok.mkdir(parents=True)
             (grok / 'config.toml').write_text(f'''
 [models]
 default = "chat"
@@ -426,7 +428,6 @@ supports_backend_search = true
                 'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
                 'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',
                 'DSH_CODE_CLI_MOCK_TOOL': 'web-search',
-                'GROK_HOME': str(grok),
                 'SEARCH_API_KEY': 'search-secret',
                 'CHAT_API_KEY': 'chat-secret',
             }
