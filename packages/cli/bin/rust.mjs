@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
+import { constants, homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
@@ -230,7 +230,7 @@ export async function launchRust(args) {
       if (!oldHome) continue
       if (overlaps(canonicalRoot, canonicalPath(oldHome))) throw new Error('Rust Home overlaps a legacy Home; refusing to access legacy data')
     }
-    const helpOnly = (args.length === 1 && ['--help', '-h', '--version', '-V', 'help'].includes(args[0]))
+    const helpOnly = (args.length === 1 && ['--help', '-h', '--version', '-V', '-v', 'help'].includes(args[0]))
       || (['inspect', 'import', 'login', 'logout', 'setup', 'voice', 'completions'].includes(args[0]) && args.length > 1 && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
       || (args[0] === 'plugin' && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
       || (args[0] === 'completions' && args.length === 2 && !args[1].startsWith('-'))
@@ -333,7 +333,8 @@ export async function launchRust(args) {
         resolveExit(code)
       }
       child.once('error', error => { console.error(`codsh: Rust startup failed: ${error.message}`); finish(1) })
-      child.once('exit', (code, signal) => { finish(code ?? (signal === 'SIGINT' ? 130 : 1)) })
+      // A child killed by a signal exits 128+N, as a shell reports it: SIGINT 130, SIGTERM 143.
+      child.once('exit', (code, signal) => { finish(code ?? (signal && constants.signals[signal] ? 128 + constants.signals[signal] : 1)) })
     })
   } catch (error) {
     console.error(`codsh: ${error.message}`)

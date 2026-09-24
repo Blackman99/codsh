@@ -357,7 +357,6 @@ enum LaunchMode {
     /// One non-interactive prompt. dsh executes it; stdout is the final answer.
     Plain {
         prompt: PlainPrompt,
-        cwd: Option<PathBuf>,
         max_turns: Option<u64>,
         tools: Option<PlainTools>,
         resume: Option<PlainResume>,
@@ -468,6 +467,14 @@ struct Launch {
     /// `--verbatim`: the admitted user text is not rewritten. System
     /// instructions and permission policy stay on their own channels.
     verbatim: bool,
+    /// `--cwd`: the working directory for this process, before config,
+    /// sandbox, sessions, and dsh read it. Interactive and plain alike.
+    cwd: Option<PathBuf>,
+    /// `--disable-web-search`: web_search and web_fetch are off for this process.
+    disable_web_search: bool,
+    /// Headless-only flags given without a plain prompt. The guide prints a
+    /// warning and ignores them.
+    warnings: Vec<String>,
 }
 
 const PLAIN_OUTPUT_FORMATS: &[&str] =
@@ -493,9 +500,6 @@ fn deferred_plain_flag(arg: &str) -> Option<String> {
         "--no-plan" | "--no-ask-user" | "--todo-gate" => {
             named("plan controls are not available in this plain command; a later ticket owns them")
         }
-        "--disable-web-search" => named(
-            "web-search controls are not available in this plain command; a later ticket owns them",
-        ),
         "--worktree" | "-w" | "--worktree-ref" | "--ref" => {
             named("worktrees are not available in this plain command; a later ticket owns them")
         }
@@ -614,14 +618,37 @@ fn split_tool_list(value: &str) -> Vec<String> {
 
 /// `Agent(type)` needs a type argument the released subagent tool does not have.
 /// Ticket 172 owns that filter. Refusing here avoids a stored name that never runs.
+/// Any `agent(` prefix counts, in any letter case, including `Agent()` and the
+/// comma-split pieces of `Agent(explore, plan)`.
 fn scoped_agent_filter(name: &str) -> bool {
-    let Some(inner) = name
-        .strip_prefix("Agent(")
-        .or_else(|| name.strip_prefix("agent("))
-    else {
-        return false;
-    };
-    inner.ends_with(')') && inner.len() > 1
+    name.trim()
+        .get(..6)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("agent("))
+}
+
+/// Split one `--tools` / `--disallowed-tools` value. A typed Agent entry is
+/// refused whole, so `Agent(explore, plan)` is named as the user wrote it.
+fn plain_tool_list(flag: &str, value: &str) -> io::Result<Vec<String>> {
+    let names = split_tool_list(value);
+    if names.is_empty() {
+        return Err(usage_error(format!(
+            "{flag} requires at least one tool name"
+        )));
+    }
+    if let Some(first) = names.iter().position(|name| scoped_agent_filter(name)) {
+        let mut entry = names[first].clone();
+        if !entry.contains(')')
+            && let Some(close) = names[first + 1..]
+                .iter()
+                .position(|name| name.contains(')'))
+        {
+            entry = names[first..=first + 1 + close].join(", ");
+        }
+        return Err(io::Error::other(format!(
+            "plain tool filter cannot apply {entry}; subagent types are not available until a later ticket. Use Agent to deny every subagent"
+        )));
+    }
+    Ok(names)
 }
 
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
@@ -650,10 +677,12 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut sandbox_probe = None;
     let mut plain_prompt: Option<PlainPrompt> = None;
     let mut plain_cwd = None;
+    let mut warnings = Vec::new();
     let mut max_turns = None;
     let mut plain_allow: Option<Vec<String>> = None;
     let mut plain_deny: Option<Vec<String>> = None;
     let mut verbatim = false;
+    let mut disable_web_search = false;
     let mut output_format = None;
     let mut index = 0;
     let note_prompt = |current: &mut Option<PlainPrompt>, next: PlainPrompt| -> io::Result<()> {
@@ -668,6 +697,10 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     while index < args.len() {
         if let Some(value) = take_flag_value(args, &mut index, "--model", || {
             io::Error::other("missing --model value; use codsh --rust --help")
+        })? {
+            model = Some(value);
+        } else if let Some(value) = take_flag_value(args, &mut index, "-m", || {
+            io::Error::other("missing -m/--model value; use codsh --rust --help")
         })? {
             model = Some(value);
         } else if let Some(value) = take_flag_value(args, &mut index, "--effort", || {
@@ -735,31 +768,15 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             }
             max_turns = Some(parsed);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--tools")? {
-            let names = split_tool_list(&value);
-            if names.is_empty() {
-                return Err(usage_error("--tools requires at least one tool name"));
-            }
-            if let Some(scoped) = names.iter().find(|name| scoped_agent_filter(name)) {
-                return Err(io::Error::other(format!(
-                    "plain tool filter cannot apply {scoped}; subagent types are not available until a later ticket. Use Agent to deny every subagent"
-                )));
-            }
+            let names = plain_tool_list("--tools", &value)?;
             plain_allow.get_or_insert_with(Vec::new).extend(names);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--disallowed-tools")? {
-            let names = split_tool_list(&value);
-            if names.is_empty() {
-                return Err(usage_error(
-                    "--disallowed-tools requires at least one tool name",
-                ));
-            }
-            if let Some(scoped) = names.iter().find(|name| scoped_agent_filter(name)) {
-                return Err(io::Error::other(format!(
-                    "plain tool filter cannot apply {scoped}; subagent types are not available until a later ticket. Use Agent to deny every subagent"
-                )));
-            }
+            let names = plain_tool_list("--disallowed-tools", &value)?;
             plain_deny.get_or_insert_with(Vec::new).extend(names);
         } else if args[index] == "--verbatim" {
             verbatim = true;
+        } else if args[index] == "--disable-web-search" {
+            disable_web_search = true;
         } else if args[index] == "-c" && !rest.iter().any(|item| is_subcommand(item)) {
             // `export <id> -c` keeps its own clipboard short.
             rest.push("--continue".to_string());
@@ -890,7 +907,15 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             } else if arg.starts_with('-')
                 && !matches!(
                     arg.as_str(),
-                    "--continue" | "--resume" | "-c" | "-r" | "--help" | "-h" | "--version" | "-V"
+                    "--continue"
+                        | "--resume"
+                        | "-c"
+                        | "-r"
+                        | "--help"
+                        | "-h"
+                        | "--version"
+                        | "-V"
+                        | "-v"
                 )
                 && !args.iter().any(|item| is_subcommand(item))
             {
@@ -921,7 +946,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mode = match rest_flags.as_slice() {
         [] => LaunchMode::New,
         ["--help" | "-h"] => LaunchMode::Help,
-        ["--version" | "-V"] => LaunchMode::Version,
+        ["--version" | "-V" | "-v"] => LaunchMode::Version,
         ["--continue"] => LaunchMode::Continue,
         ["--resume"] => {
             return Err(io::Error::other(
@@ -1057,16 +1082,33 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             };
             LaunchMode::Plain {
                 prompt,
-                cwd: plain_cwd,
                 max_turns,
                 tools: plain_tools,
                 resume,
             }
         }
         None => {
-            if plain_cwd.is_some() || max_turns.is_some() || plain_tools.is_some() {
-                return Err(io::Error::other(
-                    "--cwd, --max-turns, and --tools/--disallowed-tools require -p/--single, --prompt-file, or --prompt-json",
+            // The headless guide: these flags print a warning in the TUI and
+            // are ignored. They never change an interactive session.
+            let mut ignored = Vec::new();
+            if max_turns.is_some() {
+                ignored.push("--max-turns");
+            }
+            if let Some(PlainTools::Filter { allow, deny }) = &plain_tools {
+                if allow.is_some() {
+                    ignored.push("--tools");
+                }
+                if deny.is_some() {
+                    ignored.push("--disallowed-tools");
+                }
+            }
+            if verbatim {
+                ignored.push("--verbatim");
+                verbatim = false;
+            }
+            for flag in ignored {
+                warnings.push(format!(
+                    "warning: {flag} is a headless flag and is ignored without -p/--single, --prompt-file, or --prompt-json"
                 ));
             }
             mode
@@ -1122,6 +1164,9 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         sandbox_report,
         sandbox_probe,
         verbatim,
+        cwd: plain_cwd,
+        disable_web_search,
+        warnings,
     })
 }
 
@@ -1433,7 +1478,7 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
 }
 
 fn short_help() -> &'static str {
-    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n--cwd, -c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, sessions, dashboard.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -4631,6 +4676,7 @@ fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
         cli_deny: launch.deny.clone(),
         cli_no_memory: launch.no_memory,
         cli_sandbox: launch.sandbox.clone(),
+        cli_disable_web_search: launch.disable_web_search,
     };
     if input.dsh_home.as_os_str().is_empty() {
         input.dsh_home = input.home.join("dsh");
@@ -5120,12 +5166,62 @@ fn plain_exit(stop: &PlainStop) -> io::Result<()> {
     std::process::exit(stop.code);
 }
 
+fn enter_cwd(path: &Path) -> io::Result<()> {
+    let target = path.canonicalize().map_err(|error| {
+        io::Error::other(format!("couldn't use --cwd {}: {error}", path.display()))
+    })?;
+    if !target.is_dir() {
+        return Err(io::Error::other(format!(
+            "--cwd {} is not a directory",
+            path.display()
+        )));
+    }
+    std::env::set_current_dir(&target)
+}
+
+/// The exit code a caught signal maps to, or 0. 130 and 143 stay distinct.
+fn plain_signal(interrupt: &AtomicBool, terminate: &AtomicBool) -> i32 {
+    if terminate.load(Ordering::Relaxed) {
+        143
+    } else if interrupt.load(Ordering::Relaxed) {
+        130
+    } else {
+        0
+    }
+}
+
 /// One prompt, one dsh ACP session, then exit. Stdout is the final answer.
 /// Tool cards and thoughts stay off stdout. A signal cancels the dsh turn.
 fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let terminate = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        // Registered before config and connect, so a signal during startup
+        // still exits 130/143. The launcher also forwards the signal.
+        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&interrupt))?;
+        signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&terminate))?;
+    }
+    let result = run_plain_turn(launch, plain, &interrupt, &terminate);
+    // A signal that lands while dsh starts or connects can surface as a
+    // connect error. The caller asked to stop; report the signal, not "failed".
+    let signal = plain_signal(&interrupt, &terminate);
+    if result.is_err() && signal != 0 {
+        eprintln!("interrupted by signal {signal}");
+        let _ = io::stdout().flush();
+        std::process::exit(signal);
+    }
+    result
+}
+
+fn run_plain_turn(
+    launch: &Launch,
+    plain: &LaunchMode,
+    interrupt: &AtomicBool,
+    terminate: &AtomicBool,
+) -> io::Result<()> {
     let LaunchMode::Plain {
         prompt,
-        cwd,
         max_turns,
         tools,
         resume,
@@ -5134,20 +5230,6 @@ fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
         return Err(io::Error::other("plain mode was not selected"));
     };
     let blocks = plain_blocks(prompt)?;
-    // Config, session catalog, and dsh all read the process directory.
-    // Change it before either of those, not only before the ACP spawn.
-    if let Some(path) = cwd {
-        let target = path.canonicalize().map_err(|error| {
-            io::Error::other(format!("couldn't use --cwd {}: {error}", path.display()))
-        })?;
-        if !target.is_dir() {
-            return Err(io::Error::other(format!(
-                "--cwd {} is not a directory",
-                path.display()
-            )));
-        }
-        std::env::set_current_dir(&target)?;
-    }
     let mut effective = load_runtime_config(launch);
     effective.permission.interactive = false;
     let applied = runtime_apply(&effective);
@@ -5163,14 +5245,6 @@ fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
     }
     if let Some(filter) = plain_tool_env(tools) {
         extra_env.push(filter);
-    }
-    let interrupt = Arc::new(AtomicBool::new(false));
-    let terminate = Arc::new(AtomicBool::new(false));
-    #[cfg(unix)]
-    {
-        // 130 and 143 stay distinct. The launcher also forwards the signal.
-        signal_hook::flag::register(signal_hook::consts::SIGINT, Arc::clone(&interrupt))?;
-        signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&terminate))?;
     }
     let session_mode = session_mode(plain);
     let (mut connection, _) = connect(
@@ -5199,13 +5273,7 @@ fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
     };
     let started = Instant::now();
     loop {
-        let signal = if terminate.load(Ordering::Relaxed) {
-            143
-        } else if interrupt.load(Ordering::Relaxed) {
-            130
-        } else {
-            0
-        };
+        let signal = plain_signal(interrupt, terminate);
         if signal != 0 {
             let _ = connection.client.cancel_prompt();
             connection.client.shutdown();
@@ -5243,13 +5311,7 @@ fn run_plain(launch: &Launch, plain: &LaunchMode) -> io::Result<()> {
                     finished = true;
                     if stop.code == 0 && stop_reason != "end_turn" && stop_reason != "end" {
                         if stop_reason == "cancelled" || stop_reason.is_empty() {
-                            let signal = if terminate.load(Ordering::Relaxed) {
-                                143
-                            } else if interrupt.load(Ordering::Relaxed) {
-                                130
-                            } else {
-                                0
-                            };
+                            let signal = plain_signal(interrupt, terminate);
                             stop = if signal == 0 {
                                 PlainStop {
                                     code: 1,
@@ -5336,7 +5398,15 @@ fn run() -> io::Result<()> {
             | LaunchMode::Plugin(plugin::PluginCommand::Help)
             | LaunchMode::Feedback(privacy_cmd::FeedbackCommand::Help)
     );
+    for warning in &launch.warnings {
+        eprintln!("{warning}");
+    }
     if !help_like {
+        // --cwd comes first: config, trust, the sandbox write roots, the
+        // session catalog, and dsh all read the process directory.
+        if let Some(path) = &launch.cwd {
+            enter_cwd(path)?;
+        }
         activate_filesystem_sandbox(&launch)?;
     }
     if let Some(script) = &launch.sandbox_probe {
@@ -8206,13 +8276,28 @@ fn model_prompt(
 ) -> String {
     // --verbatim freezes the user content. Rules and slash bodies are not
     // pasted into it. dsh still owns the system message, and permission
-    // policy still runs on the tool channel.
+    // policy still runs on the tool channel. First-turn memory is context,
+    // not prompt text: blocks_with_model_prompt sends it as its own block.
     if launch.verbatim {
         return text.to_string();
     }
     let base = model_prompt_inner(launch, effective, text);
+    match first_turn_memory(effective, text, memory_session_on, first_turn) {
+        Some(block) => format!("{block}{base}"),
+        None => base,
+    }
+}
+
+/// The first-turn memory block, or None. A later turn, --no-memory,
+/// GROK_MEMORY=0, a /memory session toggle, or an empty store gives None.
+fn first_turn_memory(
+    effective: &config::EffectiveConfig,
+    text: &str,
+    memory_session_on: Option<bool>,
+    first_turn: bool,
+) -> Option<String> {
     if !first_turn {
-        return base;
+        return None;
     }
     let enabled = if effective.memory.force_off() {
         false
@@ -8220,26 +8305,18 @@ fn model_prompt(
         memory_session_on.unwrap_or_else(|| effective.memory.enabled())
     };
     if !enabled {
-        return base;
+        return None;
     }
-    let Ok(store) = memory::open_store(&effective.grok_home, &effective.cwd) else {
-        return base;
-    };
+    let store = memory::open_store(&effective.grok_home, &effective.cwd).ok()?;
     // Curated global and workspace notes are the bounded index. A keyword in
     // the first prompt also pulls matching session logs.
     let block = if memory::has_search_terms(text) {
         memory::injection_block_for(&store, true, text)
     } else {
         memory::injection_block(&store, true)
-    };
-    let Ok(block) = block else {
-        return base;
-    };
-    if block.is_empty() {
-        base
-    } else {
-        format!("{block}{base}")
     }
+    .ok()?;
+    (!block.is_empty()).then_some(block)
 }
 
 fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text: &str) -> String {
@@ -8260,10 +8337,11 @@ fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text
     )
 }
 
-/// Rules, agents, session rules, memory, and an explicit skill body wrap the
-/// user's prompt text once. A later text block is an attachment body or a
-/// text-only `<pasted-image>` fallback; copying the prefix onto each of
-/// those would send the rules again and break the resume projection.
+/// Rules, agents, session rules, and an explicit skill body wrap the user's
+/// text. Attachment resource links stay as admitted by #156; only text blocks
+/// are rewritten. First-turn memory joins the first text block once.
+/// `--verbatim` leaves every text block exactly as admitted and sends that
+/// memory as a separate leading block, as the guide's first-turn context.
 fn blocks_with_model_prompt(
     launch: &Launch,
     effective: &config::EffectiveConfig,
@@ -8284,14 +8362,28 @@ fn blocks_with_model_prompt(
             if block.get("type").and_then(|value| value.as_str()) != Some("text") {
                 return block;
             }
-            let wrapped = model_prompt(launch, effective, text, memory_session_on, first_turn);
+            _ => {
+                out.push(block);
+                continue;
+            }
+        };
+        if launch.verbatim {
+            if memory_pending {
+                context = first_turn_memory(effective, &text, memory_session_on, true);
+            }
+        } else {
+            let wrapped = model_prompt(launch, effective, &text, memory_session_on, memory_pending);
             if wrapped != text {
                 block["text"] = serde_json::Value::String(wrapped);
             }
-            wrapped_user = true;
-            block
-        })
-        .collect()
+        }
+        memory_pending = false;
+        out.push(block);
+    }
+    if let Some(memory) = context {
+        out.insert(0, serde_json::json!({ "type": "text", "text": memory }));
+    }
+    out
 }
 
 fn submit_composer_prompt(
@@ -8649,16 +8741,15 @@ mod tests {
     fn parse_plain_prompt_sources_and_bounds() {
         let single =
             parse_launch(&args(&["-p", "hello", "--cwd", "/tmp", "--max-turns", "2"])).unwrap();
+        assert_eq!(single.cwd.as_deref(), Some(std::path::Path::new("/tmp")));
         match single.mode {
             LaunchMode::Plain {
                 prompt: PlainPrompt::Text(text),
-                cwd,
                 max_turns,
                 tools,
                 resume,
             } => {
                 assert_eq!(text, "hello");
-                assert_eq!(cwd.as_deref(), Some(std::path::Path::new("/tmp")));
                 assert_eq!(max_turns, Some(2));
                 assert!(tools.is_none());
                 assert!(resume.is_none());
@@ -8843,6 +8934,225 @@ mod tests {
     }
 
     #[test]
+    fn typed_agent_filters_are_refused_in_every_spelling() {
+        for entry in [
+            "Agent(explore, plan)",
+            "Agent()",
+            "agent(explore)",
+            "AGENT(plan)",
+            "Agent(explore),edit",
+        ] {
+            for flag in ["--disallowed-tools", "--tools"] {
+                let error = parse_launch(&args(&["-p", "hello", flag, entry])).unwrap_err();
+                let text = error.to_string();
+                assert!(text.contains("later ticket"), "{flag} {entry}: {text}");
+                assert!(!text.starts_with("usage: "), "{flag} {entry}: {text}");
+                let typed = entry.split(',').next().unwrap_or(entry);
+                assert!(text.contains(typed), "{flag} {entry}: {text}");
+            }
+        }
+        assert!(scoped_agent_filter("Agent(explore"));
+        assert!(scoped_agent_filter("agent()"));
+        assert!(scoped_agent_filter("AGENT(plan)"));
+        assert!(!scoped_agent_filter("Agent"));
+        assert!(!scoped_agent_filter("agent"));
+        assert!(!scoped_agent_filter("plan)"));
+        let plain = parse_launch(&args(&["-p", "hello", "--disallowed-tools", "Agent"])).unwrap();
+        assert!(matches!(plain.mode, LaunchMode::Plain { .. }));
+    }
+
+    #[test]
+    fn integrated_sandbox_memory_web_and_cwd_flags_are_not_refused() {
+        let plain = parse_launch(&args(&[
+            "-p",
+            "hello",
+            "--sandbox",
+            "workspace",
+            "--no-memory",
+            "--disable-web-search",
+            "--cwd",
+            "/tmp",
+        ]))
+        .unwrap();
+        assert!(matches!(plain.mode, LaunchMode::Plain { .. }));
+        assert_eq!(plain.sandbox.as_deref(), Some("workspace"));
+        assert!(plain.no_memory);
+        assert!(plain.disable_web_search);
+        assert_eq!(plain.cwd.as_deref(), Some(std::path::Path::new("/tmp")));
+        assert!(plain.warnings.is_empty(), "{:?}", plain.warnings);
+        let interactive = parse_launch(&args(&["--disable-web-search", "--cwd", "/tmp"])).unwrap();
+        assert!(matches!(interactive.mode, LaunchMode::New));
+        assert!(interactive.disable_web_search);
+        assert_eq!(
+            interactive.cwd.as_deref(),
+            Some(std::path::Path::new("/tmp"))
+        );
+        // The guide: headless-only flags print a warning in the TUI and are ignored.
+        let ignored = parse_launch(&args(&[
+            "--max-turns",
+            "2",
+            "--tools",
+            "read",
+            "--disallowed-tools",
+            "edit",
+            "--version",
+        ]))
+        .unwrap();
+        assert!(matches!(ignored.mode, LaunchMode::Version));
+        for flag in ["--max-turns", "--tools", "--disallowed-tools"] {
+            assert!(
+                ignored
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains(flag) && warning.contains("ignored")),
+                "{flag}: {:?}",
+                ignored.warnings
+            );
+        }
+        let short_model = parse_launch(&args(&["-m", "gateway", "-p", "hello"])).unwrap();
+        assert_eq!(short_model.model.as_deref(), Some("gateway"));
+        assert!(matches!(
+            parse_launch(&args(&["-v"])).unwrap().mode,
+            LaunchMode::Version
+        ));
+        let quiet_verbatim = parse_launch(&args(&["--verbatim"])).unwrap();
+        assert!(!quiet_verbatim.verbatim);
+        assert!(
+            quiet_verbatim
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("--verbatim"))
+        );
+        let later = parse_launch(&args(&["-p", "hello", "--experimental-memory"])).unwrap_err();
+        assert!(later.to_string().contains("later ticket"), "{later}");
+    }
+
+    #[test]
+    fn every_completed_flag_is_accepted_by_the_parser() {
+        let script = completion_script("bash");
+        let flags = script
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("local flags=\""))
+            .and_then(|rest| rest.strip_suffix('"'))
+            .expect("bash flags list");
+        let valued = script
+            .lines()
+            .find(|line| line.trim_start().starts_with("--resume|-r|"))
+            .expect("bash value flags")
+            .trim()
+            .trim_end_matches(')');
+        let valued: Vec<&str> = valued.split('|').collect();
+        for flag in flags.split_whitespace() {
+            let mut argv = vec![flag];
+            if valued.contains(&flag) {
+                argv.push(if flag == "--max-turns" {
+                    "2"
+                } else {
+                    "workspace"
+                });
+            }
+            if !matches!(flag, "-p" | "--single" | "--prompt-file" | "--prompt-json") {
+                argv.extend(["-p", "hello"]);
+            }
+            if let Err(error) = parse_launch(&args(&argv)) {
+                assert!(
+                    !error.to_string().contains("unexpected argument"),
+                    "{flag}: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn disable_web_search_turns_off_search_and_fetch_for_the_process() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let mut input = config::LoadInput {
+            home: home.clone(),
+            dsh_home: root.path().join("dsh"),
+            cwd: root.path().to_path_buf(),
+            grok_home: Some(root.path().join("grok")),
+            ..config::LoadInput::default()
+        };
+        input.env.insert("GROK_WEB_FETCH".into(), "1".into());
+        let enabled = config::load_from(input.clone());
+        assert!(enabled.web.fetch.enabled);
+        input.cli_disable_web_search = true;
+        let disabled = config::load_from(input);
+        assert!(!disabled.web.search.enabled);
+        assert!(!disabled.web.fetch.enabled);
+        assert_eq!(disabled.web.search.enabled_source, "--disable-web-search");
+        assert_eq!(disabled.web.fetch.enabled_source, "--disable-web-search");
+        let env = config::web_env(&disabled);
+        assert!(env.contains(&("CODSH_WEB_SEARCH".into(), "0".into())));
+        assert!(env.contains(&("CODSH_WEB_FETCH".into(), "0".into())));
+        assert!(env.contains(&("CODSH_DISABLE_WEB_TOOLS".into(), "1".into())));
+    }
+
+    #[test]
+    fn verbatim_sends_first_turn_memory_as_its_own_block() {
+        let root = tempfile::tempdir().unwrap();
+        let grok = root.path().join("grok");
+        std::fs::create_dir_all(grok.join("memory")).unwrap();
+        std::fs::write(
+            grok.join("memory").join("MEMORY.md"),
+            "MEMORY_SENTINEL note\n",
+        )
+        .unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let mut input = config::LoadInput {
+            home: home.clone(),
+            dsh_home: root.path().join("dsh"),
+            cwd: root.path().join("empty"),
+            grok_home: Some(grok),
+            ..config::LoadInput::default()
+        };
+        std::fs::create_dir_all(&input.cwd).unwrap();
+        input.env.insert("HOME".into(), home.display().to_string());
+        input.env.insert("GROK_MEMORY".into(), "1".into());
+        let effective = config::load_from(input);
+        let text = |value: &str| serde_json::json!({ "type": "text", "text": value });
+        let spaced = "  keep\nline";
+        let frozen = parse_launch(&args(&["-p", spaced, "--verbatim"])).unwrap();
+        let first = blocks_with_model_prompt(&frozen, &effective, vec![text(spaced)], None, true);
+        assert_eq!(first.len(), 2, "{first:?}");
+        let context = first[0]["text"].as_str().unwrap_or_default();
+        assert!(context.contains("MEMORY_SENTINEL"), "{context}");
+        assert!(!context.contains(spaced), "{context}");
+        assert_eq!(first[1]["text"], spaced);
+        let resumed =
+            blocks_with_model_prompt(&frozen, &effective, vec![text(spaced)], None, false);
+        assert_eq!(resumed.len(), 1);
+        assert_eq!(resumed[0]["text"], spaced);
+        let session_off =
+            blocks_with_model_prompt(&frozen, &effective, vec![text(spaced)], Some(false), true);
+        assert_eq!(session_off.len(), 1);
+        // Without --verbatim the note still leads the first text block, once.
+        let normal = parse_launch(&args(&["-p", "one"])).unwrap();
+        let two = blocks_with_model_prompt(
+            &normal,
+            &effective,
+            vec![text("one"), text("two")],
+            None,
+            true,
+        );
+        assert_eq!(two.len(), 2);
+        let seen = two
+            .iter()
+            .filter(|block| {
+                block["text"]
+                    .as_str()
+                    .is_some_and(|value| value.contains("MEMORY_SENTINEL"))
+            })
+            .count();
+        assert_eq!(seen, 1, "{two:?}");
+        assert!(two[0]["text"].as_str().unwrap_or_default().ends_with("one"));
+        assert_eq!(two[1]["text"], "two");
+    }
+
+    #[test]
     fn parse_continue_with_model() {
         let launch = parse_launch(&args(&["--model", "gateway", "--continue"])).unwrap();
         assert!(matches!(launch.mode, LaunchMode::Continue));
@@ -9006,6 +9316,7 @@ env_key = "XAI_API_KEY"
             cli_deny: Vec::new(),
             cli_no_memory: false,
             cli_sandbox: None,
+            cli_disable_web_search: false,
         });
         assert!(effective.ready, "{:?}", effective.errors);
         let previous = dir.path().join("previous.yml");

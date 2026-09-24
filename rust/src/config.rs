@@ -148,6 +148,8 @@ pub struct LoadInput {
     pub cli_deny: Vec<String>,
     pub cli_no_memory: bool,
     pub cli_sandbox: Option<String>,
+    /// `--disable-web-search` for this process.
+    pub cli_disable_web_search: bool,
 }
 
 impl EffectiveConfig {
@@ -323,6 +325,7 @@ pub fn load() -> EffectiveConfig {
         cli_deny: Vec::new(),
         cli_no_memory: false,
         cli_sandbox: None,
+        cli_disable_web_search: false,
     })
 }
 
@@ -1812,7 +1815,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         },
     );
     push_setting(&mut settings, "memory.uploads", "false", "default");
-    let web = crate::web::load_services_layered(
+    let mut web = crate::web::load_services_layered(
         &table,
         user.as_ref()
             .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
@@ -1820,6 +1823,9 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         requirements.as_ref(),
         managed.as_ref(),
     );
+    if input.cli_disable_web_search {
+        web.disable_for_process();
+    }
     warnings.extend(web.warnings.iter().cloned());
     for reason in &web.errors {
         errors.push(ConfigError {
@@ -2614,6 +2620,11 @@ pub fn web_env(config: &EffectiveConfig) -> Vec<(String, String)> {
             "CODSH_WEB_SEARCH_KEY_ENV".into(),
             config.web.search.env_key.clone(),
         ));
+    }
+    // A registered tool-web tool would still be offered to the model. The
+    // plain plugin drops web_search / web_fetch from every agent schema.
+    if config.web.process_off {
+        extra.push(("CODSH_DISABLE_WEB_TOOLS".into(), "1".into()));
     }
     extra
 }
@@ -3538,6 +3549,7 @@ mod tests {
             cli_deny: Vec::new(),
             cli_no_memory: false,
             cli_sandbox: None,
+            cli_disable_web_search: false,
         }
     }
 

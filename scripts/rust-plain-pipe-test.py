@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Installed plain command: real dsh, no TTY, provider fixture only."""
+import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -45,6 +47,60 @@ def start_plain(launcher, cwd, env, args):
         cwd=cwd, env=env, stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, text=True,
     )
+
+
+def outside_temp_root():
+    """A scratch directory outside /tmp, /var/tmp, and TMPDIR, beside the repo
+    or in HOME. Sandbox profiles write-allow the temp roots."""
+    temp_roots = [Path(p).resolve() for p in ('/tmp', '/var/tmp', os.environ.get('TMPDIR') or '/tmp')]
+    for candidate in (ROOT.parent, Path.home()):
+        if not candidate.is_dir():
+            continue
+        try:
+            path = Path(tempfile.mkdtemp(prefix='.codsh-145-plain-', dir=candidate)).resolve()
+        except OSError:
+            continue
+        if any(path == root or root in path.parents for root in temp_roots):
+            shutil.rmtree(path, ignore_errors=True)
+            continue
+        return path
+    raise AssertionError('no scratch directory outside the temp roots')
+
+
+def interactive_flags(launcher, project, web_env, web_trace, work, output):
+    """Real PTY: --cwd and --disable-web-search reach the TUI session. The
+    headless-only --max-turns and --tools print a warning and are ignored."""
+    spec = importlib.util.spec_from_file_location(
+        'rust_screen_pty_test', ROOT / 'scripts' / 'rust-screen-pty-test.py')
+    screen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(screen)
+    moved = work / 'interactive-cwd'
+    moved.mkdir()
+    (moved / 'note.txt').write_text('MOVED_NOTE\n')
+    tui_env = {**web_env, 'DSH_CODE_CLI_MOCK_TOOL': 'plain-steps',
+               'TERM': 'xterm-256color', 'COLORTERM': 'truecolor'}
+    session = screen.Session(
+        'plain-flags-tui', launcher, project, tui_env, output,
+        extra=['--cwd', str(moved), '--disable-web-search', '--max-turns', '1',
+               '--tools', 'read', '--always-approve'])
+    try:
+        session.wait_visible('Connected to dsh ACP', 30)
+        session.write('INTERACTIVE_FLAGS_TOKEN\r')
+        session.wait_visible('RUST_ACP_STEPS_DONE', 40)
+        session.finish()
+    finally:
+        if session.process.poll() is None:
+            session.kill_group()
+    raw = bytes(session.data).decode(errors='replace')
+    assert '--max-turns' in raw and '--tools' in raw and 'ignored' in raw, raw[:1500]
+    rows = [json.loads(line) for line in web_trace.read_text().splitlines() if line.strip()]
+    web_trace.unlink()
+    assert len(rows) >= 5, rows
+    tools = set(rows[0]['tools'])
+    assert not {'web_search', 'web_fetch'} & tools, tools
+    assert {'read', 'edit', 'subagent'} <= tools, tools
+    context = '\n'.join(rows[0]['user'])
+    assert os.path.realpath(moved) in context, context
 
 
 def main():
@@ -95,9 +151,11 @@ def main():
         assert '--max-turns' in help_run.stdout
         assert 'completions' in help_run.stdout
         assert 'later ticket' in help_run.stdout
+        assert '--disable-web-search' in help_run.stdout and 'subagent_fork' in help_run.stdout
         short = plain(launcher, project, env('echo'), ['-h'])
         assert short.returncode == 0, short.stderr
         assert 'bash, elvish, fish, powershell, zsh' in short.stdout
+        assert '-m/--model' in short.stdout and 'export' in short.stdout
         assert len(short.stdout) < len(help_run.stdout)
         bare_help = plain(launcher, project, env('echo'), ['help'])
         assert bare_help.returncode == 0 and 'Plain:' in bare_help.stdout
@@ -287,14 +345,143 @@ def main():
         assert '  keep\nline' in spaced_user, spaced_user
         assert 'HOME_RULE' not in spaced_user
         wire.unlink()
-        denied_agent = plain(launcher, project, env('echo'),
+        agent_trace = work / 'agent-trace.jsonl'
+        agent_env = {**env('echo'), 'CODSH_REVIEW_TRACE': str(agent_trace)}
+        unfiltered = plain(launcher, project, agent_env, ['-p', 'hello'])
+        assert unfiltered.returncode == 0, unfiltered.stderr
+        offered = [json.loads(line) for line in agent_trace.read_text().splitlines() if line.strip()]
+        assert {'subagent', 'subagent_fork'} <= set(offered[0]['tools']), offered[0]
+        agent_trace.unlink()
+        denied_agent = plain(launcher, project, agent_env,
                              ['-p', 'hello', '--disallowed-tools', 'Agent'])
         assert denied_agent.returncode == 0, denied_agent.stderr
+        masked = [json.loads(line) for line in agent_trace.read_text().splitlines() if line.strip()]
+        assert masked, 'Agent deny made no model request'
+        for row in masked:
+            assert 'subagent' not in row['tools'] and 'subagent_fork' not in row['tools'], row
+            assert 'read' in row['tools'], row
+        agent_trace.unlink()
         scoped_agent = plain(launcher, project, env('echo'),
                              ['-p', 'hello', '--disallowed-tools', 'Agent(explore),edit'])
         assert scoped_agent.returncode != 0, scoped_agent.stdout
         assert 'Agent(explore)' in scoped_agent.stderr
         assert 'later ticket' in scoped_agent.stderr
+        # Every typed spelling is refused before a provider call, from the
+        # flags and from a CODSH_PLAIN_TOOLS value inherited from a parent.
+        for entry in ('Agent(explore, plan)', 'Agent()', 'agent(explore)'):
+            named = entry.split(',')[0]
+            for flag in ('--disallowed-tools', '--tools'):
+                typed = plain(launcher, project, agent_env, ['-p', 'hello', flag, entry])
+                assert typed.returncode == 1, (flag, entry, typed.stdout, typed.stderr)
+                assert typed.stdout == '', (flag, entry, typed.stdout)
+                assert named in typed.stderr and 'later ticket' in typed.stderr, (flag, entry, typed.stderr)
+                assert not agent_trace.exists(), (flag, entry, agent_trace.read_text())
+            inherited = plain(launcher, project, {**agent_env, 'CODSH_PLAIN_TOOLS': f'deny:{entry}'},
+                              ['-p', 'hello'])
+            assert inherited.returncode == 1, (entry, inherited.stdout, inherited.stderr)
+            assert inherited.stdout == '', (entry, inherited.stdout)
+            assert named in inherited.stderr and 'later ticket' in inherited.stderr, (entry, inherited.stderr)
+            assert 'unknown global tool' not in inherited.stderr, (entry, inherited.stderr)
+            assert not agent_trace.exists(), (entry, agent_trace.read_text())
+
+        # Integrated flags run in plain mode instead of being refused.
+        memory_trace = work / 'memory-trace.jsonl'
+        (grok_home / 'memory').mkdir(parents=True, exist_ok=True)
+        (grok_home / 'memory' / 'MEMORY.md').write_text('PLAIN_MEMORY_SENTINEL\n')
+        memory_env = {**env('echo'), 'CODSH_REVIEW_TRACE': str(memory_trace), 'GROK_MEMORY': '1'}
+
+        def memory_rows():
+            rows = [json.loads(line) for line in memory_trace.read_text().splitlines() if line.strip()]
+            memory_trace.unlink()
+            return rows
+
+        remembered_dir = work / 'memory-on'
+        remembered_dir.mkdir()
+        remembered = plain(launcher, remembered_dir, memory_env, ['-p', 'MEMORY_FIRST'])
+        assert remembered.returncode == 0, remembered.stderr
+        first_user = '\n'.join(memory_rows()[0]['user'])
+        assert 'PLAIN_MEMORY_SENTINEL' in first_user and 'MEMORY_FIRST' in first_user, first_user
+        again = plain(launcher, remembered_dir, memory_env, ['-c', '-p', 'MEMORY_AGAIN'])
+        assert again.returncode == 0, again.stderr
+        again_user = '\n'.join(memory_rows()[-1]['user'])
+        assert 'MEMORY_AGAIN' in again_user, again_user
+        assert again_user.count('PLAIN_MEMORY_SENTINEL') == 1, again_user
+        forgotten_dir = work / 'memory-off'
+        forgotten_dir.mkdir()
+        forgotten = plain(launcher, forgotten_dir, memory_env, ['-p', 'MEMORY_OFF', '--no-memory'])
+        assert forgotten.returncode == 0, forgotten.stderr
+        forgotten_user = '\n'.join(memory_rows()[0]['user'])
+        assert 'MEMORY_OFF' in forgotten_user and 'PLAIN_MEMORY_SENTINEL' not in forgotten_user, forgotten_user
+        exact_dir = work / 'memory-verbatim'
+        exact_dir.mkdir()
+        exact = plain(launcher, exact_dir, memory_env, ['--verbatim', '-p', '  keep\nline'])
+        assert exact.returncode == 0, exact.stderr
+        # The ACP prompt carries memory as its own leading block and the user
+        # block unchanged. dsh joins adjacent text blocks into one model part,
+        # so the model sees the note first and then the exact bytes.
+        exact_user = memory_rows()[0]['user'][0]
+        assert exact_user.startswith('<local-memory>'), exact_user
+        assert exact_user.endswith('</local-memory>\n  keep\nline'), exact_user
+        assert 'PLAIN_MEMORY_SENTINEL' in exact_user, exact_user
+        assert 'HOME_RULE' not in exact_user and '<human_rules>' not in exact_user, exact_user
+        (grok_home / 'memory' / 'MEMORY.md').unlink()
+
+        # Workspace and read-only profiles write-allow the temp roots, so the
+        # write targets live outside /tmp and TMPDIR, as in the sandbox test.
+        fixture = outside_temp_root()
+        try:
+            boxed_dir = fixture / 'boxed-cwd'
+            boxed_dir.mkdir()
+            report = work / 'sandbox-report.json'
+            boxed = plain(launcher, project, env('file-write'),
+                          ['-p', 'write it', '--cwd', str(boxed_dir), '--sandbox', 'workspace',
+                           '--sandbox-report', str(report), '--always-approve'])
+            assert boxed.returncode == 0, boxed.stderr
+            assert (boxed_dir / 'created.txt').read_text() == 'RUST_ACP_CREATED\n', boxed.stdout
+            assert not (project / 'created.txt').exists()
+            applied = json.loads(report.read_text())
+            assert applied['applied'] is True, applied
+            roots = [os.path.realpath(root) for root in applied['writeRoots']]
+            assert os.path.realpath(boxed_dir) in roots, roots
+            assert os.path.realpath(project) not in roots, roots
+            locked_dir = fixture / 'locked-cwd'
+            locked_dir.mkdir()
+            locked = plain(launcher, locked_dir, env('file-write'),
+                           ['-p', 'write it', '--sandbox', 'read-only', '--always-approve'])
+            assert locked.returncode == 0, locked.stderr
+            assert 'RUST_ACP_FILE_ERROR' in locked.stdout, locked.stdout
+            assert not (locked_dir / 'created.txt').exists()
+        finally:
+            shutil.rmtree(fixture, ignore_errors=True)
+
+        web_patch = work / 'web-overlay.yml'
+        web_patch.write_text(run([NODE, '--input-type=module', '-e',
+                                  "import { rustAcpOverlay } from './scripts/rust-acp-overlay.mjs'; process.stdout.write(rustAcpOverlay())"],
+                                 cwd=ROOT, env={**os.environ, 'CODSH_WEB_SEARCH': '1', 'CODSH_WEB_FETCH': '1'}).stdout)
+        web_trace = work / 'web-trace.jsonl'
+        web_env = {**env('echo'), 'CODSH_ACP_PATCH': str(web_patch), 'CODSH_REVIEW_TRACE': str(web_trace),
+                   'GROK_WEB_FETCH': '1'}
+        with_web = plain(launcher, project, web_env, ['-p', 'hello'])
+        assert with_web.returncode == 0, with_web.stderr
+        web_rows = [json.loads(line) for line in web_trace.read_text().splitlines() if line.strip()]
+        assert {'web_search', 'web_fetch'} <= set(web_rows[0]['tools']), web_rows[0]
+        web_trace.unlink()
+        no_web = plain(launcher, project, web_env, ['-p', 'hello', '--disable-web-search'])
+        assert no_web.returncode == 0, no_web.stderr
+        web_rows = [json.loads(line) for line in web_trace.read_text().splitlines() if line.strip()]
+        assert web_rows and not {'web_search', 'web_fetch'} & set(web_rows[0]['tools']), web_rows[0]
+        assert 'read' in web_rows[0]['tools'], web_rows[0]
+        web_trace.unlink()
+        inspected = plain(launcher, project, web_env, ['--disable-web-search', 'inspect', '--json'])
+        assert inspected.returncode == 0, inspected.stderr
+        assert '"webFetchEnabled":false' in inspected.stdout.replace(' ', ''), inspected.stdout[-800:]
+
+        warned = plain(launcher, project, env('echo'), ['--max-turns', '2', '--tools', 'read', '--version'])
+        assert warned.returncode == 0, warned.stderr
+        assert 'codsh-rust' in warned.stdout
+        assert '--max-turns' in warned.stderr and '--tools' in warned.stderr, warned.stderr
+        assert 'ignored' in warned.stderr, warned.stderr
+        interactive_flags(launcher, project, web_env, web_trace, work, output)
 
         positional = plain(launcher, project, env('echo'), ['just words'])
         assert positional.returncode == 1
@@ -311,7 +498,9 @@ def main():
 
         slow_env = env('echo')
         slow_env['DSH_CODE_CLI_MOCK_DELAY_MS'] = '4000'
-        for sig, code in ((signal.SIGINT, 130), (signal.SIGTERM, 143)):
+        # SIGHUP is not caught by the native client; the launcher reports the
+        # signal death as 128+N instead of a generic 1.
+        for sig, code in ((signal.SIGINT, 130), (signal.SIGTERM, 143), (signal.SIGHUP, 129)):
             child = start_plain(launcher, project, slow_env, ['-p', 'slow'])
             time.sleep(1.2)
             os.killpg(child.pid, sig)

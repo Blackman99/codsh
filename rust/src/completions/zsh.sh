@@ -16,10 +16,16 @@ _codsh_rust() {
     'voice:List microphones'
     'sessions:List or search sessions'
     'dashboard:Open the agent dashboard'
+    'web:Call the configured web substitutes'
+    'export:Export a session as Markdown'
+    'share:Share a session with the configured service'
+    'du:Show isolated-home disk usage'
+    'disk-usage:Show isolated-home disk usage'
+    'memory:Manage local memory notes'
   )
   flags=(
     '--help[Print help]' '-h[Print a short summary]'
-    '--version[Print version]' '-V[Print version]'
+    '--version[Print version]' '-V[Print version]' '-v[Print version]'
     '--continue[Continue the most recent session]'
     '-c[Continue the most recent session]'
     '--resume[Resume a session by id or title]'
@@ -44,6 +50,8 @@ _codsh_rust() {
     '--output-format[Output format]'
     '--trust[Trust this folder]' '--revoke-trust[Withdraw folder trust]'
     '--minimal[Minimal screen]' '--fullscreen[Fullscreen screen]'
+    '--sandbox[Filesystem sandbox profile]' '--no-memory[Hide memory for this process]'
+    '--disable-web-search[Disable web search and web fetch tools]'
   )
   formats=(plain json streaming-json streaming-messages-json)
   modes=(ask auto always-approve dontAsk acceptEdits)
@@ -54,7 +62,7 @@ _codsh_rust() {
   case ${words[CURRENT-1]} in
     --output-format) _values 'format' $formats; return ;;
     --permission-mode) _values 'mode' $modes; return ;;
-    --resume|-r|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json)
+    --resume|-r|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json|--sandbox)
       return
       ;;
   esac

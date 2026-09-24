@@ -357,7 +357,7 @@ durable sessions. The mock model, when used, is a dsh provider-boundary fixture
 dsh core. Plain automation is `python3 scripts/rust-plain-pipe-test.py`: it packs
 the CLI and runs no-TTY `-p`/`--prompt-file` prompts, `--cwd`, `--continue`,
 tool denial, `--max-turns`, invalid flags, and SIGINT/SIGTERM through released
-dsh. It also checks the first-request tool list, title resume, a non-mock provider, help, and shell completions. JSON output formats are refused here. Unknown options exit 2. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
+dsh. It also checks the first-request tool list (including `Agent` removing `subagent` and `subagent_fork`, typed `Agent(...)` refusals from flags and an inherited `CODSH_PLAIN_TOOLS`, and `--disable-web-search`), first-turn memory with `--no-memory` and `--verbatim`, `--cwd` with `--sandbox` write roots, title resume, a non-mock provider, help, shell completions, and one interactive PTY session where `--cwd` and `--disable-web-search` apply and headless-only flags warn. Sandbox write targets are created beside the repo, outside the temp roots, and removed afterwards. JSON output formats are refused here. Unknown options exit 2. Model/protocol/effort checks (`python3 scripts/rust-model-pty-test.py`)
 drive a loopback OpenAI-compatible fixture at the provider boundary and assert
 the actual request path, model id, auth, and effort; same-named models on
 different backends are not treated as equivalent. Enter submits the draft through dsh when connected. Missing dsh, ACP

@@ -2,16 +2,16 @@
 Register-ArgumentCompleter -CommandName codsh -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $shells = @('bash', 'elvish', 'fish', 'powershell', 'zsh')
-  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'sessions', 'dashboard')
+  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'web', 'sessions', 'dashboard', 'export', 'share', 'du', 'disk-usage', 'memory')
   $flags = @(
-    '--help', '-h', '--version', '-V', '--continue', '-c', '--resume', '-r', '--fork-session',
+    '--help', '-h', '--version', '-V', '-v', '--continue', '-c', '--resume', '-r', '--fork-session',
     '--session-id', '-s', '--model', '-m', '--effort', '--reasoning-effort', '--cwd',
     '-p', '--single', '--prompt-file', '--prompt-json', '--verbatim', '--tools',
     '--disallowed-tools', '--max-turns', '--rules', '--append-system-prompt',
     '--system-prompt-override', '--system-prompt', '--allow', '--deny',
     '--allowedTools', '--disallowedTools', '--always-approve', '--yolo',
     '--permission-mode', '--output-format', '--trust', '--revoke-trust',
-    '--minimal', '--fullscreen'
+    '--minimal', '--fullscreen', '--sandbox', '--no-memory', '--disable-web-search'
   )
   $text = $commandAst.ToString()
   $candidates = if ($text -match 'completions\s+\S*$') { $shells }

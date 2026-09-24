@@ -65,6 +65,8 @@ pub struct WebServices {
     pub fetch: FetchService,
     pub warnings: Vec<String>,
     pub errors: Vec<String>,
+    /// `--disable-web-search` turned both tools off for this process.
+    pub process_off: bool,
 }
 
 impl WebServices {
@@ -101,7 +103,21 @@ impl WebServices {
             },
             warnings: Vec::new(),
             errors: Vec::new(),
+            process_off: false,
         }
+    }
+
+    /// `--disable-web-search`: web_search and web_fetch are off for this
+    /// process. It beats config, env, and requirements because it only turns
+    /// tools off; it never turns one on.
+    pub fn disable_for_process(&mut self) {
+        self.process_off = true;
+        self.search.enabled = false;
+        self.search.enabled_source = "--disable-web-search".into();
+        self.search.cost = "disabled; no search request and no charge".into();
+        self.fetch.enabled = false;
+        self.fetch.enabled_source = "--disable-web-search".into();
+        self.fetch.cost = "disabled; no fetch request is made".into();
     }
 }
 
