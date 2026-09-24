@@ -16,6 +16,13 @@ pub struct AppearanceConfig {
     pub show_timestamps: bool,
     pub screen_mode: ScreenMode,
     pub confirm_before_rewind: bool,
+    /// `[ui].follow_up_behavior = "steer"`: a follow-up typed during a turn
+    /// is handed to the running agent at its next step boundary. Default
+    /// `"queue"` waits for the turn to end.
+    pub follow_up_steer: bool,
+    /// `[ui].combine_queued_prompts`: merge consecutive plain follow-ups
+    /// into one turn when the queue drains. Default off.
+    pub combine_queued_prompts: bool,
     pub terminal_theme: bool,
     pub status_line: StatusLineConfig,
     pub sources: BTreeMap<String, String>,
@@ -122,6 +129,8 @@ impl Default for AppearanceConfig {
             show_timestamps: true,
             screen_mode: ScreenMode::Fullscreen,
             confirm_before_rewind: true,
+            follow_up_steer: false,
+            combine_queued_prompts: false,
             terminal_theme: false,
             status_line: StatusLineConfig::default(),
             sources: BTreeMap::from([
@@ -392,6 +401,24 @@ fn apply_ui_table(
     if let Some(value) = bool_from_value(ui.get("confirm_before_rewind")) {
         config.confirm_before_rewind = value;
         sources.insert("ui.confirm_before_rewind".into(), source.into());
+    }
+    match ui.get("follow_up_behavior").and_then(TomlValue::as_str) {
+        Some("steer") => {
+            config.follow_up_steer = true;
+            sources.insert("ui.follow_up_behavior".into(), source.into());
+        }
+        Some("queue") => {
+            config.follow_up_steer = false;
+            sources.insert("ui.follow_up_behavior".into(), source.into());
+        }
+        Some(other) => warnings.push(format!(
+            "unknown ui.follow_up_behavior {other:?}; expected \"queue\" or \"steer\""
+        )),
+        None => {}
+    }
+    if let Some(value) = bool_from_value(ui.get("combine_queued_prompts")) {
+        config.combine_queued_prompts = value;
+        sources.insert("ui.combine_queued_prompts".into(), source.into());
     }
     if ui.get("status_line").is_some() {
         config.status_line = parse_status_line(ui.get("status_line"), sources, source, warnings);
@@ -1076,6 +1103,39 @@ mod tests {
             loaded.resolved_kind(ScreenMode::Minimal),
             ThemeKind::Terminal
         );
+    }
+
+    #[test]
+    fn follow_up_behavior_and_combine_parse_with_warning_for_unknown() {
+        let mut sources = BTreeMap::new();
+        let mut warnings = Vec::new();
+        let loaded = load(
+            None,
+            Some(&table(
+                "[ui]\nfollow_up_behavior = \"steer\"\ncombine_queued_prompts = true\n",
+            )),
+            None,
+            &BTreeMap::new(),
+            None,
+            &mut sources,
+            &mut warnings,
+        );
+        assert!(loaded.follow_up_steer);
+        assert!(loaded.combine_queued_prompts);
+        assert!(warnings.is_empty());
+        let mut sources = BTreeMap::new();
+        let loaded = load(
+            None,
+            Some(&table("[ui]\nfollow_up_behavior = \"interrupt\"\n")),
+            None,
+            &BTreeMap::new(),
+            None,
+            &mut sources,
+            &mut warnings,
+        );
+        assert!(!loaded.follow_up_steer);
+        assert!(!loaded.combine_queued_prompts);
+        assert!(warnings.iter().any(|w| w.contains("follow_up_behavior")));
     }
 
     #[test]

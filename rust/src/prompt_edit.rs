@@ -2,6 +2,7 @@ use crate::attachments::{
     AttachStatus, FileRef, PreparedAttachment, WorkspaceIndex, prompt_blocks,
 };
 use crate::images::{self, ImageRefusal, PreparedImage};
+use crate::prompt_queue::{self, QueueKind, QueuedItem, Release};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ const ESC_CLEAR_MS: u128 = 800;
 
 pub fn builtin_command_names() -> &'static [&'static str] {
     &[
+        "btw",
         "compact",
         "context",
         "dashboard",
@@ -38,6 +40,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "model",
         "multiline",
         "onboarding",
+        "queue",
         "rewind",
         "tasks",
         "theme",
@@ -50,6 +53,12 @@ pub fn builtin_command_names() -> &'static [&'static str] {
 }
 
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand::new(
+        "btw",
+        &[],
+        "Ask a side question without interrupting the turn",
+        true,
+    ),
     SlashCommand::new("cd", &[], "Choose the next new-agent directory", false),
     SlashCommand::new("clear", &[], "Clear the visible transcript", true),
     SlashCommand::new("compact", &[], "Compact conversation context", true),
@@ -91,6 +100,7 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("model", &["m"], "Select a model", false),
     SlashCommand::new("multiline", &["ml"], "Toggle multiline input", true),
     SlashCommand::new("new", &[], "Start a new dsh session", true),
+    SlashCommand::new("queue", &[], "List queued follow-ups (read-only)", true),
     SlashCommand::new("rename", &["title"], "Rename the current session", false),
     SlashCommand::new("resume", &[], "Resume a previous session", true),
     SlashCommand::new(
@@ -206,6 +216,9 @@ pub enum Action {
     Voice(VoiceGesture),
     /// Ctrl+V / Alt+V. The host reads the platform clipboard and attaches an image.
     PasteImage,
+    /// Queue panel Enter or the send-now chord on a selected row: cancel the
+    /// running turn and run this row next (or run it now when idle).
+    QueueSendNow(u64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,7 +283,14 @@ pub struct PromptComposer {
     pending_images: Vec<PreparedImage>,
     prepared_submit: Option<SubmittedPrompt>,
     /// Prompts typed while a turn is running. Each keeps its own chips.
-    queue: Vec<SubmittedPrompt>,
+    queue: Vec<QueuedItem>,
+    next_queue_id: u64,
+    /// Queue panel focus: the selected row index.
+    pub queue_pane: Option<usize>,
+    /// Row being edited in the composer. It stays in place and holds the drain.
+    queue_edit: Option<u64>,
+    /// The row the last Enter queued, for the host to steer.
+    last_enqueued: Option<u64>,
     grok_home: PathBuf,
     workspace: Option<WorkspaceIndex>,
     files: Vec<AttachedFile>,
@@ -332,6 +352,10 @@ impl PromptComposer {
             pending_images: Vec::new(),
             prepared_submit: None,
             queue: Vec::new(),
+            next_queue_id: 1,
+            queue_pane: None,
+            queue_edit: None,
+            last_enqueued: None,
             grok_home: grok_home.to_path_buf(),
             workspace: None,
             files: Vec::new(),
@@ -379,6 +403,11 @@ impl PromptComposer {
     }
 
     /// A bare slash submit was accepted. Do not put the parked draft back.
+    /// Images parked behind slash completion; a side question is text only.
+    pub fn parked_has_images(&self) -> bool {
+        !self.slash_images.is_empty()
+    }
+
     pub fn discard_parked_draft(&mut self) {
         self.slash_stash.clear();
         self.slash_images.clear();
@@ -396,6 +425,95 @@ impl PromptComposer {
         self.queue.len()
     }
 
+    pub fn queue_items(&self) -> &[QueuedItem] {
+        &self.queue
+    }
+
+    /// Row id held by an in-place edit.
+    pub fn queue_edit(&self) -> Option<u64> {
+        self.queue_edit
+    }
+
+    /// Queue the draft for the send-now chord. Not offered for steering:
+    /// it runs alone as the next turn.
+    pub fn enqueue_draft_for_send_now(&mut self) -> Option<u64> {
+        if self.enqueue_current() {
+            self.last_enqueued.take()
+        } else {
+            None
+        }
+    }
+
+    pub fn take_last_enqueued(&mut self) -> Option<u64> {
+        self.last_enqueued.take()
+    }
+
+    pub fn queue_item_mut(&mut self, id: u64) -> Option<&mut QueuedItem> {
+        self.queue.iter_mut().find(|item| item.id == id)
+    }
+
+    pub fn queue_item_by_wire(&mut self, wire: &str) -> Option<&mut QueuedItem> {
+        self.queue.iter_mut().find(|item| item.wire_id() == wire)
+    }
+
+    /// Remove one row by id (a claimed steer, a send-now, a delete).
+    pub fn remove_queued(&mut self, id: u64) -> Option<QueuedItem> {
+        let index = self.queue.iter().position(|item| item.id == id)?;
+        if self.queue_edit == Some(id) {
+            self.queue_edit = None;
+        }
+        let item = self.queue.remove(index);
+        self.clamp_queue_pane();
+        Some(item)
+    }
+
+    fn clamp_queue_pane(&mut self) {
+        if let Some(selected) = self.queue_pane {
+            if self.queue.is_empty() {
+                self.queue_pane = None;
+            } else {
+                self.queue_pane = Some(selected.min(self.queue.len() - 1));
+            }
+        }
+    }
+
+    fn push_queued(&mut self, prompt: SubmittedPrompt) -> u64 {
+        let id = self.next_queue_id;
+        self.next_queue_id += 1;
+        self.queue.push(QueuedItem {
+            id,
+            kind: prompt_queue::classify(&prompt.text),
+            prompt,
+            steering: false,
+            solo: false,
+        });
+        id
+    }
+
+    /// Queue a slash line the host refused to run mid-turn because it starts
+    /// a model turn (a custom command, a skill, `/compact`).
+    pub fn enqueue_command(&mut self, text: &str) -> u64 {
+        let id = self.push_queued(SubmittedPrompt {
+            text: text.to_string(),
+            blocks: vec![serde_json::json!({ "type": "text", "text": text })],
+            mentions: Vec::new(),
+            images: Vec::new(),
+        });
+        self.footer_notice = format!("queued {} (runs after this turn)", text.trim());
+        id
+    }
+
+    /// Put a row back at the front (a release that could not run, a
+    /// send-now row waiting for the cancelled turn to finish).
+    pub fn push_front(&mut self, item: QueuedItem) {
+        self.queue.insert(0, item);
+    }
+
+    /// Take the next release for the drain.
+    pub fn next_release(&mut self, combine: bool) -> Release {
+        prompt_queue::next_release(&mut self.queue, self.queue_edit, combine)
+    }
+
     /// Put the oldest queued prompt back when send-time admission refuses it.
     /// The chip and its bytes stay visible; nothing is sent.
     pub fn restore_refused_queue_head(&mut self) -> bool {
@@ -404,27 +522,269 @@ impl PromptComposer {
 
     /// Put a queued prompt back in the composer. Refused while the box holds text.
     pub fn edit_queued(&mut self, index: usize) -> bool {
-        if !self.draft.is_empty() || index >= self.queue.len() {
+        if !self.draft.is_empty() || index >= self.queue.len() || self.queue[index].steering {
             return false;
         }
+        if self.queue_edit == Some(self.queue[index].id) {
+            self.queue_edit = None;
+        }
         let item = self.queue.remove(index);
+        self.clamp_queue_pane();
         // `set_text` already puts the mention in the draft. Re-inserting a
         // chip would append a second copy of the same file.
-        self.set_text(&item.text);
-        self.rebind_file_chips(&item.mentions);
-        self.rebind_image_chips(&item.images);
+        self.set_text(&item.prompt.text);
+        self.rebind_file_chips(&item.prompt.mentions);
+        self.rebind_image_chips(&item.prompt.images);
         true
     }
 
+    /// Edit a row in place: its text goes into the composer, the row stays
+    /// where it is and holds the drain until Enter saves or Esc cancels.
+    pub fn begin_queue_edit(&mut self, index: usize) -> Result<(), String> {
+        let Some(item) = self.queue.get(index) else {
+            return Err("no queued row selected".into());
+        };
+        if item.steering {
+            return Err("row is being steered into the running turn".into());
+        }
+        if !self.draft.is_empty() {
+            return Err("finish or clear the draft before editing a queued row".into());
+        }
+        let (id, text, mentions, images) = (
+            item.id,
+            item.prompt.text.clone(),
+            item.prompt.mentions.clone(),
+            item.prompt.images.clone(),
+        );
+        self.queue_edit = Some(id);
+        self.queue_pane = None;
+        self.set_text(&text);
+        self.rebind_file_chips(&mentions);
+        self.rebind_image_chips(&images);
+        if !self.simple_mode {
+            self.vim = VimPrompt::Insert;
+        }
+        self.footer_notice = "editing queued row  Enter saves in place  Esc cancels".into();
+        Ok(())
+    }
+
+    /// Drop an in-place edit. The row keeps its old content.
+    pub fn cancel_queue_edit(&mut self) -> bool {
+        if self.queue_edit.take().is_none() {
+            return false;
+        }
+        self.files.clear();
+        self.images.clear();
+        self.replace_draft("");
+        self.chips = false;
+        self.footer_notice = "queue edit cancelled; row unchanged".into();
+        true
+    }
+
+    fn save_queue_edit(&mut self, id: u64) {
+        if self.draft.text().trim().is_empty() && !self.chips {
+            self.queue_edit = None;
+            self.remove_queued(id);
+            self.replace_draft("");
+            self.footer_notice = "queued row removed (saved empty)".into();
+            return;
+        }
+        let prepared = match self.prepare_submit() {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.footer_notice = error;
+                return;
+            }
+        };
+        self.queue_edit = None;
+        if let Some(item) = self.queue.iter_mut().find(|item| item.id == id) {
+            item.kind = prompt_queue::classify(&prepared.text);
+            item.prompt = prepared;
+            self.footer_notice = "queued row updated in place".into();
+        } else {
+            self.footer_notice = "queued row already left the queue; edit kept in the draft".into();
+            return;
+        }
+        self.files.clear();
+        self.images.clear();
+        self.chips = false;
+        self.replace_draft("");
+        self.overlay = Overlay::None;
+        self.matches.clear();
+    }
+
     /// Prompts waiting for the current turn to finish.
-    pub fn take_ready_queue(&mut self) -> Vec<SubmittedPrompt> {
+    #[cfg(test)]
+    pub fn take_ready_queue(&mut self) -> Vec<QueuedItem> {
+        self.queue_edit = None;
+        self.queue_pane = None;
         std::mem::take(&mut self.queue)
     }
 
-    pub fn requeue(&mut self, items: Vec<SubmittedPrompt>) {
+    #[cfg(test)]
+    pub fn requeue(&mut self, items: Vec<QueuedItem>) {
         let mut kept = items;
         kept.append(&mut self.queue);
         self.queue = kept;
+    }
+
+    fn move_queued(&mut self, index: usize, up: bool) -> bool {
+        let other = if up {
+            index.checked_sub(1)
+        } else {
+            (index + 1 < self.queue.len()).then_some(index + 1)
+        };
+        let Some(other) = other else {
+            return false;
+        };
+        if self.queue[index].steering || self.queue[other].steering {
+            self.footer_notice = "a steering row keeps its place until dsh answers".into();
+            return false;
+        }
+        self.queue.swap(index, other);
+        self.queue_pane = Some(other);
+        true
+    }
+
+    /// Queue panel keys. Returns None when the key is not the panel's.
+    fn handle_queue_pane(&mut self, key: &KeyEvent) -> Option<Action> {
+        let selected = self.queue_pane?;
+        if self.queue.is_empty() {
+            self.queue_pane = None;
+            return None;
+        }
+        let selected = selected.min(self.queue.len() - 1);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let plain = key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT;
+        match key.code {
+            KeyCode::Esc => {
+                self.queue_pane = None;
+                self.footer_notice.clear();
+            }
+            KeyCode::Up | KeyCode::Char('k') if plain && !shift => {
+                self.queue_pane = Some(selected.saturating_sub(1));
+            }
+            KeyCode::Down | KeyCode::Char('j') if plain && !shift => {
+                if selected + 1 < self.queue.len() {
+                    self.queue_pane = Some(selected + 1);
+                } else {
+                    // Past the last row, focus returns to the prompt.
+                    self.queue_pane = None;
+                }
+            }
+            KeyCode::Char('K') | KeyCode::Char('k') if shift || key.code == KeyCode::Char('K') => {
+                self.move_queued(selected, true);
+            }
+            KeyCode::Char('J') | KeyCode::Char('j') if shift || key.code == KeyCode::Char('J') => {
+                self.move_queued(selected, false);
+            }
+            KeyCode::Char('e') if key.modifiers.is_empty() => {
+                if let Err(error) = self.begin_queue_edit(selected) {
+                    self.footer_notice = error;
+                }
+            }
+            KeyCode::Char('x') | KeyCode::Delete | KeyCode::Backspace
+                if key.modifiers.is_empty() =>
+            {
+                let id = self.queue[selected].id;
+                if self.queue[selected].steering {
+                    self.footer_notice = "row is being steered; it cannot be deleted now".into();
+                } else {
+                    self.remove_queued(id);
+                    self.footer_notice = "queued row deleted".into();
+                }
+            }
+            KeyCode::Enter if key.modifiers.is_empty() => {
+                return Some(Action::QueueSendNow(self.queue[selected].id));
+            }
+            _ => {}
+        }
+        Some(Action::None)
+    }
+
+    pub fn selected_queue_id(&self) -> Option<u64> {
+        let index = self.queue_pane?;
+        self.queue.get(index).map(|item| item.id)
+    }
+
+    /// Queue lines for the notice slot. Empty when nothing is queued.
+    pub fn queue_panel_text(&self) -> String {
+        if self.queue.is_empty() {
+            return String::new();
+        }
+        let mark = |item: &QueuedItem| {
+            let mut tags = Vec::new();
+            if self.queue_edit == Some(item.id) {
+                tags.push("editing");
+            }
+            if item.steering {
+                tags.push("steering");
+            }
+            match item.kind {
+                QueueKind::Command => tags.push("cmd"),
+                QueueKind::Bash => tags.push("bash"),
+                QueueKind::Prompt => {}
+            }
+            if tags.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", tags.join(","))
+            }
+        };
+        match self.queue_pane {
+            None => {
+                let first = &self.queue[0];
+                format!(
+                    "Queued {} · next: {}{} · Ctrl+; manage",
+                    self.queue.len(),
+                    first.label(48),
+                    mark(first)
+                )
+            }
+            Some(selected) => {
+                let mut lines = vec![format!(
+                    "Queue {}  ↑↓ select  e edit  Enter send now  x delete  J/K move  Esc close",
+                    self.queue.len()
+                )];
+                let start = selected
+                    .saturating_sub(1)
+                    .min(self.queue.len().saturating_sub(3));
+                for (index, item) in self.queue.iter().enumerate().skip(start).take(3) {
+                    let cursor = if index == selected { ">" } else { " " };
+                    lines.push(format!(
+                        "{cursor} {}. {}{}",
+                        index + 1,
+                        item.label(60),
+                        mark(item)
+                    ));
+                }
+                lines.join("\n")
+            }
+        }
+    }
+
+    /// Read-only listing for `/queue`.
+    pub fn queue_listing(&self) -> String {
+        if self.queue.is_empty() {
+            return "Queue is empty.".into();
+        }
+        let mut lines = vec![format!("Queued follow-ups ({}):", self.queue.len())];
+        for (index, item) in self.queue.iter().enumerate() {
+            let kind = match item.kind {
+                QueueKind::Prompt => "",
+                QueueKind::Command => " [cmd]",
+                QueueKind::Bash => " [bash]",
+            };
+            let state = if self.queue_edit == Some(item.id) {
+                " [editing]"
+            } else if item.steering {
+                " [steering]"
+            } else {
+                ""
+            };
+            lines.push(format!("{}. {}{kind}{state}", index + 1, item.label(100)));
+        }
+        lines.join("\n")
     }
 
     /// Blocks for a prompt that was queued under a different model.
@@ -472,8 +832,9 @@ impl PromptComposer {
         self.replace_draft("");
         self.overlay = Overlay::None;
         self.matches.clear();
-        self.queue.push(prepared);
-        self.footer_notice = format!("queued {}", self.queue.len());
+        let id = self.push_queued(prepared);
+        self.last_enqueued = Some(id);
+        self.footer_notice = format!("Queued {} · Enter to send now", self.queue.len());
         true
     }
 
@@ -887,6 +1248,20 @@ impl PromptComposer {
             return Action::Voice(voice_gesture(&key, ctx.voice_release));
         }
         if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char(';') | KeyCode::Char('\''))
+        {
+            if self.queue_pane.is_some() {
+                self.queue_pane = None;
+                self.footer_notice.clear();
+            } else if self.queue.is_empty() {
+                self.footer_notice = "queue is empty".into();
+            } else {
+                self.overlay = Overlay::None;
+                self.queue_pane = Some(0);
+            }
+            return Action::None;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL)
             && matches!(key.code, KeyCode::Char('m'))
             && !key.modifiers.contains(KeyModifiers::SHIFT)
             && !key.modifiers.contains(KeyModifiers::ALT)
@@ -926,6 +1301,12 @@ impl PromptComposer {
             Overlay::FilePick => return self.handle_file_pick(key),
             Overlay::None => {}
         }
+        if let Some(action) = self.handle_queue_pane(&key) {
+            return action;
+        }
+        if matches!(key.code, KeyCode::Esc) && self.cancel_queue_edit() {
+            return Action::None;
+        }
 
         if !self.simple_mode && self.vim == VimPrompt::Insert && matches!(key.code, KeyCode::Esc) {
             self.leave_insert();
@@ -942,6 +1323,23 @@ impl PromptComposer {
             return Action::None;
         }
         if self.is_send(&key) {
+            if let Some(id) = self.queue_edit {
+                self.save_queue_edit(id);
+                return Action::None;
+            }
+            if let Some(question) = btw_hoist(self.draft.text()) {
+                if self.chips {
+                    self.footer_notice =
+                        "/btw side questions are text only; remove the chips first".into();
+                    return Action::None;
+                }
+                // The whole message minus the token is the side question.
+                // Nothing goes to the main turn.
+                self.replace_draft("");
+                self.overlay = Overlay::None;
+                self.matches.clear();
+                return Action::Slash(format!("/btw {question}"));
+            }
             // A slash line is a command, including while a turn is running.
             // Queuing it would send `/model` as the next prompt instead of
             // changing the route that queued images are rebuilt for.
@@ -962,6 +1360,17 @@ impl PromptComposer {
             return self.handle_tab();
         }
         if self.accept_ghost_right(&key) {
+            return Action::None;
+        }
+        if matches!(key.code, KeyCode::Up)
+            && key.modifiers.is_empty()
+            && self.draft.is_empty()
+            && self.overlay == Overlay::None
+            && !self.queue.is_empty()
+        {
+            // Reference: Up on an empty prompt with rows queued focuses the
+            // queue on its last row instead of recalling history.
+            self.queue_pane = Some(self.queue.len() - 1);
             return Action::None;
         }
         if self.handle_history_arrows(&key) {
@@ -1404,6 +1813,15 @@ impl PromptComposer {
 
     fn submit_or_slash(&mut self) -> Action {
         let text = self.draft.text().to_string();
+        if text.trim() == "/btw" || text.trim().starts_with("/btw ") {
+            // The text parked behind slash completion is the front of the
+            // side question. Keep it parked: the host joins it into the
+            // question, drops it on success, and puts it back on refusal.
+            self.overlay = Overlay::None;
+            self.replace_draft("");
+            self.refresh_file_state();
+            return Action::Slash(text.trim().to_string());
+        }
         if let Some(command) = slash_action(&text) {
             self.overlay = Overlay::None;
             let restored = std::mem::take(&mut self.slash_stash);
@@ -2638,6 +3056,47 @@ pub fn write_editor_temp(home: &Path, draft: &str) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
+/// A queue notice ("Queued N · …", "queued /x (runs after this turn)")
+/// describes the queue when it was set; once the queue is empty it is stale.
+pub fn is_queue_notice(text: &str) -> bool {
+    text.ends_with("· Enter to send now") || text.ends_with("(runs after this turn)")
+}
+
+/// `fix X. /btw what is Y?` asks the side question `fix X. what is Y?`.
+/// A line that starts with `/btw` is already a slash command; this only
+/// hoists the token from the middle of a message.
+pub fn btw_hoist(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.starts_with('/') {
+        return None;
+    }
+    let mut found = false;
+    let mut words = Vec::new();
+    for line in trimmed.split('\n') {
+        let mut kept = Vec::new();
+        for word in line.split(' ') {
+            if !found && word == "/btw" {
+                found = true;
+                continue;
+            }
+            kept.push(word);
+        }
+        words.push(kept.join(" "));
+    }
+    if !found {
+        return None;
+    }
+    let question = words
+        .join("\n")
+        .split('\n')
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    (!question.is_empty()).then_some(question)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3456,17 +3915,18 @@ mod tests {
         let queued = composer.take_ready_queue();
         assert!(
             queued[0]
+                .prompt
                 .blocks
                 .iter()
                 .any(|block| block.get("type").and_then(|value| value.as_str()) == Some("image")),
             "queued under a vision model: {:?}",
-            queued[0].blocks
+            queued[0].prompt.blocks
         );
         composer.requeue(queued);
         composer.set_image_route(false, Some(&store));
         let released = composer.take_ready_queue();
         let rebuilt = composer
-            .blocks_for_route(&released[0])
+            .blocks_for_route(&released[0].prompt)
             .expect("text-only rebuilds the path");
         assert!(
             rebuilt.iter().all(|block| {
@@ -3484,7 +3944,7 @@ mod tests {
         composer.set_image_route(true, Some(&store));
         let again = composer.take_ready_queue();
         let vision = composer
-            .blocks_for_route(&again[0])
+            .blocks_for_route(&again[0].prompt)
             .expect("vision route rebuilds the bytes");
         assert_eq!(image_block_bytes_from(&vision), vec![png]);
         let _ = fs::remove_dir_all(home);
@@ -3668,7 +4128,7 @@ mod tests {
         composer.handle_key(key(KeyCode::Enter), busy);
         let released = composer.take_ready_queue();
         assert_eq!(released.len(), 1);
-        let encoded = serde_json::to_string(&released[0].blocks).unwrap();
+        let encoded = serde_json::to_string(&released[0].prompt.blocks).unwrap();
         assert!(encoded.contains("plain"), "{encoded}");
         assert!(!encoded.contains("QUEUE_BODY"), "{encoded}");
         let _ = fs::remove_dir_all(root);
@@ -3870,6 +4330,205 @@ mod tests {
             Action::Slash("/compact".into())
         );
         assert_eq!(composer.text(), "");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    fn busy() -> HostContext {
+        HostContext {
+            inflight: true,
+            minimal: false,
+            voice_release: true,
+        }
+    }
+
+    fn type_line(composer: &mut PromptComposer, text: &str, ctx: HostContext) -> Action {
+        for ch in text.chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx);
+        }
+        composer.handle_key(key(KeyCode::Enter), ctx)
+    }
+
+    fn queued_texts(composer: &PromptComposer) -> Vec<String> {
+        composer
+            .queue_items()
+            .iter()
+            .map(|item| item.prompt.text.clone())
+            .collect()
+    }
+
+    #[test]
+    fn queue_notices_are_recognised_for_the_host_to_drop() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        type_line(&mut composer, "alpha", busy());
+        assert!(is_queue_notice(&composer.footer_notice));
+        composer.enqueue_command("/review");
+        assert!(is_queue_notice(&composer.footer_notice));
+        assert!(!is_queue_notice("queued row deleted"));
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn queue_pane_reorders_deletes_and_edits_in_place() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        for text in ["alpha", "bravo", "charlie"] {
+            assert_eq!(type_line(&mut composer, text, busy()), Action::None);
+        }
+        assert_eq!(queued_texts(&composer), ["alpha", "bravo", "charlie"]);
+        assert!(composer.footer_notice.contains("Enter to send now"));
+        // Up on an empty prompt focuses the queue on its last row.
+        composer.handle_key(key(KeyCode::Up), busy());
+        assert_eq!(composer.queue_pane, Some(2));
+        assert!(composer.queue_panel_text().contains("> 3. charlie"));
+        // Shift+K moves the selected row up.
+        composer.handle_key(chord(KeyCode::Char('K'), KeyModifiers::SHIFT), busy());
+        assert_eq!(queued_texts(&composer), ["alpha", "charlie", "bravo"]);
+        assert_eq!(composer.queue_pane, Some(1));
+        // Shift+J moves it back down.
+        composer.handle_key(chord(KeyCode::Char('J'), KeyModifiers::SHIFT), busy());
+        assert_eq!(queued_texts(&composer), ["alpha", "bravo", "charlie"]);
+        composer.handle_key(key(KeyCode::Char('k')), busy());
+        assert_eq!(composer.queue_pane, Some(1));
+        // x deletes the selected row.
+        composer.handle_key(key(KeyCode::Char('x')), busy());
+        assert_eq!(queued_texts(&composer), ["alpha", "charlie"]);
+        // e edits in place: the row stays and holds the drain.
+        composer.handle_key(key(KeyCode::Char('e')), busy());
+        assert_eq!(composer.text(), "charlie");
+        assert_eq!(composer.queue_count(), 2, "the edited row stays queued");
+        let held = composer.queue_edit().expect("row under edit");
+        assert_eq!(composer.queue_items()[1].id, held);
+        assert!(composer.queue_listing().contains("charlie [editing]"));
+        for _ in 0.."charlie".len() {
+            composer.handle_key(key(KeyCode::Backspace), busy());
+        }
+        assert_eq!(type_line(&mut composer, "delta", busy()), Action::None);
+        assert_eq!(
+            queued_texts(&composer),
+            ["alpha", "delta"],
+            "saved in place"
+        );
+        assert_eq!(composer.queue_edit(), None);
+        assert!(composer.text().is_empty());
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn esc_cancels_a_queue_edit_and_the_row_is_unchanged() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        type_line(&mut composer, "keep me", busy());
+        composer.handle_key(chord(KeyCode::Char(';'), KeyModifiers::CONTROL), busy());
+        assert_eq!(composer.queue_pane, Some(0));
+        composer.handle_key(key(KeyCode::Char('e')), busy());
+        composer.handle_key(key(KeyCode::Char('!')), busy());
+        assert_eq!(
+            composer.next_release(false),
+            Release::HeldForEdit,
+            "a row under edit holds the drain"
+        );
+        composer.handle_key(key(KeyCode::Esc), busy());
+        assert_eq!(composer.queue_edit(), None);
+        assert!(composer.text().is_empty());
+        assert_eq!(queued_texts(&composer), ["keep me"]);
+        let Release::Item(item) = composer.next_release(false) else {
+            panic!("released after the edit was cancelled");
+        };
+        assert_eq!(item.prompt.text, "keep me");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn queue_pane_enter_asks_the_host_to_send_that_row_now() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        type_line(&mut composer, "one", busy());
+        type_line(&mut composer, "two", busy());
+        composer.handle_key(chord(KeyCode::Char(';'), KeyModifiers::CONTROL), busy());
+        composer.handle_key(key(KeyCode::Down), busy());
+        let second = composer.queue_items()[1].id;
+        assert_eq!(composer.selected_queue_id(), Some(second));
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), busy()),
+            Action::QueueSendNow(second)
+        );
+        // Ctrl+' is the alternate toggle and closes the pane.
+        composer.handle_key(chord(KeyCode::Char('\''), KeyModifiers::CONTROL), busy());
+        assert_eq!(composer.queue_pane, None);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn slash_lines_while_busy_go_to_the_host_not_the_queue() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        assert_eq!(
+            type_line(&mut composer, "/theme", busy()),
+            Action::Slash("/theme".into())
+        );
+        assert_eq!(composer.queue_count(), 0);
+        let id = composer.enqueue_command("/my-skill go");
+        assert_eq!(composer.queue_items()[0].id, id);
+        assert_eq!(composer.queue_items()[0].kind, QueueKind::Command);
+        type_line(&mut composer, "!ls", busy());
+        assert_eq!(composer.queue_items()[1].kind, QueueKind::Bash);
+        let listing = composer.queue_listing();
+        assert!(listing.contains("1. /my-skill go [cmd]"), "{listing}");
+        assert!(listing.contains("2. !ls [bash]"), "{listing}");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn btw_is_hoisted_from_mid_message_and_nothing_is_queued() {
+        assert_eq!(
+            btw_hoist("fix X. /btw what is Y?").as_deref(),
+            Some("fix X. what is Y?")
+        );
+        assert_eq!(btw_hoist("no token here"), None);
+        assert_eq!(btw_hoist("/btw starts a slash line"), None);
+        assert_eq!(btw_hoist("path/btw is not a token"), None);
+        assert_eq!(btw_hoist("only /btw"), Some("only".into()));
+        assert_eq!(btw_hoist("  /btw  "), None);
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        // A pasted message keeps the token mid-text; Enter hoists it.
+        composer.paste("fix X. /btw what is Y?");
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), busy()),
+            Action::Slash("/btw fix X. what is Y?".into())
+        );
+        assert_eq!(composer.queue_count(), 0, "nothing goes to the main turn");
+        assert!(composer.text().is_empty());
+        // Typed, `/` opens completion and parks the prefix; the host joins
+        // the parked prefix back (see `btw_question`).
+        assert_eq!(
+            type_line(&mut composer, "idle /btw why", busy()),
+            Action::Slash("/btw why".into())
+        );
+        assert_eq!(composer.slash_stash.trim(), "idle");
+        assert!(composer.text().is_empty());
+        assert!(!composer.parked_has_images());
+        assert_eq!(composer.queue_count(), 0);
+        // A refused side question puts the parked text back.
+        composer.restore_slash_draft();
+        assert_eq!(composer.text().trim(), "idle");
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn send_now_draft_is_queued_alone_and_not_offered_for_steer() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        type_line(&mut composer, "first", busy());
+        assert!(composer.take_last_enqueued().is_some());
+        for ch in "urgent".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), busy());
+        }
+        let id = composer.enqueue_draft_for_send_now().expect("queued");
+        assert_eq!(composer.take_last_enqueued(), None, "not steered");
+        assert_eq!(composer.queue_items()[1].id, id);
+        assert!(composer.text().is_empty());
         let _ = fs::remove_dir_all(home);
     }
 }

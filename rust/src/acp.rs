@@ -342,6 +342,10 @@ pub struct AcpClient {
     pub config_options: Vec<SessionConfigOption>,
     /// Target accepted locally, not yet sent. A refusal never closes the live id.
     prepared_resume: Option<String>,
+    /// Steer / side-question channel to the dsh plugin. None where Unix
+    /// sockets are unavailable; `control_unavailable` says why.
+    control: Option<crate::control::ControlChannel>,
+    control_unavailable: Option<String>,
 }
 
 enum Line {
@@ -548,6 +552,18 @@ impl AcpClient {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
         }
+        // The path and token are added after the allowlist on purpose: they
+        // are for the control plugin, which removes them from its own
+        // environment before any tool child is built.
+        let (control, control_unavailable) = match crate::control::ControlChannel::listen() {
+            Ok((channel, env)) => {
+                for (key, value) in env {
+                    command.env(key, value);
+                }
+                (Some(channel), None)
+            }
+            Err(error) => (None, Some(error.to_string())),
+        };
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
         let stdout = child
@@ -601,7 +617,66 @@ impl AcpClient {
             can_resume: false,
             config_options: Vec::new(),
             prepared_resume: None,
+            control,
+            control_unavailable,
         })
+    }
+
+    /// Control events since the last poll (steer outcomes, side answers).
+    pub fn poll_control(&mut self) -> Vec<crate::control::ControlEvent> {
+        self.control
+            .as_mut()
+            .map(|channel| channel.poll())
+            .unwrap_or_default()
+    }
+
+    pub fn control_ready(&self) -> bool {
+        self.control
+            .as_ref()
+            .is_some_and(crate::control::ControlChannel::is_ready)
+    }
+
+    /// Why steer and /btw cannot reach dsh right now.
+    pub fn control_unavailable(&self) -> String {
+        if let Some(reason) = &self.control_unavailable {
+            return reason.clone();
+        }
+        match &self.control {
+            Some(channel) => channel
+                .closed_reason()
+                .map(str::to_string)
+                .unwrap_or_else(|| "dsh control channel is not connected yet".into()),
+            None => "dsh control channel is unavailable".into(),
+        }
+    }
+
+    fn control_send(&self, message: &Value) -> Result<(), String> {
+        match &self.control {
+            Some(channel) => channel.send(message),
+            None => Err(self.control_unavailable()),
+        }
+    }
+
+    /// Hand a follow-up to the running agent for its next step boundary.
+    pub fn send_steer(&self, id: &str, text: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::steer_message(id, session, text))
+    }
+
+    /// Ask a side question. dsh answers from a copy of the history.
+    pub fn send_btw(&self, id: &str, question: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::btw_message(id, session, question))
+    }
+
+    pub fn cancel_btw(&self, id: &str) {
+        let _ = self.control_send(&crate::control::btw_cancel_message(id));
     }
 
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {

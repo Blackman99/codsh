@@ -69,7 +69,22 @@ Pasting a workspace path is a drop, except a dotfile or `.gitignore` match,
 which stays text and is not read. Pasted prose that names a path stays text.
 Backspace removes that chip and Ctrl+Z puts it back. Enter during a turn
 queues the draft and its chips; Alt+Up restores the oldest queued prompt into
-an empty composer. Submit reads the file at that moment. A removed chip is
+an empty composer. The Rust queue follows the Grok reference rather than the
+legacy Queue panel below: rows are Prompts, `!` lines, or `/` commands, held
+by the composer and drained one per turn when the turn ends or is cancelled
+(never while an approval, compaction, or an in-place edit is pending).
+`Ctrl+;`/`Ctrl+'` or ↑ on an empty prompt opens the pane (`e` edit in place,
+Enter send now, `x` delete, `Shift+J/K` move). Send-now is cancel-and-send:
+`Ctrl+Enter`/`Ctrl+I` (Apple Terminal also `Ctrl+O`; VS Code family `Ctrl+L`)
+or Enter on an empty prompt cancels the turn through dsh without a
+`[cancelled]` marker and runs that row next. `[ui] follow_up_behavior =
+"steer"` hands plain text rows to the running dsh turn through a private
+control socket (0700 directory, 256-bit token, unlinked after the one
+handshake, env removed from dsh's own environment before tools run); dsh's
+agent `steer` delivers it at the next step and an unclaimed steer returns to
+the Queue. `/btw` asks the side model from the session's messages over the
+same channel with no tools and never appends to the session; its panel is
+Surface state only. `[ui] combine_queued_prompts` joins adjacent Prompts. Submit reads the file at that moment. A removed chip is
 not sent. A missing file, a file over 256 KiB, a permission failure, or a
 change since preview stays in the composer and does not send bytes. dsh
 receives the admitted text, and resume shows the same

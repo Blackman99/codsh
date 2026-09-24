@@ -5,6 +5,7 @@ mod attachments;
 mod auth;
 mod config;
 mod content;
+mod control;
 mod dropped_paths;
 mod editor_acp;
 mod extra_ca;
@@ -22,6 +23,7 @@ mod plugin;
 mod privacy;
 mod privacy_cmd;
 mod prompt_edit;
+mod prompt_queue;
 mod screen_mode;
 mod session_catalog;
 mod session_data;
@@ -302,6 +304,9 @@ struct Turn {
     compacted: bool,
     compaction: Option<session_history::RestoredCompaction>,
     timestamp: Option<String>,
+    /// Cancelled by the send-now chord. The reference hides that marker:
+    /// the cancel is the silent half of cancel-and-send.
+    quiet_cancel: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1957,6 +1962,7 @@ fn turn_from_restored(item: RestoredTurn) -> Turn {
         compacted: item.compacted,
         compaction: item.compaction,
         timestamp: None,
+        quiet_cancel: false,
     };
     if turn.interrupted || turn.cancelled {
         mark_unknown_open_tools(&mut turn);
@@ -2499,6 +2505,7 @@ fn commit_fork(
             compacted: false,
             compaction: None,
             timestamp: Some(clock_stamp()),
+            quiet_cancel: false,
         });
         *inflight = true;
         report.push_str(" · submitted fork directive");
@@ -4030,6 +4037,28 @@ fn render_transcript(status: &str, turns: &[Turn], show_timestamps: bool) -> Str
     rendered
 }
 
+/// The turn a message chunk belongs to. A steer claimed mid-turn opens a new
+/// transcript turn, so an id already seen routes back to its own turn; a new
+/// id goes to the last turn only while that turn has no message yet.
+fn message_turn<'a>(turns: &'a mut [Turn], message_id: &str) -> Option<&'a mut Turn> {
+    if let Some(index) = turns
+        .iter()
+        .rposition(|turn| turn.message_id.as_deref() == Some(message_id))
+    {
+        return turns.get_mut(index);
+    }
+    turns.last_mut().filter(|turn| turn.message_id.is_none())
+}
+
+/// The turn that owns a tool call: the one that already lists it, else the last.
+fn tool_turn<'a>(turns: &'a mut [Turn], tool_call_id: &str) -> Option<&'a mut Turn> {
+    let index = turns
+        .iter()
+        .rposition(|turn| turn.tools.iter().any(|tool| tool.id == tool_call_id))
+        .or_else(|| turns.len().checked_sub(1))?;
+    turns.get_mut(index)
+}
+
 fn apply_events(
     turns: &mut [Turn],
     inflight: &mut bool,
@@ -4044,9 +4073,7 @@ fn apply_events(
             AcpEvent::Thought {
                 message_id, text, ..
             } => {
-                if let Some(turn) = turns.last_mut()
-                    && turn.message_id.as_ref().is_none_or(|id| id == &message_id)
-                {
+                if let Some(turn) = message_turn(turns, &message_id) {
                     turn.message_id = Some(message_id);
                     turn.thought.push_str(&text);
                 }
@@ -4057,9 +4084,7 @@ fn apply_events(
                 hook,
                 ..
             } => {
-                if let Some(turn) = turns.last_mut()
-                    && turn.message_id.as_ref().is_none_or(|id| id == &message_id)
-                {
+                if let Some(turn) = message_turn(turns, &message_id) {
                     turn.message_id = Some(message_id);
                     // Hook output stays in the transcript, labeled, and is not
                     // the model answer.
@@ -4081,7 +4106,8 @@ fn apply_events(
                 diff,
                 ..
             } => {
-                if let Some(turn) = turns.last_mut() {
+                let owner = tool_turn(turns, &tool_call_id);
+                if let Some(turn) = owner {
                     if let Some(tool) = turn.tools.iter_mut().find(|tool| tool.id == tool_call_id) {
                         tool.title = title;
                         tool.kind = kind;
@@ -4111,7 +4137,8 @@ fn apply_events(
                 content,
                 ..
             } => {
-                if let Some(turn) = turns.last_mut() {
+                let owner = tool_turn(turns, &tool_call_id);
+                if let Some(turn) = owner {
                     if let Some(tool) = turn.tools.iter_mut().find(|tool| tool.id == tool_call_id) {
                         tool.status = status.clone();
                         if !content.is_empty() {
@@ -4429,7 +4456,7 @@ fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
                 entry.errors.push(error.clone());
             }
             entry.interrupted = turn.interrupted;
-            entry.cancelled = turn.cancelled;
+            entry.cancelled = turn.cancelled && !turn.quiet_cancel;
             entry.done = turn.done;
             entry.compaction = compaction_sentence(turn);
             entry.diffs = turn
@@ -4481,7 +4508,7 @@ fn turn_views(turns: &[Turn]) -> Vec<content::TurnView> {
                 )
             }),
             done: turn.done,
-            cancelled: turn.cancelled,
+            cancelled: turn.cancelled && !turn.quiet_cancel,
             interrupted: turn.interrupted,
             compacted: turn.compacted,
             compaction: compaction_sentence(turn),
@@ -5081,11 +5108,292 @@ fn attach_clipboard_image(
 fn composer_notice(composer: &PromptComposer, hint: &str) -> String {
     // The notice slot keeps its newest lines. The preview has to follow the
     // status, or a tall connection banner scrolls it off the screen.
-    match composer.image_preview() {
+    let mut out = match composer.image_preview() {
         Some(preview) if hint.is_empty() => preview,
         Some(preview) => format!("{hint}\n{preview}"),
         None => hint.to_string(),
+    };
+    // The queue sits last, right above the prompt, so it is never the part
+    // that scrolls away.
+    let queue = composer.queue_panel_text();
+    if !queue.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&queue);
     }
+    out
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BtwState {
+    Loading,
+    Answer(String),
+    Failed(String),
+}
+
+/// The dismissible side-answer panel above the prompt. Keyed by request id,
+/// so a late reply for a dismissed or replaced question is dropped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BtwPanel {
+    id: String,
+    question: String,
+    state: BtwState,
+}
+
+/// Mid-turn intervention state that lives beside the composer queue.
+#[derive(Debug, Default)]
+struct Intervene {
+    btw: Option<BtwPanel>,
+    next_btw: u64,
+    /// The agent went idle with rows queued. Cleared when the queue empties,
+    /// a row cannot run, or the session changes under the queue.
+    drain_armed: bool,
+}
+
+const BTW_PANEL_LINES: usize = 3;
+
+/// The side question: a parked message prefix plus the text after `/btw`.
+fn btw_question(parked: &str, rest: &str) -> String {
+    [parked.trim(), rest.trim()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn btw_panel_text(panel: &BtwPanel) -> String {
+    let question: String = panel.question.chars().take(60).collect();
+    match &panel.state {
+        BtwState::Loading => format!("btw › {question}  (answering… Esc dismiss)"),
+        BtwState::Failed(message) => {
+            format!("btw › {question}\nside question failed: {message}  (Esc dismiss)")
+        }
+        BtwState::Answer(text) => {
+            let mut lines: Vec<String> = text
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(str::to_string)
+                .collect();
+            let more = lines.len() > BTW_PANEL_LINES;
+            lines.truncate(BTW_PANEL_LINES);
+            if more {
+                lines.push("…".into());
+            }
+            format!("btw › {question}  (Esc dismiss)\n{}", lines.join("\n"))
+        }
+    }
+}
+
+/// Minimal mode keeps a finished side answer in native scrollback.
+fn btw_scrollback_text(panel: &BtwPanel) -> Option<String> {
+    match &panel.state {
+        BtwState::Answer(text) => Some(format!("btw › {}\n{}\n", panel.question, text.trim_end())),
+        BtwState::Failed(message) => Some(format!(
+            "btw › {}\nside question failed: {message}\n",
+            panel.question
+        )),
+        BtwState::Loading => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TermFamily {
+    /// macOS Terminal.app: Ctrl+O is send-now there (reference 03).
+    AppleTerminal,
+    /// VS Code, Cursor, Windsurf, Zed: those editors keep Ctrl+Enter, so
+    /// send-now is Ctrl+L only.
+    VsCode,
+    Other,
+}
+
+fn term_family(term_program: Option<&str>) -> TermFamily {
+    match term_program.map(str::trim) {
+        Some("Apple_Terminal") => TermFamily::AppleTerminal,
+        Some(name)
+            if name.eq_ignore_ascii_case("vscode")
+                || name.eq_ignore_ascii_case("cursor")
+                || name.eq_ignore_ascii_case("windsurf")
+                || name.eq_ignore_ascii_case("zed") =>
+        {
+            TermFamily::VsCode
+        }
+        _ => TermFamily::Other,
+    }
+}
+
+/// Send-now chord for this terminal. Ctrl+O is claimed only on Apple
+/// Terminal; elsewhere it is left unbound. Ctrl+I is only distinct from Tab
+/// where the terminal reports it (kitty keyboard protocol).
+fn is_send_now_chord(key: &crossterm::event::KeyEvent, family: TermFamily) -> bool {
+    if key.modifiers != KeyModifiers::CONTROL {
+        return false;
+    }
+    match family {
+        TermFamily::VsCode => key.code == KeyCode::Char('l'),
+        TermFamily::AppleTerminal => matches!(
+            key.code,
+            KeyCode::Char('o') | KeyCode::Enter | KeyCode::Char('i')
+        ),
+        TermFamily::Other => matches!(key.code, KeyCode::Enter | KeyCode::Char('i')),
+    }
+}
+
+/// Cancel-and-send: the row moves to the front, alone, and the running turn
+/// is cancelled; the drain runs it as the next turn once the cancel lands.
+/// Idle, the row simply runs now.
+#[allow(clippy::too_many_arguments)]
+fn send_queued_now(
+    id: u64,
+    composer: &mut PromptComposer,
+    client: &mut Option<AcpClient>,
+    turns: &mut [Turn],
+    inflight: bool,
+    compacting: bool,
+    side: &mut Intervene,
+    hint: &mut String,
+    last_error: &mut String,
+) {
+    if composer.queue_edit() == Some(id) {
+        composer.cancel_queue_edit();
+    }
+    let Some(mut item) = composer.remove_queued(id) else {
+        return;
+    };
+    item.solo = true;
+    composer.push_front(item);
+    composer.queue_pane = None;
+    side.drain_armed = true;
+    if !inflight {
+        hint.clear();
+        return;
+    }
+    if compacting {
+        *hint = "compaction is running; this row runs as soon as it finishes".into();
+        return;
+    }
+    if turns.last().is_some_and(|turn| turn.cancelling) {
+        *hint = "the turn is already stopping; this row runs next".into();
+        return;
+    }
+    let Some(active) = client.as_mut() else {
+        return;
+    };
+    match active.cancel_prompt() {
+        Ok(()) => {
+            if let Some(turn) = turns.last_mut() {
+                turn.permission = None;
+                turn.cancelling = true;
+                turn.quiet_cancel = true;
+                for tool in &mut turn.tools {
+                    if tool.status == "pending" || tool.status == "in_progress" {
+                        tool.status = "cancelled".into();
+                    }
+                }
+            }
+            *hint = "sending now: stopping the current turn".into();
+            last_error.clear();
+        }
+        Err(error) => *last_error = error.message,
+    }
+}
+
+/// Apply steer outcomes and side answers from the control channel. Returns
+/// text for native scrollback (a finished side answer in minimal mode).
+#[allow(clippy::too_many_arguments)]
+fn apply_control_events(
+    events: Vec<control::ControlEvent>,
+    composer: &mut PromptComposer,
+    turns: &mut Vec<Turn>,
+    inflight: bool,
+    side: &mut Intervene,
+    hint: &mut String,
+    minimal: bool,
+) -> Option<String> {
+    use control::ControlEvent;
+    let mut scrollback = None;
+    for event in events {
+        match event {
+            ControlEvent::Ready | ControlEvent::SteerAccepted(_) => {}
+            ControlEvent::SteerIdle(wire) | ControlEvent::SteerReturned(wire) => {
+                if let Some(item) = composer.queue_item_by_wire(&wire) {
+                    item.steering = false;
+                    if !inflight {
+                        side.drain_armed = true;
+                    }
+                }
+            }
+            ControlEvent::SteerClaimed(wire) => {
+                let Some(id) = composer.queue_item_by_wire(&wire).map(|item| item.id) else {
+                    continue;
+                };
+                let Some(item) = composer.remove_queued(id) else {
+                    continue;
+                };
+                // dsh took the steer into the running turn. The transcript
+                // shows it as its own user turn from here on.
+                if let Some(previous) = turns.last_mut() {
+                    previous.done = true;
+                    previous.permission = None;
+                }
+                turns.push(Turn {
+                    user: item.prompt.text.clone(),
+                    thought: String::new(),
+                    answer: String::new(),
+                    error: None,
+                    message_id: None,
+                    tools: Vec::new(),
+                    permission: None,
+                    done: !inflight,
+                    cancelling: false,
+                    cancelled: false,
+                    interrupted: false,
+                    compacted: false,
+                    compaction: None,
+                    timestamp: Some(clock_stamp()),
+                    quiet_cancel: false,
+                });
+                composer.record_history(&item.prompt.text);
+            }
+            ControlEvent::BtwAnswer { id, text } => {
+                if let Some(panel) = side.btw.as_mut().filter(|panel| panel.id == id) {
+                    panel.state = BtwState::Answer(text);
+                }
+            }
+            ControlEvent::BtwError { id, message } => {
+                if let Some(panel) = side.btw.as_mut().filter(|panel| panel.id == id) {
+                    panel.state = BtwState::Failed(message);
+                }
+            }
+            ControlEvent::Closed(reason) => {
+                let wires: Vec<String> = composer
+                    .queue_items()
+                    .iter()
+                    .filter(|item| item.steering)
+                    .map(|item| item.wire_id())
+                    .collect();
+                for wire in wires {
+                    if let Some(item) = composer.queue_item_by_wire(&wire) {
+                        item.steering = false;
+                    }
+                }
+                if let Some(panel) = side.btw.as_mut()
+                    && panel.state == BtwState::Loading
+                {
+                    panel.state = BtwState::Failed(reason);
+                }
+            }
+        }
+        if minimal
+            && let Some(panel) = &side.btw
+            && let Some(text) = btw_scrollback_text(panel)
+        {
+            scrollback = Some(text);
+            side.btw = None;
+            hint.clear();
+        }
+    }
+    scrollback
 }
 
 fn sync_image_route(composer: &mut PromptComposer, effective: &config::EffectiveConfig) {
@@ -6173,7 +6481,7 @@ fn run() -> io::Result<()> {
                 return Ok(());
             }
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. Messaging, resume_from, worktree isolation, and --agent stay with later tickets.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork), Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, plan, worktrees, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nWhile a turn runs, Enter queues the draft (the notice shows Queued N and the next row); Enter on an empty prompt sends the top row now. Ctrl+Enter or Ctrl+I sends the draft (or the selected row) now: the running turn is cancelled through dsh without a [cancelled] marker and that row runs next. Apple Terminal also takes Ctrl+O; VS Code-family terminals (vscode, cursor, windsurf, zed) use Ctrl+L instead; Ctrl+Enter/Ctrl+I need a terminal that reports them distinctly (kitty keyboard protocol). Ctrl+; or Ctrl+' (or ↑ on an empty prompt) opens the queue pane: ↑↓ select, e edits in place (Enter saves, empty save removes, Esc cancels), Enter sends now, x/Del/Backspace deletes, Shift+J/K reorders, Esc closes. Queued rows run in order, one per turn, after the turn ends or is cancelled with Ctrl+C; a pending approval, compaction, or a row being edited keeps them waiting. Slash commands typed while busy queue as their own rows. [ui] follow_up_behavior = \"steer\" sends plain text follow-ups into the running dsh turn at its next model step instead; a steer dsh did not use goes back to the queue. [ui] combine_queued_prompts = true joins consecutive plain rows into one turn. /queue lists the queue. /btw <question> (also typed mid-message) asks a side question from the current session context with no tools; the answer shows in a panel that Esc dismisses (minimal prints it to scrollback), a late answer to a dismissed question is dropped, and nothing enters the conversation.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. Messaging, resume_from, worktree isolation, and --agent stay with later tickets.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork), Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, plan, worktrees, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -6509,6 +6817,10 @@ fn run() -> io::Result<()> {
     let mut turns: Vec<Turn> = Vec::new();
     let mut inflight = false;
     let mut compacting = false;
+    let mut side = Intervene::default();
+    let term = term_family(std::env::var("TERM_PROGRAM").ok().as_deref());
+    // Session the queued rows were typed in. A switch holds them.
+    let mut queue_session: Option<String> = None;
     let mut compact_cancelled = false;
     let mut last_compaction_count = 0usize;
     // Typed subagents (ticket 172): one board per process and the tasks modal.
@@ -6659,67 +6971,17 @@ fn run() -> io::Result<()> {
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
                 let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, false);
             }
-            let queued = composer.take_ready_queue();
             // The catalog route is what the next submit uses. Refresh it from
             // the model dsh is actually advertising before rebuilding blocks.
             if let Some(routing) = live_routing(client.as_ref(), &effective) {
                 composer.set_image_route(routing.accepts_images, Some(&effective.dsh_home));
             }
-            let mut deferred = Vec::new();
-            let mut queue_refused = false;
-            for prepared in queued {
-                if inflight || queue_refused {
-                    deferred.push(prepared);
-                    continue;
-                }
-                let text = prepared.text.clone();
-                match composer.blocks_for_route(&prepared) {
-                    Ok(blocks) => {
-                        let mut prepared = prepared;
-                        prepared.blocks = blocks;
-                        composer.stage_prepared_submit(prepared);
-                    }
-                    Err(error) => {
-                        // The route or the bytes no longer admit this image.
-                        // Put this prompt back in the composer and keep the
-                        // rest queued. Do not send the vision block.
-                        last_error = error.clone();
-                        hint = error;
-                        composer.requeue(std::iter::once(prepared).chain(deferred).collect());
-                        deferred = Vec::new();
-                        let _ = composer.restore_refused_queue_head();
-                        queue_refused = true;
-                        continue;
-                    }
-                }
-                submit_composer_prompt(
-                    &text,
-                    &mut client,
-                    &mut owner,
-                    &mut turns,
-                    &mut inflight,
-                    &mut last_error,
-                    &mut effective,
-                    &mut extra_env,
-                    &mut patch,
-                    &mut apply_failed,
-                    &mut previous_ready,
-                    &mut selection_ready,
-                    &mut resumed,
-                    &mut previous_session,
-                    &launch,
-                    &mode,
-                    &mut composer,
-                    &mut memory_session_on,
-                    &mut memory_injected,
-                );
-            }
-            if !deferred.is_empty() {
-                composer.requeue(deferred);
-            }
+            // Reference: a cancelled turn also lets the front row run next.
+            side.drain_armed = composer.queue_count() > 0;
         }
         if was_compacting && !inflight {
             compacting = false;
+            side.drain_armed = composer.queue_count() > 0;
             if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
                 match session_history::load_session(&effective.dsh_home, &session_id) {
                     Ok(restored) => {
@@ -6770,6 +7032,243 @@ fn run() -> io::Result<()> {
         if let Some(detail) = disconnect {
             last_error = detail;
             drop_connection(&mut client, &mut owner);
+        }
+        let control_events = client
+            .as_mut()
+            .map(AcpClient::poll_control)
+            .unwrap_or_default();
+        if !control_events.is_empty()
+            && let Some(text) = apply_control_events(
+                control_events,
+                &mut composer,
+                &mut turns,
+                inflight,
+                &mut side,
+                &mut hint,
+                screen == ScreenMode::Minimal,
+            )
+        {
+            history.push_str(&text);
+            let _ = with_synchronized_output(&mut terminal, |terminal| {
+                emit_to_scrollback(terminal, &text)
+            });
+        }
+        // "Queued N" was true when it was set; a drained queue makes it stale.
+        if composer.queue_count() == 0 && prompt_edit::is_queue_notice(&hint) {
+            hint.clear();
+        }
+        // `[ui].follow_up_behavior = "steer"`: the row just queued goes to
+        // the running agent now and stays listed until dsh claims it.
+        if let Some(queued_id) = composer.take_last_enqueued()
+            && effective.appearance.follow_up_steer
+            && inflight
+            && !compacting
+        {
+            let candidate = composer
+                .queue_items()
+                .iter()
+                .find(|item| item.id == queued_id)
+                .map(|item| {
+                    (
+                        item.steer_eligible(),
+                        item.wire_id(),
+                        item.prompt.text.clone(),
+                    )
+                });
+            match (candidate, client.as_ref()) {
+                (Some((true, wire, text)), Some(active)) if active.control_ready() => {
+                    match active.send_steer(&wire, &text) {
+                        Ok(()) => {
+                            if let Some(item) = composer.queue_item_mut(queued_id) {
+                                item.steering = true;
+                            }
+                        }
+                        Err(error) => {
+                            hint = format!("steer unavailable ({error}); the row stays queued");
+                        }
+                    }
+                }
+                (Some((true, _, _)), Some(active)) => {
+                    hint = format!(
+                        "steer unavailable ({}); the row stays queued",
+                        active.control_unavailable()
+                    );
+                }
+                (Some((false, _, _)), _) => {
+                    hint =
+                        "this row waits for the turn to end (steer takes plain text only)".into();
+                }
+                _ => {}
+            }
+        }
+        if side.drain_armed && !inflight && !compacting {
+            let combine = effective.appearance.combine_queued_prompts;
+            let mut relaunch: Option<io::Error> = None;
+            let stop = prompt_queue::drain(
+                &mut composer,
+                |composer| {
+                    // A queued command dispatches through the slash path,
+                    // which parks the draft behind an open completion list.
+                    if composer.overlay != prompt_edit::Overlay::None
+                        && composer
+                            .queue_items()
+                            .first()
+                            .is_some_and(|item| item.kind == prompt_queue::QueueKind::Command)
+                    {
+                        return prompt_queue::Release::HeldForEdit;
+                    }
+                    composer.next_release(combine)
+                },
+                |composer, item| {
+                    if item.kind == prompt_queue::QueueKind::Command {
+                        let text = item.prompt.text.clone();
+                        let result = dispatch_composer_command(
+                            &text,
+                            &mut client,
+                            &mut owner,
+                            &mut turns,
+                            &mut inflight,
+                            &mut compacting,
+                            &mut overlay,
+                            &mut ui_overlay,
+                            &mut hint,
+                            &mut last_error,
+                            &mut effective,
+                            &mut extra_env,
+                            &mut patch,
+                            &mut apply_failed,
+                            &mut previous_ready,
+                            &mut selection_ready,
+                            &mut resumed,
+                            &mut previous_session,
+                            &mut terminal,
+                            &mut guard,
+                            screen,
+                            &mut committed,
+                            &mut history,
+                            &launch,
+                            &mode,
+                            &mut prefs,
+                            &meter,
+                            policy,
+                            &mut nav,
+                            &mut live_theme_kind,
+                            &mut live_theme,
+                            &mut status_runtime,
+                            composer,
+                            &mut voice,
+                            &mut memory_session_on,
+                            &mut memory_injected,
+                            &mut side,
+                        );
+                        if let Err(error) = result {
+                            relaunch = Some(error);
+                            return prompt_queue::Step::Hold;
+                        }
+                        return if inflight {
+                            prompt_queue::Step::Started
+                        } else {
+                            prompt_queue::Step::Local
+                        };
+                    }
+                    match composer.blocks_for_route(&item.prompt) {
+                        Ok(blocks) => {
+                            let mut prepared = item.prompt.clone();
+                            prepared.blocks = blocks;
+                            composer.stage_prepared_submit(prepared);
+                        }
+                        Err(error) => {
+                            // The route or the bytes no longer admit this image.
+                            // Put this prompt back in the composer and keep the
+                            // rest queued. Do not send the vision block.
+                            last_error = error.clone();
+                            hint = error;
+                            composer.push_front(item);
+                            let _ = composer.restore_refused_queue_head();
+                            return prompt_queue::Step::Hold;
+                        }
+                    }
+                    let text = item.prompt.text.clone();
+                    submit_composer_prompt(
+                        &text,
+                        &mut client,
+                        &mut owner,
+                        &mut turns,
+                        &mut inflight,
+                        &mut last_error,
+                        &mut effective,
+                        &mut extra_env,
+                        &mut patch,
+                        &mut apply_failed,
+                        &mut previous_ready,
+                        &mut selection_ready,
+                        &mut resumed,
+                        &mut previous_session,
+                        &launch,
+                        &mode,
+                        composer,
+                        &mut memory_session_on,
+                        &mut memory_injected,
+                    );
+                    if inflight {
+                        prompt_queue::Step::Started
+                    } else {
+                        // Not sent (no connection, refused route): it stays
+                        // at the front and the queue holds.
+                        let _ = composer.take_prepared_submit();
+                        composer.push_front(item);
+                        prompt_queue::Step::Hold
+                    }
+                },
+            );
+            match stop {
+                prompt_queue::DrainStop::HeldForEdit | prompt_queue::DrainStop::Steering => {}
+                prompt_queue::DrainStop::Empty
+                | prompt_queue::DrainStop::Started
+                | prompt_queue::DrainStop::Hold => side.drain_armed = false,
+            }
+            queue_session = client.as_ref().and_then(|active| active.session_id.clone());
+            if let Some(error) = relaunch {
+                if let Some(rest) = error.to_string().strip_prefix("CODSH_SCREEN_RELAUNCH:") {
+                    let mut parts = rest.splitn(2, ':');
+                    let session_id = parts.next().unwrap_or("");
+                    let target = screen_mode::ScreenMode::parse(parts.next().unwrap_or("minimal"))
+                        .unwrap_or(screen_mode::ScreenMode::Minimal);
+                    drop(terminal);
+                    drop(guard);
+                    restore_terminal();
+                    return Err(relaunch_exec(session_id, target));
+                }
+                return Err(error);
+            }
+            screen = if guard.alt {
+                ScreenMode::Fullscreen
+            } else {
+                ScreenMode::Minimal
+            };
+            live_theme_kind = effective.appearance.resolved_kind(screen);
+            live_theme = effective.appearance.resolved_theme(screen);
+        }
+        let live_session = client.as_ref().and_then(|active| active.session_id.clone());
+        if live_session != queue_session {
+            if queue_session.is_some() && composer.queue_count() > 0 {
+                // Rows typed for another session do not run here on their own.
+                side.drain_armed = false;
+                hint = format!(
+                    "{} queued row(s) kept from the previous session; Ctrl+; to send, edit, or delete",
+                    composer.queue_count()
+                );
+            }
+            queue_session = live_session;
+        }
+        if let Some(panel) = &side.btw
+            && client.is_none()
+            && panel.state == BtwState::Loading
+        {
+            side.btw = Some(BtwPanel {
+                state: BtwState::Failed("dsh disconnected".into()),
+                ..panel.clone()
+            });
         }
         let awaiting = turns.last().is_some_and(|turn| turn.permission.is_some());
         let cancelling = turns.last().is_some_and(|turn| turn.cancelling);
@@ -6891,6 +7390,10 @@ fn run() -> io::Result<()> {
         }
         if let Overlay::Feedback(form) = &overlay {
             notice = feedback_overlay_text(&effective.dsh_home, client.as_ref(), form);
+        }
+        if let Some(panel) = &side.btw {
+            notice.push('\n');
+            notice.push_str(&btw_panel_text(panel));
         }
         if composer.overlay != prompt_edit::Overlay::None {
             let rows = composer.overlay_text();
@@ -7075,6 +7578,14 @@ fn run() -> io::Result<()> {
                 if key.modifiers.contains(KeyModifiers::CONTROL)
                     && matches!(key.code, KeyCode::Char('c'))
                 {
+                    if composer.queue_pane.is_some() {
+                        composer.queue_pane = None;
+                        continue;
+                    }
+                    if composer.cancel_queue_edit() {
+                        hint = std::mem::take(&mut composer.footer_notice);
+                        continue;
+                    }
                     if !composer.is_empty() {
                         if !composer.text().is_empty() {
                             let discarded = composer.text().to_string();
@@ -7572,8 +8083,64 @@ fn run() -> io::Result<()> {
                         continue;
                     }
                 }
+                if matches!(overlay, Overlay::None)
+                    && composer.overlay == prompt_edit::Overlay::None
+                    && composer.queue_edit().is_none()
+                {
+                    let chord = is_send_now_chord(&key, term);
+                    // Reference: Enter on an emptied composer sends the top
+                    // queued row now (double-Enter).
+                    let double_enter = key.code == KeyCode::Enter
+                        && key.modifiers.is_empty()
+                        && inflight
+                        && composer.is_empty()
+                        && composer.queue_pane.is_none()
+                        && composer.queue_count() > 0;
+                    if (chord && (inflight || composer.queue_pane.is_some())) || double_enter {
+                        let target = if let Some(id) = composer.selected_queue_id() {
+                            Some(id)
+                        } else if !composer.is_empty() {
+                            composer.enqueue_draft_for_send_now()
+                        } else {
+                            composer.queue_items().first().map(|item| item.id)
+                        };
+                        match target {
+                            Some(id) => send_queued_now(
+                                id,
+                                &mut composer,
+                                &mut client,
+                                &mut turns,
+                                inflight,
+                                compacting,
+                                &mut side,
+                                &mut hint,
+                                &mut last_error,
+                            ),
+                            None => {
+                                if !composer.footer_notice.is_empty() {
+                                    hint = std::mem::take(&mut composer.footer_notice);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                }
                 match key.code {
                     KeyCode::Esc => {
+                        if let Some(panel) = side.btw.take_if(|_| {
+                            composer.overlay == prompt_edit::Overlay::None
+                                && composer.queue_pane.is_none()
+                                && composer.queue_edit().is_none()
+                        }) {
+                            // A late answer for this id is dropped from now on.
+                            if panel.state == BtwState::Loading
+                                && let Some(active) = client.as_ref()
+                            {
+                                active.cancel_btw(&panel.id);
+                            }
+                            hint = "side answer dismissed".into();
+                            continue;
+                        }
                         let host = HostContext {
                             inflight,
                             minimal: screen == ScreenMode::Minimal,
@@ -7668,6 +8235,20 @@ fn run() -> io::Result<()> {
                                     continue;
                                 }
                                 PromptAction::Voice(_) | PromptAction::PasteImage => continue,
+                                PromptAction::QueueSendNow(id) => {
+                                    send_queued_now(
+                                        id,
+                                        &mut composer,
+                                        &mut client,
+                                        &mut turns,
+                                        inflight,
+                                        compacting,
+                                        &mut side,
+                                        &mut hint,
+                                        &mut last_error,
+                                    );
+                                    continue;
+                                }
                                 PromptAction::Slash(command) => {
                                     selected = None;
                                     if command.trim() == "/tasks" {
@@ -7712,6 +8293,7 @@ fn run() -> io::Result<()> {
                                         &mut voice,
                                         &mut memory_session_on,
                                         &mut memory_injected,
+                                        &mut side,
                                     );
                                     if let Err(error) = dispatch_result {
                                         if let Some(rest) =
@@ -7830,6 +8412,19 @@ fn run() -> io::Result<()> {
                             PromptAction::PasteImage => {
                                 attach_clipboard_image(&mut composer, &mut hint, &mut last_error);
                             }
+                            PromptAction::QueueSendNow(id) => {
+                                send_queued_now(
+                                    id,
+                                    &mut composer,
+                                    &mut client,
+                                    &mut turns,
+                                    inflight,
+                                    compacting,
+                                    &mut side,
+                                    &mut hint,
+                                    &mut last_error,
+                                );
+                            }
                             PromptAction::Unhandled => {
                                 selected = None;
                                 if inflight && !turns.last().is_some_and(|turn| turn.cancelling) {
@@ -7909,6 +8504,7 @@ fn run() -> io::Result<()> {
                                     &mut voice,
                                     &mut memory_session_on,
                                     &mut memory_injected,
+                                    &mut side,
                                 );
                                 if let Err(error) = dispatch_result {
                                     if let Some(rest) =
@@ -8302,8 +8898,70 @@ fn dispatch_composer_command(
     voice: &mut voice::VoiceSession,
     memory_session_on: &mut Option<bool>,
     memory_injected: &mut bool,
+    side: &mut Intervene,
 ) -> io::Result<()> {
     let _ = guard;
+    if text.trim() == "/queue" {
+        composer.restore_slash_draft();
+        *hint = composer.queue_listing();
+        last_error.clear();
+        return Ok(());
+    }
+    if text.trim() == "/btw" || text.trim().starts_with("/btw ") {
+        // Typing `/` after text parks that text behind slash completion. For
+        // `/btw` the parked text is the front of the side question, not a
+        // draft to put back: nothing of this message goes to the main turn.
+        let question = btw_question(
+            &composer.slash_stash,
+            text.trim().trim_start_matches("/btw"),
+        );
+        // On a refusal the parked text goes back to the prompt untouched.
+        if composer.parked_has_images() {
+            composer.restore_slash_draft();
+            *last_error = "/btw side questions are text only; remove the image first".into();
+            return Ok(());
+        }
+        if question.is_empty() {
+            composer.restore_slash_draft();
+            *last_error = "usage: /btw <question>".into();
+            return Ok(());
+        }
+        let Some(active) = client.as_ref() else {
+            composer.restore_slash_draft();
+            *last_error = "/btw needs a live dsh session; send a prompt first".into();
+            return Ok(());
+        };
+        if !active.control_ready() {
+            composer.restore_slash_draft();
+            *last_error = format!("/btw unavailable: {}", active.control_unavailable());
+            return Ok(());
+        }
+        side.next_btw += 1;
+        let id = format!("b{}", side.next_btw);
+        match active.send_btw(&id, &question) {
+            Ok(()) => {
+                composer.discard_parked_draft();
+                // A newer question replaces the panel; the old answer is dropped.
+                if let Some(old) = side.btw.take()
+                    && old.state == BtwState::Loading
+                {
+                    active.cancel_btw(&old.id);
+                }
+                side.btw = Some(BtwPanel {
+                    id,
+                    question,
+                    state: BtwState::Loading,
+                });
+                hint.clear();
+                last_error.clear();
+            }
+            Err(error) => {
+                composer.restore_slash_draft();
+                *last_error = format!("/btw unavailable: {error}");
+            }
+        }
+        return Ok(());
+    }
     if text.trim() == "/voice" || text.trim().starts_with("/voice ") {
         composer.restore_slash_draft();
         apply_voice_command(text.trim(), voice, composer, hint, last_error);
@@ -8464,6 +9122,15 @@ fn dispatch_composer_command(
                 *hint = format!("Already in {} mode.", screen.as_str());
             }
             SlashAction::Switch(target) => {
+                if policy == SwitchPolicy::Exec && composer.queue_count() > 0 {
+                    // The exec relaunch resumes the session only; the rows
+                    // queued here would be lost.
+                    *hint = format!(
+                        "{} queued row(s) would be lost by the relaunch; send or clear the queue first",
+                        composer.queue_count()
+                    );
+                    return Ok(());
+                }
                 if policy == SwitchPolicy::Exec {
                     let session_id = client
                         .as_ref()
@@ -8828,6 +9495,11 @@ fn dispatch_composer_command(
     }
     let slash = models::parse_slash(trimmed);
     if *inflight && slash.is_none() {
+        // A custom command, skill, or passthrough starts a model turn. It
+        // waits in the queue as a command row instead of being dropped.
+        composer.enqueue_command(trimmed);
+        *hint = std::mem::take(&mut composer.footer_notice);
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if let Some(models::Command::Feedback { rest }) = slash.clone() {
@@ -9024,6 +9696,13 @@ fn dispatch_composer_command(
                 return Ok(());
             }
             models::Command::Compact { instruction } => {
+                if *inflight && !*compacting {
+                    // Compaction needs an idle agent; it runs when this turn ends.
+                    composer.enqueue_command(trimmed);
+                    *hint = std::mem::take(&mut composer.footer_notice);
+                    composer.clear_slash_line(&parked_draft);
+                    return Ok(());
+                }
                 if *inflight {
                     *last_error = "Compaction is unavailable because this process has an active compaction, or the agent is not idle.".into();
                     composer.clear_slash_line(&parked_draft);
@@ -9113,6 +9792,7 @@ fn dispatch_composer_command(
                     compacted: false,
                     compaction: None,
                     timestamp: Some(clock_stamp()),
+                    quiet_cancel: false,
                 });
                 composer.discard_parked_draft();
                 *inflight = true;
@@ -9380,6 +10060,7 @@ fn submit_composer_prompt(
                     compacted: false,
                     compaction: None,
                     timestamp: Some(clock_stamp()),
+                    quiet_cancel: false,
                 });
                 composer.record_history(&transcript);
                 *inflight = true;
@@ -9457,6 +10138,311 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live_turn(user: &str) -> Turn {
+        Turn {
+            user: user.into(),
+            thought: String::new(),
+            answer: String::new(),
+            error: None,
+            message_id: None,
+            tools: Vec::new(),
+            permission: None,
+            done: false,
+            cancelling: false,
+            cancelled: false,
+            interrupted: false,
+            compacted: false,
+            compaction: None,
+            timestamp: None,
+            quiet_cancel: false,
+        }
+    }
+
+    fn intervene_composer() -> (PromptComposer, PathBuf) {
+        let home = std::env::temp_dir().join(format!(
+            "codsh-intervene-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        (PromptComposer::load(&home, &[]), home)
+    }
+
+    fn queue_row(composer: &mut PromptComposer, text: &str) -> u64 {
+        let busy = HostContext {
+            inflight: true,
+            minimal: false,
+            voice_release: true,
+        };
+        for ch in text.chars() {
+            composer.handle_key(
+                crossterm::event::KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+                busy,
+            );
+        }
+        composer.handle_key(
+            crossterm::event::KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            busy,
+        );
+        composer.take_last_enqueued().expect("queued")
+    }
+
+    #[test]
+    fn send_now_chord_follows_the_terminal_family() {
+        use crossterm::event::KeyEvent;
+        let ctrl = |code| KeyEvent::new(code, KeyModifiers::CONTROL);
+        let other = term_family(Some("xterm-kitty"));
+        assert_eq!(other, TermFamily::Other);
+        assert!(is_send_now_chord(&ctrl(KeyCode::Enter), other));
+        assert!(is_send_now_chord(&ctrl(KeyCode::Char('i')), other));
+        assert!(
+            !is_send_now_chord(&ctrl(KeyCode::Char('o')), other),
+            "Ctrl+O is not send-now outside Apple Terminal"
+        );
+        assert!(!is_send_now_chord(&ctrl(KeyCode::Char('l')), other));
+        assert!(!is_send_now_chord(
+            &KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            other
+        ));
+        let apple = term_family(Some("Apple_Terminal"));
+        assert_eq!(apple, TermFamily::AppleTerminal);
+        assert!(is_send_now_chord(&ctrl(KeyCode::Char('o')), apple));
+        assert!(is_send_now_chord(&ctrl(KeyCode::Enter), apple));
+        assert!(is_send_now_chord(&ctrl(KeyCode::Char('i')), apple));
+        for name in ["vscode", "cursor", "zed"] {
+            let family = term_family(Some(name));
+            assert_eq!(family, TermFamily::VsCode, "{name}");
+            assert!(is_send_now_chord(&ctrl(KeyCode::Char('l')), family));
+            assert!(!is_send_now_chord(&ctrl(KeyCode::Enter), family));
+            assert!(!is_send_now_chord(&ctrl(KeyCode::Char('o')), family));
+        }
+    }
+
+    #[test]
+    fn a_claimed_steer_leaves_the_queue_and_opens_its_own_turn() {
+        let (mut composer, home) = intervene_composer();
+        let id = queue_row(&mut composer, "go left");
+        let wire = composer.queue_items()[0].wire_id();
+        composer.queue_item_mut(id).unwrap().steering = true;
+        let mut turns = vec![live_turn("first")];
+        turns[0].message_id = Some("m1".into());
+        let mut side = Intervene::default();
+        let mut hint = String::new();
+        apply_control_events(
+            vec![control::ControlEvent::SteerClaimed(wire.clone())],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert_eq!(composer.queue_count(), 0, "claimed rows are not sent again");
+        assert_eq!(turns.len(), 2);
+        assert!(turns[0].done);
+        assert_eq!(turns[1].user, "go left");
+        assert!(!turns[1].done);
+        // A duplicate claim for the same id changes nothing.
+        apply_control_events(
+            vec![control::ControlEvent::SteerClaimed(wire)],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert_eq!(turns.len(), 2);
+        // Old-message chunks still reach the first turn; new ones the steer turn.
+        assert!(message_turn(&mut turns, "m1").is_some_and(|turn| turn.user == "first"));
+        assert!(message_turn(&mut turns, "m2").is_some_and(|turn| turn.user == "go left"));
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn a_returned_steer_is_queued_again_and_arms_the_drain_when_idle() {
+        let (mut composer, home) = intervene_composer();
+        let id = queue_row(&mut composer, "later");
+        let wire = composer.queue_items()[0].wire_id();
+        composer.queue_item_mut(id).unwrap().steering = true;
+        assert_eq!(
+            composer.next_release(false),
+            prompt_queue::Release::Steering,
+            "an outstanding steer holds the drain"
+        );
+        let mut turns = vec![live_turn("first")];
+        let mut side = Intervene::default();
+        let mut hint = String::new();
+        apply_control_events(
+            vec![control::ControlEvent::SteerReturned(wire)],
+            &mut composer,
+            &mut turns,
+            false,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert!(side.drain_armed);
+        assert_eq!(turns.len(), 1);
+        assert!(matches!(
+            composer.next_release(false),
+            prompt_queue::Release::Item(item) if item.prompt.text == "later"
+        ));
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn a_closed_channel_returns_steering_rows_and_fails_a_pending_side_question() {
+        let (mut composer, home) = intervene_composer();
+        let id = queue_row(&mut composer, "row");
+        composer.queue_item_mut(id).unwrap().steering = true;
+        let mut side = Intervene {
+            btw: Some(BtwPanel {
+                id: "b1".into(),
+                question: "q".into(),
+                state: BtwState::Loading,
+            }),
+            ..Intervene::default()
+        };
+        let mut turns = Vec::new();
+        let mut hint = String::new();
+        apply_control_events(
+            vec![control::ControlEvent::Closed("gone".into())],
+            &mut composer,
+            &mut turns,
+            false,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert!(!composer.queue_items()[0].steering);
+        assert_eq!(
+            side.btw.as_ref().map(|panel| panel.state.clone()),
+            Some(BtwState::Failed("gone".into()))
+        );
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn late_or_foreign_side_answers_are_dropped() {
+        let (mut composer, home) = intervene_composer();
+        let mut turns = Vec::new();
+        let mut hint = String::new();
+        let mut side = Intervene {
+            btw: Some(BtwPanel {
+                id: "b2".into(),
+                question: "why".into(),
+                state: BtwState::Loading,
+            }),
+            ..Intervene::default()
+        };
+        apply_control_events(
+            vec![control::ControlEvent::BtwAnswer {
+                id: "b1".into(),
+                text: "stale".into(),
+            }],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert_eq!(side.btw.as_ref().unwrap().state, BtwState::Loading);
+        apply_control_events(
+            vec![control::ControlEvent::BtwAnswer {
+                id: "b2".into(),
+                text: "because".into(),
+            }],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        let panel = side.btw.clone().unwrap();
+        assert_eq!(panel.state, BtwState::Answer("because".into()));
+        assert!(btw_panel_text(&panel).contains("because"));
+        assert!(
+            turns.is_empty(),
+            "a side answer never touches the transcript"
+        );
+        // Dismissed: the answer for b3 arrives with no panel and is dropped.
+        side.btw = None;
+        apply_control_events(
+            vec![control::ControlEvent::BtwAnswer {
+                id: "b3".into(),
+                text: "late".into(),
+            }],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            false,
+        );
+        assert!(side.btw.is_none());
+        // Minimal mode: a finished answer goes to native scrollback.
+        side.btw = Some(BtwPanel {
+            id: "b4".into(),
+            question: "what".into(),
+            state: BtwState::Loading,
+        });
+        let printed = apply_control_events(
+            vec![control::ControlEvent::BtwAnswer {
+                id: "b4".into(),
+                text: "that".into(),
+            }],
+            &mut composer,
+            &mut turns,
+            true,
+            &mut side,
+            &mut hint,
+            true,
+        );
+        assert_eq!(printed.as_deref(), Some("btw › what\nthat\n"));
+        assert!(side.btw.is_none());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn btw_question_joins_the_parked_prefix() {
+        assert_eq!(btw_question("fix X.", " what is Y?"), "fix X. what is Y?");
+        assert_eq!(btw_question("", "why"), "why");
+        assert_eq!(btw_question("  ", "  "), "");
+    }
+
+    #[test]
+    fn a_send_now_cancel_hides_the_cancelled_marker() {
+        let mut turn = live_turn("x");
+        turn.done = true;
+        turn.cancelled = true;
+        turn.quiet_cancel = true;
+        assert!(!turn_views(std::slice::from_ref(&turn))[0].cancelled);
+        turn.quiet_cancel = false;
+        assert!(turn_views(std::slice::from_ref(&turn))[0].cancelled);
+    }
+
+    #[test]
+    fn tool_updates_find_their_turn_after_a_steer_split() {
+        let mut turns = vec![live_turn("first"), live_turn("steer")];
+        turns[0].tools.push(ToolRow {
+            id: "t1".into(),
+            title: "read".into(),
+            kind: String::new(),
+            status: "in_progress".into(),
+            diff: String::new(),
+            result: String::new(),
+            raw_input: Value::Null,
+        });
+        assert!(tool_turn(&mut turns, "t1").is_some_and(|turn| turn.user == "first"));
+        assert!(tool_turn(&mut turns, "t2").is_some_and(|turn| turn.user == "steer"));
+    }
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()

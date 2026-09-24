@@ -31,7 +31,11 @@ export function rustAcpSubagentsUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-subagents.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl()) {
+export function rustAcpControlUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-control.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -107,6 +111,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${compactUrl}'`,
     '    - id: rust-acp-web',
     `      name: '${webUrl}'`,
+    '    - id: rust-acp-control',
+    `      name: '${controlUrl}'`,
     '',
   )
   return lines.join('\n')

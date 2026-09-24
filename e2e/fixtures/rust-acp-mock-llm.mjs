@@ -8,7 +8,10 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents. Optional
+ * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents,
+ * steer-probe (three read steps, then reports the latest user text it saw). A side question
+ * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
+ * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -671,8 +674,9 @@ class RustAcpMockAdapter extends LlmAdapter {
         error: block.isError === true,
         text: (block.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, 500),
       })))
+      const side = String(options.system ?? '').startsWith('codsh side question')
       appendFileSync(trace, `${JSON.stringify({
-        purpose: options.purpose ?? 'turn',
+        purpose: side ? 'btw' : options.purpose ?? 'turn',
         provider: options.provider,
         model: options.model?.id ?? options.model ?? '',
         tools: names,
@@ -705,12 +709,40 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(reply)
       return
     }
+    if (String(options.system ?? '').startsWith('codsh side question')) {
+      const btwDelay = Number(process.env.CODSH_MOCK_BTW_DELAY_MS ?? '0')
+      if (btwDelay > 0) {
+        try {
+          await sleep(btwDelay, options.signal)
+        } catch {
+          return
+        }
+      }
+      if (process.env.CODSH_MOCK_BTW === 'fail') {
+        yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_BTW_FAIL', message: 'side model failed' } } }
+        return
+      }
+      const texts = userTexts(options)
+      const question = echoUserText(texts.at(-1) ?? '')
+      const main = texts.slice(0, -1).map(echoUserText).join('|')
+      yield* mockText(`RUST_BTW_ANSWER q=${question} context=${main}`)
+      return
+    }
     if (MODE === 'sandbox-session') {
       yield* sandboxSessionTurn(options)
       return
     }
     if (MODE === 'subagents') {
       yield* subagentsTurn(options)
+      return
+    }
+    if (MODE === 'steer-probe') {
+      const done = toolResults(options)
+      if (done.length < 3) {
+        yield* mockToolCall(`rust-acp-steer-${done.length + 1}-${userTurns(options)}`, 'read', { file_path: 'note.txt' })
+        return
+      }
+      yield* mockText(`RUST_ACP_STEER_DONE calls=${done.length} latest=${echoUserText(latestUserText(options))}`)
       return
     }
     const turn = String(userTurns(options))

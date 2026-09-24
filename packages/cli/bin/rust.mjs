@@ -280,6 +280,7 @@ export async function launchRust(args) {
       const plain = fileURLToPath(new URL('./rust-acp-plain.mjs', import.meta.url))
       const hooks = fileURLToPath(new URL('./rust-acp-hooks.mjs', import.meta.url))
       const subagents = fileURLToPath(new URL('./rust-acp-subagents.mjs', import.meta.url))
+      const control = fileURLToPath(new URL('./rust-acp-control.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
       const lsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
       const toolLsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
@@ -316,6 +317,8 @@ export async function launchRust(args) {
         `      name: '${pathToFileURL(compact).href}'`,
         `    - id: rust-acp-web`,
         `      name: '${pathToFileURL(web).href}'`,
+        `    - id: rust-acp-control`,
+        `      name: '${pathToFileURL(control).href}'`,
         '',
       ].join('\n'))
       env.CODSH_ACP_PATCH = overlay
