@@ -55,6 +55,10 @@ network, or canonical session crates. Prompt submission refuses execution and
 preserves the draft; it does not fabricate an answer or a connected runtime.
 This ticket does not claim full UI parity, minimal-mode parity, or a dsh turn.
 
+Ticket 11 (#143) adds local `src/filesystem_sandbox.rs`. It uses the Apache-2.0
+`nono` 0.53 crate (Seatbelt/Landlock) and does not import `xai-grok-sandbox`.
+Network filtering and bubblewrap re-exec are not included.
+
 Ticket 57 (#189) adds local `src/auth.rs` and `src/extra_ca.rs` for substitute
 login/logout/setup, extra CA trust, and signed managed-config fetch. Those
 modules do not import upstream xai-grok-login or official entitlements.

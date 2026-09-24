@@ -119,6 +119,10 @@ pub struct EffectiveConfig {
     pub assets: crate::assets::AssetCatalog,
     /// Process and config gate. A `/memory` `t` toggle does not change this.
     pub memory: crate::memory::Enablement,
+    /// Selected filesystem profile and the layer that won. A requirements pin
+    /// is already applied here; CLI and `GROK_SANDBOX` do not beat it.
+    pub sandbox_profile: String,
+    pub sandbox_profile_source: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -140,6 +144,7 @@ pub struct LoadInput {
     pub cli_allow: Vec<String>,
     pub cli_deny: Vec<String>,
     pub cli_no_memory: bool,
+    pub cli_sandbox: Option<String>,
 }
 
 impl EffectiveConfig {
@@ -312,6 +317,7 @@ pub fn load() -> EffectiveConfig {
         cli_allow: Vec::new(),
         cli_deny: Vec::new(),
         cli_no_memory: false,
+        cli_sandbox: None,
     })
 }
 
@@ -385,6 +391,14 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         Some(&requirements_path),
         "requirements",
         true,
+        &mut errors,
+        &mut warnings,
+    );
+    diagnose_unknown_security(
+        user.as_ref(),
+        Some(&config_path),
+        "config.toml",
+        fail_closed,
         &mut errors,
         &mut warnings,
     );
@@ -508,6 +522,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         });
     }
 
+    let overlay = overlay_table(&input.env, &mut warnings);
     let mut table = TomlValue::Table(toml::map::Map::new());
     if let Some(value) = &managed {
         merge_toml(&mut table, value);
@@ -535,6 +550,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         merge_toml(&mut table, &selection);
         stamp_model_sources(&selection, &mut sources, "saved");
     }
+    let mut workspace_layer = None;
     let mut workspace_ui = None;
     if workspace_trusted {
         if let Some(value) =
@@ -548,6 +564,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 &mut errors,
                 &mut warnings,
             );
+            workspace_layer = Some(value.clone());
             workspace_ui = Some(value.clone());
             merge_toml(&mut table, &value);
             stamp_model_sources(&value, &mut sources, "workspace");
@@ -559,16 +576,17 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             status: "skipped-untrusted".into(),
         });
     }
-    if let Some(overlay) = overlay_table(&input.env, &mut warnings)
-        && let Some(confined) = confine_overlay(overlay, fail_closed, &mut warnings, &mut errors)
-    {
-        merge_toml(&mut table, &confined);
+    let confined_overlay = overlay.as_ref().and_then(|overlay| {
+        confine_overlay(overlay.clone(), fail_closed, &mut warnings, &mut errors)
+    });
+    if let Some(confined) = &confined_overlay {
+        merge_toml(&mut table, confined);
         files.push(FileLayer {
             path: PathBuf::from("GROK_CONFIG"),
             role: "overlay".into(),
             status: "ok".into(),
         });
-        stamp_model_sources(&confined, &mut sources, "overlay");
+        stamp_model_sources(confined, &mut sources, "overlay");
     }
 
     if let Some(model_table) = table.get("model").and_then(TomlValue::as_table) {
@@ -1639,6 +1657,15 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         },
     );
 
+    let sandbox = resolve_sandbox_profile(
+        &input,
+        managed.as_ref(),
+        user.as_ref(),
+        workspace_layer.as_ref(),
+        confined_overlay.as_ref(),
+        requirements.as_ref(),
+    );
+    push_setting(&mut settings, "sandbox.profile", &sandbox.0, &sandbox.1);
     let workspace_tables = permission::collect_workspace_tables(&input.cwd, workspace_trusted);
     let claude = permission::load_claude_settings(&input.cwd, &input.home, workspace_trusted);
     let permission = match permission::build_policy(
@@ -1824,11 +1851,13 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         auth,
         auth_session: session,
         fail_closed,
-        merged_table: table,
+        merged_table: table.clone(),
         permission,
         voice,
         assets,
         memory,
+        sandbox_profile: sandbox.0,
+        sandbox_profile_source: sandbox.1,
     }
 }
 
@@ -1901,6 +1930,82 @@ fn string_list(value: Option<&TomlValue>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// `sandbox.profile` from one already-parsed layer. Not a line scan.
+fn sandbox_profile_value(layer: Option<&TomlValue>) -> Option<String> {
+    layer
+        .and_then(|value| value.get("sandbox"))
+        .and_then(|value| value.get("profile"))
+        .and_then(TomlValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+/// Guide 26 marks `sandbox.profile` as a requirements pin and a managed user
+/// default. The pin beats CLI, `GROK_SANDBOX`, overlay, and every file below
+/// it. A managed value is only the default those sources override.
+fn resolve_sandbox_profile(
+    input: &LoadInput,
+    managed: Option<&TomlValue>,
+    user: Option<&TomlValue>,
+    workspace: Option<&TomlValue>,
+    overlay: Option<&TomlValue>,
+    requirements: Option<&TomlValue>,
+) -> (String, String) {
+    let env_profile = input
+        .env
+        .get("GROK_SANDBOX")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let layers = [
+        (
+            crate::filesystem_sandbox::ProfileSource::Requirements,
+            sandbox_profile_value(requirements),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::Cli,
+            input.cli_sandbox.clone(),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::Environment,
+            env_profile.map(str::to_string),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::Overlay,
+            sandbox_profile_value(overlay),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::Workspace,
+            sandbox_profile_value(workspace),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::User,
+            sandbox_profile_value(user),
+        ),
+        (
+            crate::filesystem_sandbox::ProfileSource::Managed,
+            sandbox_profile_value(managed),
+        ),
+    ];
+    let borrowed: Vec<_> = layers
+        .iter()
+        .map(|(source, value)| (*source, value.as_deref()))
+        .collect();
+    let (name, source) = crate::filesystem_sandbox::select_profile(&borrowed);
+    let label = match source {
+        crate::filesystem_sandbox::ProfileSource::Requirements => "requirements",
+        crate::filesystem_sandbox::ProfileSource::Cli => "cli",
+        crate::filesystem_sandbox::ProfileSource::Environment => "environment",
+        crate::filesystem_sandbox::ProfileSource::Overlay => "overlay",
+        crate::filesystem_sandbox::ProfileSource::User => "config.toml",
+        crate::filesystem_sandbox::ProfileSource::Workspace => "workspace",
+        crate::filesystem_sandbox::ProfileSource::Managed => "managed",
+        crate::filesystem_sandbox::ProfileSource::Default => "default",
+    };
+    (name, label.into())
+}
+
 pub fn inspect_text(config: &EffectiveConfig) -> String {
     let mut lines = vec!["Effective configuration".into()];
     for file in &config.files {
@@ -1938,6 +2043,9 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
     }
     lines.push(crate::plugin::inspect_text(&config.plugins));
     lines.push(crate::assets::inspect_text(&config.assets));
+    lines.push(crate::filesystem_sandbox::status_line(
+        crate::filesystem_sandbox::active(),
+    ));
     lines.join("\n")
 }
 
@@ -2624,6 +2732,7 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "extra_known_marketplaces",
     "plugins",
     "hooks",
+    "sandbox",
     "campaigns",
     "memory",
     "auth",
@@ -2781,7 +2890,21 @@ fn confine_overlay(
     };
     let mut confined = toml::map::Map::new();
     for (key, item) in table {
-        if OVERLAY_FORBIDDEN.contains(&key.as_str()) {
+        if key == "sandbox" {
+            // sandbox.profile is a real config key (guide 26), not a soft
+            // model setting and not a forbidden escalation table. Keep only
+            // the profile string; auto_allow_bash stays with permission.
+            if let Some(profile) = item
+                .get("profile")
+                .and_then(TomlValue::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let mut sandbox = toml::map::Map::new();
+                sandbox.insert("profile".into(), TomlValue::String(profile.to_string()));
+                confined.insert(key, TomlValue::Table(sandbox));
+            }
+        } else if OVERLAY_FORBIDDEN.contains(&key.as_str()) {
             let reason = format!(
                 "GROK_CONFIG cannot set `{key}`; overlay allowlist is {}. Trust, permission, hooks, plugins, and endpoints stay on disk requirements/managed layers.",
                 OVERLAY_ALLOWED.join(", ")
@@ -3239,6 +3362,7 @@ mod tests {
             cli_allow: Vec::new(),
             cli_deny: Vec::new(),
             cli_no_memory: false,
+            cli_sandbox: None,
         }
     }
 
@@ -4734,6 +4858,295 @@ default = "project-model"
                 .marketplaces
                 .iter()
                 .any(|source| source.name == "Org")
+        );
+    }
+
+    #[test]
+    fn sandbox_is_a_known_policy_key_in_user_and_trusted_project_config() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(&load, "[sandbox]\nprofile = \"strict\"\n");
+        fs::create_dir_all(load.cwd.join(".grok")).unwrap();
+        fs::write(
+            load.cwd.join(".grok").join("config.toml"),
+            "[sandbox]\nprofile = \"workspace\"\n",
+        )
+        .unwrap();
+        let grok = load.grok_home.clone().unwrap();
+        let requirements = "fail_closed = true\n";
+        fs::write(grok.join("requirements.toml"), requirements).unwrap();
+        // An unsigned fail_closed file is a separate refusal. Sign it so the
+        // assertion is only about the sandbox key.
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let payload = json!({
+            "typ": "managed-policy",
+            "expires_at": crate::auth::now_unix() + 3600,
+            "team_id": "team-good",
+            "managed_config": "",
+            "requirements": requirements,
+            "fail_closed": true,
+        })
+        .to_string();
+        let signature = ed25519_dalek::Signer::sign(&signing, payload.as_bytes());
+        fs::write(
+            grok.join(crate::auth::SIGNATURE_SIDECAR),
+            json!({
+                "signed_payload": payload,
+                "signature": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_MANAGED_CONFIG_PUBKEY".into(),
+            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        );
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
+        )
+        .unwrap();
+        load.cli_trust = true;
+        let config = load_from(load);
+        assert!(
+            !config
+                .errors
+                .iter()
+                .any(|error| error.reason.contains("`sandbox`")),
+            "{:?}",
+            config.errors
+        );
+        assert!(
+            !config
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("`sandbox`")),
+            "{:?}",
+            config.warnings
+        );
+        // Trusted project config beats the user file. The pin is not set.
+        assert_eq!(config.sandbox_profile, "workspace");
+        assert_eq!(config.sandbox_profile_source, "workspace");
+    }
+
+    #[test]
+    fn requirements_pin_beats_cli_env_and_config_path() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(&load, "[sandbox]\nprofile = \"workspace\"\n");
+        let grok = load.grok_home.clone().unwrap();
+        fs::write(
+            grok.join("managed_config.toml"),
+            "[sandbox]\nprofile = \"read-only\"\n",
+        )
+        .unwrap();
+        let requirements = "fail_closed = true\n\n[sandbox]\nprofile = \"strict\"\n";
+        fs::write(grok.join("requirements.toml"), requirements).unwrap();
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let payload = json!({
+            "typ": "managed-policy",
+            "expires_at": crate::auth::now_unix() + 3600,
+            "team_id": "team-good",
+            "managed_config": "[sandbox]\nprofile = \"read-only\"\n",
+            "requirements": requirements,
+            "fail_closed": true,
+        })
+        .to_string();
+        let signature = ed25519_dalek::Signer::sign(&signing, payload.as_bytes());
+        fs::write(
+            grok.join(crate::auth::SIGNATURE_SIDECAR),
+            json!({
+                "signed_payload": payload,
+                "signature": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_MANAGED_CONFIG_PUBKEY".into(),
+            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        );
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
+        )
+        .unwrap();
+        load.cli_sandbox = Some("off".into());
+        load.env.insert("GROK_SANDBOX".into(), "off".into());
+        let overlay = dir.path().join("overlay.toml");
+        fs::write(&overlay, "[sandbox]\nprofile = \"workspace\"\n").unwrap();
+        load.env
+            .insert("GROK_CONFIG_PATH".into(), overlay.display().to_string());
+        let pinned = load_from(load.clone());
+        assert!(
+            pinned.errors.is_empty(),
+            "signed pin should load: {:?}",
+            pinned.errors
+        );
+        assert_eq!(pinned.sandbox_profile, "strict");
+        assert_eq!(pinned.sandbox_profile_source, "requirements");
+
+        // A managed default is user-overridable. CLI off wins; the overlay
+        // path is still read and would win over the user file alone.
+        let _ = fs::remove_file(grok.join("requirements.toml"));
+        let _ = fs::remove_file(grok.join(crate::auth::SIGNATURE_SIDECAR));
+        load.env.remove("GROK_MANAGED_CONFIG_PUBKEY");
+        load.cli_sandbox = Some("off".into());
+        let managed = load_from(load.clone());
+        assert_eq!(managed.sandbox_profile, "off");
+        assert_eq!(managed.sandbox_profile_source, "cli");
+        load.cli_sandbox = None;
+        load.env.remove("GROK_SANDBOX");
+        let from_path = load_from(load);
+        assert_eq!(from_path.sandbox_profile, "workspace");
+        assert_eq!(from_path.sandbox_profile_source, "overlay");
+    }
+
+    #[test]
+    fn requirements_pin_still_names_a_profile_when_the_project_is_untrusted() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        load.interactive = false;
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        let requirements = "fail_closed = true\n\n[sandbox]\nprofile = \"locked\"\n";
+        fs::write(grok.join("requirements.toml"), requirements).unwrap();
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let payload = json!({
+            "typ": "managed-policy",
+            "expires_at": crate::auth::now_unix() + 3600,
+            "team_id": "team-good",
+            "managed_config": "",
+            "requirements": requirements,
+            "fail_closed": true,
+        })
+        .to_string();
+        let signature = ed25519_dalek::Signer::sign(&signing, payload.as_bytes());
+        fs::write(
+            grok.join(crate::auth::SIGNATURE_SIDECAR),
+            json!({
+                "signed_payload": payload,
+                "signature": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_MANAGED_CONFIG_PUBKEY".into(),
+            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        );
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(load.cwd.join(".grok")).unwrap();
+        // sandbox.toml alone is not a repo-config kind, so trust stays on.
+        // A project instruction is, and non-interactive startup then skips it.
+        fs::write(load.cwd.join("AGENTS.md"), "# project\n").unwrap();
+        fs::write(
+            load.cwd.join(".grok").join("config.toml"),
+            "[sandbox]\nprofile = \"off\"\n",
+        )
+        .unwrap();
+        fs::write(
+            load.cwd.join(".grok").join("sandbox.toml"),
+            "[profiles.open]\nextends = \"workspace\"\nread_write = [\"/**\"]\n",
+        )
+        .unwrap();
+        load.cli_sandbox = Some("open".into());
+        load.env.insert("GROK_SANDBOX".into(), "off".into());
+        let pinned = load_from(load);
+        assert!(pinned.errors.is_empty(), "{:?}", pinned.errors);
+        assert!(!pinned.workspace_trusted, "{:?}", pinned.trust_message);
+        assert_eq!(pinned.sandbox_profile, "locked");
+        assert_eq!(pinned.sandbox_profile_source, "requirements");
+        assert!(
+            pinned
+                .files
+                .iter()
+                .any(|file| file.role == "workspace" && file.status == "skipped-untrusted")
+        );
+    }
+
+    #[test]
+    fn malformed_untrusted_project_file_does_not_veto_a_pinned_user_profile() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        load.interactive = false;
+        let grok = load.grok_home.clone().unwrap();
+        fs::create_dir_all(&grok).unwrap();
+        let requirements = "fail_closed = true\n\n[sandbox]\nprofile = \"open\"\n";
+        fs::write(grok.join("requirements.toml"), requirements).unwrap();
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let payload = json!({
+            "typ": "managed-policy",
+            "expires_at": crate::auth::now_unix() + 3600,
+            "team_id": "team-good",
+            "managed_config": "",
+            "requirements": requirements,
+            "fail_closed": true,
+        })
+        .to_string();
+        let signature = ed25519_dalek::Signer::sign(&signing, payload.as_bytes());
+        fs::write(
+            grok.join(crate::auth::SIGNATURE_SIDECAR),
+            json!({
+                "signed_payload": payload,
+                "signature": base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()),
+            })
+            .to_string(),
+        )
+        .unwrap();
+        load.env.insert(
+            "GROK_MANAGED_CONFIG_PUBKEY".into(),
+            base64::engine::general_purpose::STANDARD.encode(signing.verifying_key().to_bytes()),
+        );
+        fs::write(
+            grok.join("auth.json"),
+            r#"{"access_token":"sess","method":"oidc","team_id":"team-good"}"#,
+        )
+        .unwrap();
+        fs::write(
+            grok.join("sandbox.toml"),
+            "[profiles.open]\nextends = \"workspace\"\ndeny = [\"secret.txt\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(load.cwd.join(".grok")).unwrap();
+        fs::write(load.cwd.join("AGENTS.md"), "# project\n").unwrap();
+        fs::write(load.cwd.join("secret.txt"), "keep").unwrap();
+        fs::write(load.cwd.join(".grok").join("sandbox.toml"), "profiles = [").unwrap();
+        load.cli_sandbox = Some("off".into());
+        load.env.insert("GROK_SANDBOX".into(), "off".into());
+        let pinned = load_from(load);
+        assert!(pinned.errors.is_empty(), "{:?}", pinned.errors);
+        assert!(!pinned.workspace_trusted, "{:?}", pinned.trust_message);
+        assert_eq!(pinned.sandbox_profile, "open");
+        assert_eq!(pinned.sandbox_profile_source, "requirements");
+        let prepared = crate::filesystem_sandbox::prepare(
+            &pinned.sandbox_profile,
+            &pinned.cwd,
+            &pinned.grok_home,
+            None,
+            pinned.workspace_trusted,
+        )
+        .unwrap_or_else(|error| panic!("pinned user profile was vetoed: {}", error.message))
+        .expect("pinned profile should confine");
+        assert!(
+            prepared
+                .read_denied
+                .iter()
+                .any(|path| path.ends_with("secret.txt")),
+            "user deny was not applied: {:?}",
+            prepared.read_denied
+        );
+        assert!(
+            !prepared
+                .write_roots
+                .iter()
+                .any(|path| path == Path::new("/")),
+            "untrusted project widened the pin: {:?}",
+            prepared.write_roots
         );
     }
 }

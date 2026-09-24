@@ -1,0 +1,4 @@
+sigstore-rekor 0.6.6 is a crates.io dependency of nono 0.53.0 (Apache-2.0).
+Its package manifest declares license: Apache-2.0.
+The published crate does not include a license file. The text copied here is the
+standard license named by that declaration, not a file shipped inside the crate.

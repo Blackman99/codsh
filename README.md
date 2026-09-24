@@ -53,7 +53,50 @@ Grok Rust UI components, requires no official account, and does not start the
 legacy Bundle, official agent core, update check, telemetry, or feedback upload.
 Enter submits the draft through dsh when connected, or reports that execution is
 unavailable without sending it. File read, write, and edit run through real dsh
-tools. Allow/ask/deny rules, remembered project grants, and permission modes
+tools. `--sandbox <profile>` (`GROK_SANDBOX`, or `[sandbox] profile` in the
+isolated `$GROK_HOME/config.toml`) applies Seatbelt on macOS or Landlock on
+Linux to this process before dsh starts. `off` is the default and adds no
+confinement. `workspace` reads broadly and writes the workspace, `$GROK_HOME`,
+and temp directories. `read-only` and `strict` narrow writes. `devbox` does not
+write-protect global hook or config files. Custom profiles live in
+`$GROK_HOME/sandbox.toml` or `.grok/sandbox.toml` (`extends`, `read_only`,
+`read_write`, `deny`). A symlink `$GROK_HOME`, a symlink in a `hooks-paths`
+target, a missing hook target, a malformed profile, or a kernel that cannot
+apply the policy refuses startup instead of continuing unconfined. When
+`$GROK_HOME/sandbox.toml` and `.grok/sandbox.toml` define the same custom
+profile differently, startup uses the user file, warns, and names both paths.
+Identical definitions do not warn. A relative deny glob stays inside the
+workspace: `**` matches path segments there and does not deny a sibling
+directory or a same-prefix path. `**` is only a whole path segment (`**/`,
+`a/**`); an attached form such as `**.pem` or `certs/**.pem` refuses startup.
+A `.` or `..` segment anywhere in a deny entry, including `a/./secret`, also
+refuses startup. `[!a]` and `[^a]` both negate in the macOS
+profile. A POSIX class, an empty `//` segment, a trailing slash, or a caret
+that would be literal is refused instead of applied. `[sandbox] profile` is
+read by the same config loader as inspect: a signed `requirements.toml` pin
+beats `--sandbox`, `GROK_SANDBOX`, `GROK_CONFIG` / `GROK_CONFIG_PATH`, and
+every file below it. A managed default does not; those sources override it.
+An untrusted project file does not select the profile, and naming a custom
+profile with `--sandbox`, `GROK_SANDBOX`, or a requirements pin does not trust
+`.grok/sandbox.toml`. A definition that exists only in that untrusted file
+refuses startup. A user `$GROK_HOME/sandbox.toml` definition stays usable and
+still wins when both files define the name. The untrusted project file is not
+applied. A body that parses is compared only so a disagreement can name both
+paths; a malformed, unreadable, or symlinked untrusted project file does not
+veto the user definition. A trusted project file that is malformed still
+refuses startup. `[sandbox]` is a known
+policy key in the user config and in a trusted project config, including when
+signed `fail_closed` requirements are active. On macOS
+every existing ancestor of a protected path up through the write root that
+contains it, not only its immediate parent, cannot be renamed onto another
+write root. Linux
+Landlock cannot deny a path inside a write root, so a profile that needs that
+protection refuses startup there instead of applying an allow-only policy.
+The status
+line names the active profile and its write roots. Protected config and hook
+files stay unchanged; a permission-mode change is kept for the session only.
+Child-process network blocking is not this control. Linux and Windows are not
+marked supported by a macOS run. Allow/ask/deny rules, remembered project grants, and permission modes
 (`ask`, `auto`, `always-approve`/`--yolo`, `dontAsk`, `acceptEdits`) are
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell

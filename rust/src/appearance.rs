@@ -744,6 +744,12 @@ fn flag(value: bool) -> String {
 }
 
 pub fn persist(path: &Path, updates: &[(&str, String)]) -> io::Result<()> {
+    if crate::filesystem_sandbox::session_only_write(path) {
+        return Err(io::Error::new(
+            ErrorKind::PermissionDenied,
+            "sandbox kept this change for the session; the protected config file was not written",
+        ));
+    }
     let existing = match fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == ErrorKind::NotFound => String::new(),

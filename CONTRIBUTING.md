@@ -161,7 +161,18 @@ allowlist. A packed `codsh --rust inspect` with both set off must not list
 `.claude` or `.cursor` skills (`scripts/rust-launcher.spec.mjs`).
 Do not treat model `base_url` traffic as telemetry.
 Keep shell completion separate from next-prompt suggestions, diagnostic logging from
-hook authority, and sandbox auto-approval from confinement. Terminal/editor/platform
+hook authority, and sandbox auto-approval from confinement. Filesystem confinement
+for `codsh --rust` is `python3 scripts/rust-filesystem-sandbox-test.py`: it builds
+nothing itself and runs the debug or staged `codsh-rust` with `--sandbox project`.
+The probe must show Seatbelt (macOS) or Landlock (Linux) denying an outside write,
+a rename, a rename of `$GROK_HOME`, a hook parent, or a deeper hook ancestor onto a write root, a symlink escape, a hook
+retarget, a protected `config.toml` write, and
+a `*.pem` glob, a workspace `**/.env` and `certs/**/*.pem` (without denying the sibling or a same-prefix path), and negated `[!a]` / `[^b]` classes, while an allowed sibling write succeeds. Its fixture is created
+outside `/tmp`, `/private/tmp`, `/var/tmp`, and `TMPDIR`, because those directories
+are write roots. A macOS result does not
+mark Linux or Windows supported. Linux refuses a profile that must write-deny a
+path inside a write root, because Landlock cannot express that exception.
+Child-network blocking stays on ticket 12. Terminal/editor/platform
 aliases and background model/admission/login/goal/compaction controls need observable
 functional effects. Memory prose must retain capture, queue/lease diagnostics and
 telemetry privacy only where quoted; merged source/binary paragraph identities can

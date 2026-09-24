@@ -123,7 +123,14 @@ Grok-only prune ages stay warnings, not silent no-ops. Managed defaults live in
 later CLI, environment, overlay, workspace, or user layers cannot bypass them.
 Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
-stay inactive until `--trust` or an interactive grant. After trust, compatible
+stay inactive until `--trust` or an interactive grant. The same decision gates
+`.grok/sandbox.toml`: naming a custom profile does not trust that file, a
+project-only definition refuses startup while the workspace is untrusted, and
+a user `$GROK_HOME/sandbox.toml` definition stays usable and still wins. The
+untrusted project body is not applied; a malformed, unreadable, or symlinked
+untrusted project file does not veto that user definition. A trusted malformed
+project file still refuses startup.
+ After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested
 `SKILL.md` files return only when the walk depth is greater than five, and a

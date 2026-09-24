@@ -73,6 +73,7 @@ crossterm = { workspace = true, features = ["bracketed-paste"] }
 ed25519-dalek = "2"
 ignore.workspace = true
 native-tls = "0.2"
+nono = { version = "=0.53.0", default-features = false }
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
 regex = "1.12.4"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
