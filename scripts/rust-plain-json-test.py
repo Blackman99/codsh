@@ -295,6 +295,14 @@ def main():
             framed = [event for event in events if event['type'] == 'stream_event']
             inner = [event['event']['type'] for event in framed]
             assert inner[0] == 'message_start', inner
+            started = next(
+                event['event']['message'] for event in framed
+                if event['event']['type'] == 'message_start'
+            )
+            # dsh sent no ledger. A zero token object is an invented bill.
+            assert 'usage' not in started, started
+            zeros = {'input_tokens': 0, 'output_tokens': 0}
+            assert started.get('usage') != zeros
             assert 'content_block_start' in inner and 'content_block_delta' in inner
             assert 'content_block_stop' in inner and 'message_delta' in inner and 'message_stop' in inner
             assert inner[-1] == 'message_stop'
@@ -368,15 +376,38 @@ def main():
             denied = work / 'denied'
             denied.mkdir()
             (denied / 'note.txt').write_text('alpha\n')
-            approval = plain(
-                launcher, denied, env('file-edit'),
-                ['-p', 'edit the note', '--output-format', 'json'],
-            )
-            assert approval.returncode == 1, (approval.returncode, approval.stdout, approval.stderr[-800:])
-            approval_body = json.loads(approval.stdout)
-            assert approval_body.get('type') == 'error' or approval_body.get('stopReason') != 'end_turn'
-            assert 'RUST_ACP_FILE_DONE' not in approval.stdout
-            assert (denied / 'note.txt').read_text() == 'alpha\n'
+            def assert_denial(label, fmt, args):
+                result = plain(launcher, denied, env('file-edit'), args)
+                assert result.returncode == 1, (label, result.returncode, result.stdout, result.stderr[-800:])
+                assert 'RUST_ACP_FILE_DONE' not in result.stdout
+                assert (denied / 'note.txt').read_text() == 'alpha\n'
+                if fmt == 'json':
+                    body = json.loads(result.stdout)
+                    assert body.get('type') == 'error', body
+                    assert 'stopReason' not in body or body.get('stopReason') != 'end_turn', body
+                    assert body.get('stopReason') != 'end_turn'
+                    assert 'non-interactive approval' in body.get('message', ''), body
+                elif fmt == 'streaming-json':
+                    events = parse_ndjson(result.stdout, label)
+                    assert events[-1].get('type') == 'error', events[-1]
+                    assert not any(event.get('stopReason') == 'end_turn' for event in events), events
+                    assert not any(event.get('type') == 'end' for event in events), events
+                    assert 'non-interactive approval' in events[-1].get('message', ''), events[-1]
+                else:
+                    events = parse_ndjson(result.stdout, label)
+                    terminal = events[-1]
+                    assert terminal.get('type') == 'result', terminal
+                    assert terminal.get('subtype') != 'success', terminal
+                    assert terminal.get('is_error') is True, terminal
+                    assert terminal.get('stop_reason') != 'end_turn', terminal
+                    assert 'non-interactive approval' in json.dumps(terminal), terminal
+
+            assert_denial('json denial', 'json',
+                          ['-p', 'edit the note', '--output-format', 'json'])
+            assert_denial('streaming-json denial', 'streaming-json',
+                          ['-p', 'edit the note', '--output-format', 'streaming-json'])
+            assert_denial('messages denial', 'streaming-messages-json',
+                          ['-p', 'edit the note', '--output-format', 'streaming-messages-json'])
 
         def case_same_side_effects():
             left = work / 'side-plain'

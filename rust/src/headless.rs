@@ -9,6 +9,7 @@
 use crate::acp::AcpEvent;
 use serde_json::{Map, Value, json};
 use std::io::{self, Write};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 pub const OUTPUT_FORMATS: &[&str] = &["plain", "json", "streaming-json", "streaming-messages-json"];
@@ -78,6 +79,8 @@ pub struct HeadlessOutput {
     rejected: bool,
     max_turns: bool,
     partial_seq: u64,
+    /// Test sink. Production writes stdout.
+    capture: Option<Arc<Mutex<Vec<u8>>>>,
 }
 
 struct ToolWire {
@@ -122,6 +125,7 @@ impl HeadlessOutput {
             rejected: false,
             max_turns: false,
             partial_seq: 0,
+            capture: None,
         }
     }
 
@@ -139,11 +143,21 @@ impl HeadlessOutput {
     }
 
     fn emit(&mut self, value: &Value) {
+        self.write_line(&value.to_string());
+    }
+
+    fn write_line(&mut self, body: &str) {
         if self.closed {
             return;
         }
-        let mut line = value.to_string();
+        let mut line = body.to_string();
         line.push('\n');
+        if let Some(capture) = &self.capture {
+            if let Ok(mut sink) = capture.lock() {
+                sink.extend_from_slice(line.as_bytes());
+            }
+            return;
+        }
         if let Err(error) = io::stdout().write_all(line.as_bytes()) {
             self.closed = true;
             if error.kind() != io::ErrorKind::BrokenPipe {
@@ -437,20 +451,25 @@ impl HeadlessOutput {
         let message_id = format!("msg_{}", self.partial_seq - 1);
         if self.include_partials {
             self.ensure_init();
+            // Usage arrives on prompt finish, after this event. Do not invent
+            // a zero bill; a later message_start copies a ledger already seen.
+            let mut message = json!({
+                "id": message_id,
+                "type": "message",
+                "role": "assistant",
+                "model": self.model_or_unknown(),
+                "content": [],
+                "stop_reason": Value::Null,
+                "stop_sequence": Value::Null,
+            });
+            if let Some(usage) = &self.usage {
+                message["usage"] = usage.clone();
+            }
             self.emit(&json!({
                 "type": "stream_event",
                 "event": {
                     "type": "message_start",
-                    "message": {
-                        "id": message_id,
-                        "type": "message",
-                        "role": "assistant",
-                        "model": self.model_or_unknown(),
-                        "content": [],
-                        "stop_reason": Value::Null,
-                        "stop_sequence": Value::Null,
-                        "usage": {"input_tokens": 0, "output_tokens": 0}
-                    }
+                    "message": message,
                 },
                 "session_id": self.session_id,
             }));
@@ -637,8 +656,9 @@ impl HeadlessOutput {
             }
             OutputFormat::Json => {
                 // A model stop such as max_tokens keeps its text and reason.
-                // A runtime failure has no such stop and is an error object.
-                if failed && !self.model_stop() {
+                // A runtime failure, including a rejected approval, is an
+                // error object even when dsh still said end_turn.
+                if self.failed_turn(failed) {
                     let mut err = json!({"type": "error", "message": message});
                     self.attach_usage(&mut err);
                     self.emit(&err);
@@ -656,13 +676,11 @@ impl HeadlessOutput {
                     self.attach_structured(&mut body);
                     let rendered =
                         serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string());
-                    let _ = io::stdout().write_all(rendered.as_bytes());
-                    let _ = io::stdout().write_all(b"\n");
+                    self.write_line(&rendered);
                 }
-                let _ = io::stdout().flush();
             }
             OutputFormat::StreamingJson => {
-                if failed && !self.model_stop() {
+                if self.failed_turn(failed) {
                     let mut err = json!({"type": "error", "message": message});
                     self.attach_usage(&mut err);
                     self.emit(&err);
@@ -681,17 +699,14 @@ impl HeadlessOutput {
             }
             OutputFormat::StreamingMessagesJson => {
                 let stop = self.stop_reason.clone();
-                let default_stop = if failed && !self.model_stop() {
-                    None
-                } else {
-                    Some("end_turn")
-                };
+                let failed_turn = self.failed_turn(failed);
+                let default_stop = if failed_turn { None } else { Some("end_turn") };
                 self.flush_open(stop.as_deref().or(default_stop));
                 self.flush_tool_results();
                 self.ensure_init();
                 let subtype = if self.max_turns {
                     "error_max_turns"
-                } else if failed {
+                } else if failed || self.rejected {
                     "error_during_execution"
                 } else {
                     "success"
@@ -699,14 +714,18 @@ impl HeadlessOutput {
                 let mut result = json!({
                     "type": "result",
                     "subtype": subtype,
-                    "is_error": failed || self.max_turns,
+                    "is_error": failed || self.rejected || self.max_turns,
                     "duration_ms": self.duration_ms(),
                     "num_turns": self.assistant_frames,
                     "result": self.text,
-                    "stop_reason": match &self.stop_reason {
-                    Some(reason) => Value::String(reason.clone()),
-                    None => Value::Null,
-                },
+                    "stop_reason": if failed_turn {
+                        Value::Null
+                    } else {
+                        match &self.stop_reason {
+                            Some(reason) => Value::String(reason.clone()),
+                            None => Value::Null,
+                        }
+                    },
                     "session_id": self.session_id,
                     "uuid": fresh_uuid(),
                 });
@@ -728,6 +747,12 @@ impl HeadlessOutput {
             self.stop_reason.as_deref(),
             Some("max_tokens" | "max_turn_requests" | "cancelled" | "refusal")
         )
+    }
+
+    /// A rejected approval is a failure even when dsh still said `end_turn`.
+    /// A named model stop keeps its reason instead.
+    fn failed_turn(&self, failed: bool) -> bool {
+        (failed || self.rejected) && !self.model_stop()
     }
 
     /// Spend from dsh, or an explicit absence. Never a zero bill.
@@ -820,6 +845,130 @@ mod tests {
         assert_eq!(body["usage"]["input_tokens"], json!(3));
         assert!(body.get("usage_absent").is_none());
         assert!(body.get("total_cost_usd").is_none());
+    }
+
+    fn messages(rejected: bool) -> HeadlessOutput {
+        let mut output = HeadlessOutput::new(
+            OutputFormat::StreamingMessagesJson,
+            true,
+            "session-1".into(),
+            "/work".into(),
+            "cli-mock".into(),
+            "ask".into(),
+        );
+        output.rejected = rejected;
+        output
+    }
+
+    fn capture(output: &mut HeadlessOutput) -> Arc<Mutex<Vec<u8>>> {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        output.capture = Some(Arc::clone(&sink));
+        sink
+    }
+
+    fn parsed_lines(sink: &Arc<Mutex<Vec<u8>>>) -> Vec<Value> {
+        let bytes = sink.lock().expect("capture").clone();
+        String::from_utf8(bytes)
+            .expect("utf8")
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str(line).expect("json line"))
+            .collect()
+    }
+
+    #[test]
+    fn rejected_approval_is_an_error_not_end_turn() {
+        let mut output = sample();
+        let sink = capture(&mut output);
+        output.rejected = true;
+        output.on_event(&AcpEvent::Answer {
+            session_id: "session-1".into(),
+            message_id: "m1".into(),
+            text: "I could not edit the file.".into(),
+        });
+        output.on_event(&AcpEvent::PromptFinished {
+            request_id: 4,
+            stop_reason: "end_turn".into(),
+            result: json!({"stopReason": "end_turn"}),
+        });
+        output.finish(true, "non-interactive approval rejected the tool call");
+        let body = &parsed_lines(&sink)[0];
+        assert_eq!(body["type"], json!("error"));
+        assert!(
+            body["message"]
+                .as_str()
+                .unwrap()
+                .contains("non-interactive approval")
+        );
+        assert!(body.get("stopReason").is_none());
+        assert!(!body.to_string().contains("end_turn"));
+
+        let mut stream = HeadlessOutput::new(
+            OutputFormat::StreamingJson,
+            false,
+            "session-1".into(),
+            "/work".into(),
+            "cli-mock".into(),
+            "ask".into(),
+        );
+        let stream_sink = capture(&mut stream);
+        stream.rejected = true;
+        stream.on_event(&AcpEvent::PromptFinished {
+            request_id: 4,
+            stop_reason: "end_turn".into(),
+            result: json!({"stopReason": "end_turn"}),
+        });
+        stream.finish(true, "non-interactive approval rejected the tool call");
+        let events = parsed_lines(&stream_sink);
+        assert_eq!(events.last().unwrap()["type"], json!("error"));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.get("type") != Some(&json!("end")))
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event.get("stopReason") != Some(&json!("end_turn")))
+        );
+
+        let mut messages = messages(true);
+        let message_sink = capture(&mut messages);
+        messages.on_event(&AcpEvent::PromptFinished {
+            request_id: 4,
+            stop_reason: "end_turn".into(),
+            result: json!({"stopReason": "end_turn"}),
+        });
+        messages.finish(true, "non-interactive approval rejected the tool call");
+        let events = parsed_lines(&message_sink);
+        let terminal = events.last().unwrap();
+        assert_eq!(terminal["type"], json!("result"));
+        assert_ne!(terminal["subtype"], json!("success"));
+        assert_eq!(terminal["is_error"], json!(true));
+        assert!(terminal.get("stop_reason").unwrap().is_null());
+    }
+
+    #[test]
+    fn partial_message_start_omits_usage_when_absent() {
+        let mut output = messages(false);
+        let sink = capture(&mut output);
+        output.on_event(&AcpEvent::Answer {
+            session_id: "session-1".into(),
+            message_id: "m1".into(),
+            text: "partial".into(),
+        });
+        let events = parsed_lines(&sink);
+        let start = events
+            .iter()
+            .find(|event| event["event"]["type"] == "message_start")
+            .expect("message_start");
+        let message = &start["event"]["message"];
+        assert!(message.get("usage").is_none(), "{message}");
+        assert_ne!(
+            message.get("usage"),
+            Some(&json!({"input_tokens": 0, "output_tokens": 0}))
+        );
+        assert!(output.usage.is_none());
     }
 
     #[test]
