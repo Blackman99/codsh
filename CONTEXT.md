@@ -144,7 +144,13 @@ project-only definition refuses startup while the workspace is untrusted, and
 a user `$GROK_HOME/sandbox.toml` definition stays usable and still wins. The
 untrusted project body is not applied; a malformed, unreadable, or symlinked
 untrusted project file does not veto that user definition. A trusted malformed
-project file still refuses startup.
+project file still refuses startup. `devbox` skips only the global
+hook/config/trust write protection; a profile extending it keeps its `deny`
+list. Deny paths and glob literal prefixes are resolved to the paths Seatbelt
+checks, and one that cannot be resolved or expressed refuses startup. dsh's per-call
+Seatbelt cannot nest inside a profile, so while one is applied codsh starts
+dsh with its per-call file mode at `danger-full-access` and unchanged
+approvals; the kernel policy confines bash children and child agents.
  After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested

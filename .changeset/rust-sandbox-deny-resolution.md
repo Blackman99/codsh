@@ -1,0 +1,6 @@
+---
+'codsh-cli': patch
+'codsh-bundle': patch
+---
+
+Keep a custom sandbox profile's `deny` list when it extends `devbox`; only the global hook, config, and trust write protection is skipped. Resolve every deny path and deny-glob literal prefix through its deepest existing ancestor so Seatbelt denies the resolved path (for example under `/tmp` or a symlinked directory, including files created after launch), treat a workspace whose name contains `[`, `*`, or `?` as a literal glob root, and refuse startup when a deny path sits under a dangling symlink or contains a control character. The sandbox report lists deny globs. dsh's own per-call bash sandbox cannot nest inside the applied Seatbelt policy, so every bash command used to refuse under a profile; codsh now starts dsh with its per-call file mode at `danger-full-access` while a profile is applied, leaving approvals unchanged, and the kernel policy confines bash children and child agents.

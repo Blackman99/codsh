@@ -59,7 +59,8 @@ isolated `$GROK_HOME/config.toml`) applies Seatbelt on macOS or Landlock on
 Linux to this process before dsh starts. `off` is the default and adds no
 confinement. `workspace` reads broadly and writes the workspace, `$GROK_HOME`,
 and temp directories. `read-only` and `strict` narrow writes. `devbox` does not
-write-protect global hook or config files. Custom profiles live in
+write-protect global hook or config files; a custom profile that extends
+`devbox` still kernel-enforces its `deny` list. Custom profiles live in
 `$GROK_HOME/sandbox.toml` or `.grok/sandbox.toml` (`extends`, `read_only`,
 `read_write`, `deny`). A symlink `$GROK_HOME`, a symlink in a `hooks-paths`
 target, a missing hook target, a malformed profile, or a kernel that cannot
@@ -70,6 +71,14 @@ Identical definitions do not warn. A relative deny glob stays inside the
 workspace: `**` matches path segments there and does not deny a sibling
 directory or a same-prefix path. `**` is only a whole path segment (`**/`,
 `a/**`); an attached form such as `**.pem` or `certs/**.pem` refuses startup.
+Seatbelt checks resolved paths, so every deny path and the literal prefix of
+every deny glob is resolved through its deepest existing ancestor (for example
+`/tmp` to `/private/tmp`, or a symlinked directory to its target) and both
+forms are denied. That also covers a denied file created after launch. The
+workspace a relative glob is anchored at is literal even when its name
+contains `[`, `*`, or `?`. A deny path under a dangling symlink, or one with a
+control character, cannot be written as a matching kernel rule and refuses
+startup.
 A `.` or `..` segment anywhere in a deny entry, including `a/./secret`, also
 refuses startup. `[!a]` and `[^a]` both negate in the macOS
 profile. A POSIX class, an empty `//` segment, a trailing slash, or a caret
@@ -96,8 +105,15 @@ protection refuses startup there instead of applying an allow-only policy.
 The status
 line names the active profile and its write roots. Protected config and hook
 files stay unchanged; a permission-mode change is kept for the session only.
-Child-process network blocking is not this control. Linux and Windows are not
-marked supported by a macOS run. Allow/ask/deny rules, remembered project grants, and permission modes
+Child-process network blocking is not this control. A process already under
+Seatbelt cannot apply another Seatbelt policy, so dsh's own per-call bash
+sandbox cannot run inside a codsh profile. While a profile is applied, codsh
+starts dsh with its per-call file mode set to `danger-full-access` (written
+to `$DSH_HOME/codsh-kernel-sandbox.yml`). Approvals are unchanged, and the
+kernel policy confines dsh, its bash children, and child agents instead; a
+write is then bounded by the profile's write roots rather than dsh's
+workspace-write fence. Linux and Windows are not marked supported by a macOS
+run. Allow/ask/deny rules, remembered project grants, and permission modes
 (`ask`, `auto`, `always-approve`/`--yolo`, `dontAsk`, `acceptEdits`) are
 enforced before a dsh tool runs. Explicit deny, hook blocks, and locked
 always-approve survive `--always-approve` and old grants. Unsplittable shell

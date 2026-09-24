@@ -34,7 +34,7 @@ pub struct Prepared {
     pub write_roots: Vec<PathBuf>,
     pub write_denied: Vec<PathBuf>,
     pub read_denied: Vec<PathBuf>,
-    pub read_denied_globs: Vec<String>,
+    pub read_denied_globs: Vec<DenyGlob>,
     pub session_only_config: bool,
     pub devbox: bool,
     pub network_note: String,
@@ -44,6 +44,17 @@ pub struct Prepared {
 #[derive(Debug)]
 pub struct Refusal {
     pub message: String,
+}
+
+/// A deny glob split at its first glob segment. `root` is literal: a
+/// workspace or directory name that contains `[`, `*`, or `?` is not glob
+/// syntax. Seatbelt matches resolved paths, so the root is resolved through
+/// its deepest existing ancestor before the rule is written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DenyGlob {
+    pub pattern: String,
+    pub root: PathBuf,
+    pub tail: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -76,7 +87,7 @@ struct Resolved {
     read_only_extra: Vec<PathBuf>,
     read_write_extra: Vec<PathBuf>,
     deny_exact: Vec<PathBuf>,
-    deny_globs: Vec<String>,
+    deny_globs: Vec<DenyGlob>,
     dsh_home: Option<PathBuf>,
     devbox: bool,
     restrict_network: bool,
@@ -189,19 +200,24 @@ pub fn prepare(
     limits.push(
         "Windows filesystem confinement is not implemented or supported by this ticket.".into(),
     );
+    limits.push(
+        "dsh's own per-call file sandbox cannot nest inside this policy and is set to danger-full-access; approvals are unchanged and writes are bounded by this profile's write roots."
+            .into(),
+    );
     if resolved.devbox {
         limits.push(
             "devbox does not write-protect global hook, config, or trust files (disposable VM profile)."
                 .into(),
         );
     }
-    let (write_denied, read_denied) = if resolved.devbox {
-        (Vec::new(), Vec::new())
+    // devbox skips only the global hook/config/trust write protection. A
+    // user's deny list is still a requested protection and stays enforced.
+    let write_denied = if resolved.devbox {
+        Vec::new()
     } else {
-        let write = protected_paths(grok_home)?;
-        let read = resolved.deny_exact.clone();
-        (write, read)
+        protected_paths(grok_home)?
     };
+    let read_denied = resolved.deny_exact.clone();
     let mut read_roots = Vec::new();
     let mut write_roots = Vec::new();
     if resolved.read_everywhere {
@@ -250,7 +266,7 @@ pub fn prepare(
         mechanism_name(),
         std::env::consts::OS
     );
-    Ok(Some(Prepared {
+    let prepared = Prepared {
         name: name.to_string(),
         summary,
         mechanism: mechanism_name().into(),
@@ -268,7 +284,11 @@ pub fn prepare(
             "child network unrestricted by this filesystem profile".into()
         },
         limits,
-    }))
+    };
+    // Every rule must be expressible and resolved before the report says
+    // the profile is applied. A dead rule is refused, not shown as enforced.
+    deny_tail(&prepared)?;
+    Ok(Some(prepared))
 }
 
 pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
@@ -281,7 +301,12 @@ pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
             message: format!(
                 "refusing sandbox profile {}: Linux cannot kernel-deny globs created after launch ({}); name exact paths or run on macOS",
                 prepared.name,
-                prepared.read_denied_globs.join(", ")
+                prepared
+                    .read_denied_globs
+                    .iter()
+                    .map(|glob| glob.pattern.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         });
     }
@@ -305,13 +330,13 @@ pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
     for path in &prepared.read_denied {
         caps = deny_subpath(caps, path, true, &prepared.name)?;
     }
-    for pattern in &prepared.read_denied_globs {
-        caps = deny_glob(caps, pattern, &prepared.name)?;
+    for glob in &prepared.read_denied_globs {
+        caps = deny_glob(caps, glob, &prepared.name)?;
     }
     // nono emits platform rules before its own write allows. Seatbelt uses the
     // last match, so a write grant on $GROK_HOME would reopen config.toml.
     // Append the same denies after Sandbox builds the profile.
-    let tail = deny_tail(prepared);
+    let tail = deny_tail(prepared)?;
     match apply_with_tail(&caps, &tail) {
         Ok(()) => {
             let _ = ACTIVE.set(prepared.clone());
@@ -324,6 +349,30 @@ pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
             ),
         }),
     }
+}
+
+/// The dsh overlay used while a profile is applied to this process.
+///
+/// A process already under Seatbelt cannot apply another policy to itself or
+/// a child (`sandbox_apply: Operation not permitted`), so dsh's per-call
+/// `sandbox-exec` wrapper refuses every bash command. The kernel policy here
+/// already confines dsh and every child, so dsh's own per-call file mode is
+/// set to `danger-full-access`. The approval rows are not touched: fresh
+/// sessions keep `approval: ask`, and codsh's own approval plugin still asks.
+/// Patch rows replace a row's whole config, so both rows are restated.
+pub fn dsh_overlay(workspace: &Path) -> Option<String> {
+    ACTIVE.get()?;
+    let root = workspace.display().to_string().replace('\'', "''");
+    Some(format!(
+        "# Written by codsh-rust while a filesystem sandbox profile is applied.\n\
+         - id: sandbox-policy\n  config:\n    mode: danger-full-access\n    workspaceRoot: '{root}'\n\
+         - id: permission\n  config:\n    presets:\n\
+         \x20     codsh-kernel-sandbox:\n        sandbox: danger-full-access\n        approval: ask\n\
+         \x20     read-only:\n        sandbox: read-only\n        approval: ask\n\
+         \x20     workspace-write:\n        sandbox: workspace-write\n        approval: ask\n\
+         \x20     danger-full-access:\n        sandbox: danger-full-access\n        approval: never\n\
+         \x20   defaultPreset: codsh-kernel-sandbox\n"
+    ))
 }
 
 pub fn status_line(prepared: Option<&Prepared>) -> String {
@@ -372,24 +421,97 @@ fn grant(
     })
 }
 
-fn deny_forms(path: &Path) -> Vec<PathBuf> {
+/// The path as written plus the path the kernel will check. Seatbelt matches
+/// resolved paths: `/tmp/x` is checked as `/private/tmp/x`, and a file under a
+/// symlinked directory is checked at the link target. A path that does not
+/// exist yet is resolved through its deepest existing ancestor, so a rule for
+/// a file created later still matches. A dangling or unreadable symlink, a
+/// control character, or a non-UTF-8 path cannot be written as a rule that
+/// matches, so it refuses instead of producing a dead deny.
+fn resolved_forms(path: &Path) -> Result<Vec<PathBuf>, Refusal> {
+    expressible(path)?;
     let mut forms = vec![path.to_path_buf()];
-    if let Ok(canonical) = path.canonicalize()
-        && canonical != path
-    {
-        forms.push(canonical);
+    let resolved = resolve_through_existing_ancestor(path)?;
+    expressible(&resolved)?;
+    if resolved != path {
+        forms.push(resolved);
     }
-    forms
+    Ok(forms)
+}
+
+fn expressible(path: &Path) -> Result<(), Refusal> {
+    let Some(text) = path.to_str() else {
+        return Err(Refusal {
+            message: format!(
+                "refusing sandbox: {} is not UTF-8 and cannot be written as a kernel rule",
+                path.display()
+            ),
+        });
+    };
+    if text.chars().any(char::is_control) {
+        return Err(Refusal {
+            message: format!(
+                "refusing sandbox: {text:?} contains a control character and cannot be written as a kernel rule"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn resolve_through_existing_ancestor(path: &Path) -> Result<PathBuf, Refusal> {
+    let mut existing = path.to_path_buf();
+    let mut missing = Vec::new();
+    loop {
+        match fs::symlink_metadata(&existing) {
+            Ok(_) => break,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
+                let (Some(name), Some(parent)) = (existing.file_name(), existing.parent()) else {
+                    return Err(Refusal {
+                        message: format!(
+                            "refusing sandbox: no existing ancestor of {} can be resolved",
+                            path.display()
+                        ),
+                    });
+                };
+                missing.push(name.to_os_string());
+                existing = parent.to_path_buf();
+            }
+            Err(error) => {
+                return Err(Refusal {
+                    message: format!(
+                        "refusing sandbox: cannot resolve {} for a deny rule ({error})",
+                        existing.display()
+                    ),
+                });
+            }
+        }
+    }
+    let canonical = existing.canonicalize().map_err(|error| Refusal {
+        message: format!(
+            "refusing sandbox: cannot resolve {} for a deny rule of {} ({error}); a dangling symlink cannot be denied at its real path",
+            existing.display(),
+            path.display()
+        ),
+    })?;
+    Ok(missing
+        .iter()
+        .rev()
+        .fold(canonical, |resolved, name| resolved.join(name)))
 }
 
 fn tail_marker() -> String {
     "\n;; codsh-deny-tail\n".into()
 }
 
-fn deny_tail(prepared: &Prepared) -> String {
+fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
     let mut tail = String::new();
     for path in &prepared.write_denied {
-        for form in deny_forms(path) {
+        for form in resolved_forms(path)? {
             tail.push_str(&deny_rule(&form, false));
             tail.push('\n');
         }
@@ -397,23 +519,23 @@ fn deny_tail(prepared: &Prepared) -> String {
     // Last match wins. A file deny does not stop renaming that file's parent
     // onto a write root, which would make the protected bytes writable again.
     for directory in pinned_directories(prepared) {
-        for form in deny_forms(&directory) {
+        for form in resolved_forms(&directory)? {
             tail.push_str(&pin_rule(&form));
             tail.push('\n');
         }
     }
     for path in &prepared.read_denied {
-        for form in deny_forms(path) {
+        for form in resolved_forms(path)? {
             tail.push_str(&deny_rule(&form, true));
             tail.push('\n');
         }
     }
-    for pattern in &prepared.read_denied_globs {
-        if let Ok(regex) = glob_to_regex(pattern) {
+    for glob in &prepared.read_denied_globs {
+        for regex in glob_regexes(glob)? {
             tail.push_str(&format!("(deny file-read* file-write* (regex {regex}))\n"));
         }
     }
-    tail
+    Ok(tail)
 }
 
 /// Ancestors of a protected path, from its parent up through the write root
@@ -469,7 +591,7 @@ fn pin_directory(
     profile: &str,
 ) -> Result<CapabilitySet, Refusal> {
     let mut rule = String::new();
-    for form in deny_forms(path) {
+    for form in resolved_forms(path)? {
         if !rule.is_empty() {
             rule.push(' ');
         }
@@ -677,7 +799,7 @@ fn deny_subpath(
     profile: &str,
 ) -> Result<CapabilitySet, Refusal> {
     let mut rule = String::new();
-    for form in deny_forms(path) {
+    for form in resolved_forms(path)? {
         if !rule.is_empty() {
             rule.push(' ');
         }
@@ -706,26 +828,35 @@ fn deny_subpath(
     }
 }
 
-fn deny_glob(caps: CapabilitySet, pattern: &str, profile: &str) -> Result<CapabilitySet, Refusal> {
+fn deny_glob(
+    caps: CapabilitySet,
+    glob: &DenyGlob,
+    profile: &str,
+) -> Result<CapabilitySet, Refusal> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = caps;
         return Err(Refusal {
             message: format!(
-                "refusing sandbox profile {profile}: glob deny {pattern} is not kernel-enforced on {}",
+                "refusing sandbox profile {profile}: glob deny {} is not kernel-enforced on {}",
+                glob.pattern,
                 std::env::consts::OS
             ),
         });
     }
     #[cfg(target_os = "macos")]
     {
-        let regex = glob_to_regex(pattern).map_err(|error| Refusal {
-            message: format!("refusing sandbox profile {profile}: {error}"),
-        })?;
-        let rule = format!("(deny file-read* file-write* (regex {regex}))");
+        let mut rule = String::new();
+        for regex in glob_regexes(glob)? {
+            if !rule.is_empty() {
+                rule.push(' ');
+            }
+            rule.push_str(&format!("(deny file-read* file-write* (regex {regex}))"));
+        }
         caps.platform_rule(rule).map_err(|error| Refusal {
             message: format!(
-                "refusing sandbox profile {profile}: glob deny {pattern} was not accepted ({error})"
+                "refusing sandbox profile {profile}: glob deny {} was not accepted ({error})",
+                glob.pattern
             ),
         })
     }
@@ -1089,7 +1220,7 @@ fn resolve(
         if resolved.base == "devbox" {
             resolved.devbox = true;
             resolved.warnings.push(
-                "custom profile extends devbox, so global hook/config write protection is not applied."
+                "custom profile extends devbox, so global hook/config write protection is not applied; its deny list is still kernel-enforced."
                     .into(),
             );
         }
@@ -1235,6 +1366,13 @@ fn literal_dir(entry: &str, workspace: &Path) -> Result<PathBuf, String> {
 }
 
 fn classify_deny(entry: &str, workspace: &Path, resolved: &mut Resolved) -> Result<(), Refusal> {
+    if entry.chars().any(char::is_control) {
+        return Err(Refusal {
+            message: format!(
+                "refusing sandbox: deny entry {entry:?} contains a control character and cannot be written as a kernel rule"
+            ),
+        });
+    }
     if entry.contains(['{', '}'])
         || entry.contains("//")
         || entry.contains('\\')
@@ -1248,12 +1386,7 @@ fn classify_deny(entry: &str, workspace: &Path, resolved: &mut Resolved) -> Resu
     }
     if entry.contains(['*', '?', '[']) {
         validate_glob(entry)?;
-        let anchored = if Path::new(entry).is_absolute() {
-            entry.to_string()
-        } else {
-            workspace.join(entry).display().to_string()
-        };
-        resolved.deny_globs.push(anchored);
+        resolved.deny_globs.push(split_glob(entry, workspace));
         return Ok(());
     }
     let path = if Path::new(entry).is_absolute() {
@@ -1263,6 +1396,29 @@ fn classify_deny(entry: &str, workspace: &Path, resolved: &mut Resolved) -> Resu
     };
     resolved.deny_exact.push(path);
     Ok(())
+}
+
+/// Split at the first segment that holds glob syntax. Only the pattern's own
+/// segments are parsed: the workspace a relative glob is anchored at is a
+/// literal root even when its name contains `[`, `*`, or `?`.
+fn split_glob(pattern: &str, workspace: &Path) -> DenyGlob {
+    let (mut root, rest) = match pattern.strip_prefix('/') {
+        Some(absolute) => (PathBuf::from("/"), absolute),
+        None => (workspace.to_path_buf(), pattern),
+    };
+    let segments: Vec<&str> = rest.split('/').collect();
+    let first = segments
+        .iter()
+        .position(|segment| segment.contains(['*', '?', '[']))
+        .unwrap_or(segments.len());
+    for segment in &segments[..first] {
+        root.push(segment);
+    }
+    DenyGlob {
+        pattern: pattern.to_string(),
+        root,
+        tail: segments[first..].join("/"),
+    }
 }
 
 /// `Path` drops a non-leading `.`, so `a/./secret` would otherwise become
@@ -1332,10 +1488,41 @@ fn validate_glob(pattern: &str) -> Result<(), Refusal> {
     Ok(())
 }
 
-fn glob_to_regex(pattern: &str) -> Result<String, String> {
-    validate_glob(pattern).map_err(|refusal| refusal.message)?;
+/// One anchored Seatbelt regex per resolved form of the literal root: the
+/// root as written and the path the kernel checks after symlinks.
+fn glob_regexes(glob: &DenyGlob) -> Result<Vec<String>, Refusal> {
+    let mut regexes = Vec::new();
+    let forms = resolved_forms(&glob.root).map_err(|refusal| Refusal {
+        message: format!("{} (deny glob {})", refusal.message, glob.pattern),
+    })?;
+    for form in forms {
+        let root = form.to_str().ok_or_else(|| Refusal {
+            message: format!(
+                "refusing sandbox: glob root {} is not UTF-8",
+                form.display()
+            ),
+        })?;
+        let regex = glob_regex(root, &glob.tail).map_err(|message| Refusal {
+            message: format!("refusing sandbox: {message} (deny glob {})", glob.pattern),
+        })?;
+        if !regexes.contains(&regex) {
+            regexes.push(regex);
+        }
+    }
+    Ok(regexes)
+}
+
+fn glob_regex(root: &str, tail: &str) -> Result<String, String> {
     let mut regex = String::from("^");
-    let chars: Vec<char> = pattern.chars().collect();
+    if root != "/" {
+        for ch in root.chars() {
+            push_regex_literal(&mut regex, ch);
+        }
+    }
+    if !tail.is_empty() {
+        regex.push('/');
+    }
+    let chars: Vec<char> = tail.chars().collect();
     let mut index = 0;
     while index < chars.len() {
         match chars[index] {
@@ -1360,26 +1547,37 @@ fn glob_to_regex(pattern: &str) -> Result<String, String> {
                 index += 1;
             }
             '[' => {
-                let class = seatbelt_class(&chars, index, pattern)?;
+                let class = seatbelt_class(&chars, index, tail)?;
                 regex.push_str(&class.text);
                 index = class.next;
             }
             other => {
-                // A backslash escape is unreliable after a group in this
-                // dialect. A one-character class matches the literal.
-                if ".+()|{}\\^$?".contains(other) {
-                    regex.push('[');
-                    regex.push(other);
-                    regex.push(']');
-                } else {
-                    regex.push(other);
-                }
+                push_regex_literal(&mut regex, other);
                 index += 1;
             }
         }
     }
     regex.push('$');
     Ok(seatbelt_string(&regex))
+}
+
+/// Measured with sandbox-exec on macOS: a one-character class matches these
+/// metacharacters literally both at the start and after a group. `[^]` is
+/// not a class and `[\]` also matched another name after a group, so the
+/// caret and backslash take a backslash escape instead.
+fn push_regex_literal(regex: &mut String, ch: char) {
+    match ch {
+        '^' | '\\' => {
+            regex.push('\\');
+            regex.push(ch);
+        }
+        '.' | '*' | '?' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '$' => {
+            regex.push('[');
+            regex.push(ch);
+            regex.push(']');
+        }
+        _ => regex.push(ch),
+    }
 }
 
 struct TranslatedClass {
@@ -1875,7 +2073,7 @@ mod tests {
                 .iter()
                 .any(|path| path.ends_with("hooks"))
         );
-        let tail = deny_tail(&prepared);
+        let tail = deny_tail(&prepared).unwrap();
         let home_text = home.display().to_string();
         assert!(
             tail.contains(&format!(
@@ -1888,7 +2086,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(
-            !deny_tail(&devbox).contains("file-write-unlink"),
+            !deny_tail(&devbox).unwrap().contains("file-write-unlink"),
             "devbox must not pin protected directories"
         );
         let _ = fs::remove_dir_all(root);
@@ -1905,7 +2103,7 @@ mod tests {
         let prepared = prepare("workspace", &root, &home, None, true)
             .unwrap()
             .unwrap();
-        let tail = deny_tail(&prepared);
+        let tail = deny_tail(&prepared).unwrap();
         for directory in [root.join("mid/nested-hooks"), root.join("mid")] {
             let text = directory.display().to_string();
             assert!(
@@ -2078,6 +2276,123 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn literal_metacharacters_in_root_and_tail_match_only_themselves() {
+        let base = temp_tree("metachar-root");
+        let root = base.join("a.b*c?d[e]f^g$h(i)j+k{l}m|n");
+        let decoy = base.join("aXbXXcXdefXgXhiXjjkXlXmXn");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&decoy).unwrap();
+        for dir in [&root, &decoy] {
+            fs::write(dir.join("x.pem"), "pem").unwrap();
+            fs::write(dir.join("a^b.txt"), "caret").unwrap();
+            fs::write(dir.join("ab.txt"), "plain").unwrap();
+        }
+        let globs = vec![split_glob("*.pem", &root), split_glob("a^?.txt", &root)];
+        let paths = [
+            root.join("x.pem").canonicalize().unwrap(),
+            root.join("a^b.txt").canonicalize().unwrap(),
+            root.join("ab.txt").canonicalize().unwrap(),
+            decoy.join("x.pem").canonicalize().unwrap(),
+            decoy.join("a^b.txt").canonicalize().unwrap(),
+        ];
+        let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+        let effects = seatbelt_glob_effects(&globs, &refs);
+        let expect = ["denied", "denied", "allowed", "allowed", "allowed"];
+        for (path, want) in paths.iter().zip(expect) {
+            assert_eq!(
+                effects.get(path).map(String::as_str),
+                Some(want),
+                "{effects:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn glob_root_under_a_symlink_matches_the_resolved_path() {
+        let base = temp_tree("symlink-root");
+        let real = base.join("real");
+        fs::create_dir_all(real.join("nested")).unwrap();
+        fs::write(real.join("nested/x.key"), "key").unwrap();
+        fs::write(real.join("ok.txt"), "ok").unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let glob = split_glob(&format!("{}/**/*.key", link.display()), &base);
+        assert_eq!(glob.root, link);
+        let key = real.join("nested/x.key").canonicalize().unwrap();
+        let ok = real.join("ok.txt").canonicalize().unwrap();
+        let effects = seatbelt_glob_effects(&[glob], &[&key, &ok]);
+        assert_eq!(
+            effects.get(&key).map(String::as_str),
+            Some("denied"),
+            "{effects:?}"
+        );
+        assert_eq!(
+            effects.get(&ok).map(String::as_str),
+            Some("allowed"),
+            "{effects:?}"
+        );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn devbox_extension_keeps_user_denies_without_global_protection() {
+        let root = temp_tree("devbox-deny");
+        let home = root.join(".grok");
+        fs::write(root.join("secret.txt"), "keep").unwrap();
+        fs::write(
+            home.join("sandbox.toml"),
+            "[profiles.dev]\nextends = \"devbox\"\ndeny = [\"secret.txt\", \"**/*.key\"]\n",
+        )
+        .unwrap();
+        let prepared = prepare("dev", &root, &home, None, true).unwrap().unwrap();
+        assert!(prepared.devbox);
+        assert!(
+            prepared
+                .read_denied
+                .iter()
+                .any(|path| path.ends_with("secret.txt")),
+            "{:?}",
+            prepared.read_denied
+        );
+        assert_eq!(prepared.read_denied_globs.len(), 1);
+        assert!(
+            prepared.write_denied.is_empty(),
+            "{:?}",
+            prepared.write_denied
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unresolvable_deny_paths_refuse() {
+        let root = temp_tree("unresolvable");
+        let home = root.join(".grok");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.join("no-such-target"), root.join("dangling")).unwrap();
+        for entry in [
+            "dangling/**/*.key",
+            "dangling/secret.txt",
+            "sec\\u0007ret.txt",
+        ] {
+            fs::write(
+                home.join("sandbox.toml"),
+                format!("[profiles.bad]\nextends = \"workspace\"\ndeny = [\"{entry}\"]\n"),
+            )
+            .unwrap();
+            let error = prepare("bad", &root, &home, None, true).unwrap_err();
+            assert!(
+                error.message.contains("dangling") || error.message.contains("control"),
+                "{entry}: {}",
+                error.message
+            );
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn dot_segment_and_attached_globstar_refuse() {
         let root = temp_tree("dot-globstar");
@@ -2149,13 +2464,16 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
-    fn seatbelt_glob_effects(patterns: &[String], paths: &[&Path]) -> BTreeMap<PathBuf, String> {
+    fn seatbelt_glob_effects(globs: &[DenyGlob], paths: &[&Path]) -> BTreeMap<PathBuf, String> {
         // Measure the regex Seatbelt actually compiles. allow-default plus
         // the deny rules shows a match as a real read denial.
         let mut rules = String::new();
-        for pattern in patterns {
-            let regex = glob_to_regex(pattern).unwrap_or_else(|error| panic!("{pattern}: {error}"));
-            rules.push_str(&format!("(deny file-read-data (regex {regex}))\n"));
+        for glob in globs {
+            let regexes = glob_regexes(glob)
+                .unwrap_or_else(|error| panic!("{}: {}", glob.pattern, error.message));
+            for regex in regexes {
+                rules.push_str(&format!("(deny file-read-data (regex {regex}))\n"));
+            }
         }
         let mut script = String::from("import pathlib\n");
         for path in paths {

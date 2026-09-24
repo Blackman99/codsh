@@ -8,7 +8,7 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, file-secret. Optional
+ * bash-git, file-secret, sandbox-session. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -314,6 +314,95 @@ function* fileToolTurn(options) {
   yield* mockText(`RUST_ACP_FILE_DONE ${resultText(last)}`)
 }
 
+// Filesystem sandbox session (ticket 11 / #143). The parent and a real dsh
+// subagent each attempt protected reads, writes, and renames through dsh
+// tools. Every tool result dsh returns is appended to a record in the dsh
+// working directory so the test can assert what the tools actually reported.
+const SANDBOX_CHILD = 'SANDBOX_CHILD_PROBE'
+const SANDBOX_RECORD = '.codsh-mock-record.jsonl'
+
+function sandboxBashCommand(prefix) {
+  return [
+    `out=$(cat secret.txt 2>&1) && echo "${prefix}_CAT=allowed:$out" || echo "${prefix}_CAT=denied:$out"`,
+    `out=$( (printf changed > secret.txt) 2>&1) && echo "${prefix}_WRITE=allowed" || echo "${prefix}_WRITE=denied:$out"`,
+    `out=$(mv secret.txt stolen-${prefix}.txt 2>&1) && echo "${prefix}_MV=allowed" || echo "${prefix}_MV=denied:$out"`,
+    `if [ -e stolen-${prefix}.txt ]; then mv stolen-${prefix}.txt secret.txt; fi`,
+    `out=$(python3 -c "open('secret.txt').read()" 2>&1) && echo "${prefix}_PY=allowed" || echo "${prefix}_PY=denied:$(printf '%s' "$out" | tail -n 1)"`,
+    `out=$(mv hooks/guard.sh hooks/moved-${prefix}.sh 2>&1) && echo "${prefix}_HOOK_MV=allowed" || echo "${prefix}_HOOK_MV=denied:$out"`,
+    `if [ -e hooks/moved-${prefix}.sh ]; then mv hooks/moved-${prefix}.sh hooks/guard.sh; fi`,
+    `out=$(mv hooks hooks-moved-${prefix} 2>&1) && echo "${prefix}_DIR_MV=allowed" || echo "${prefix}_DIR_MV=denied:$out"`,
+    `if [ -e hooks-moved-${prefix} ]; then mv hooks-moved-${prefix} hooks; fi`,
+    `out=$( (printf ok > ${prefix.toLowerCase()}-allowed.txt) 2>&1) && echo "${prefix}_ALLOWED=allowed" || echo "${prefix}_ALLOWED=denied:$out"`,
+  ].join('; ')
+}
+
+// A child agent cannot answer an approval card, so its command avoids the
+// expansions and parentheses that make the permission layer ask (the Python
+// read lives in the fixture's read_secret.py). Each step prints its own
+// error; the renames are undone unconditionally so the control run stays
+// comparable.
+function sandboxChildCommand() {
+  return [
+    'echo CHILD_BEGIN',
+    'cat secret.txt',
+    'printf changed > secret.txt',
+    'mv secret.txt stolen-CHILD.txt',
+    'mv stolen-CHILD.txt secret.txt',
+    'python3 read_secret.py',
+    'mv hooks/guard.sh hooks/moved-CHILD.sh',
+    'mv hooks/moved-CHILD.sh hooks/guard.sh',
+    'mv hooks hooks-moved-CHILD',
+    'mv hooks-moved-CHILD hooks',
+    'printf ok > child-allowed.txt',
+    'echo CHILD_END',
+  ].join('; ')
+}
+
+async function recordSandboxResult(agent, step, result) {
+  const { appendFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const entry = { agent, step, isError: result?.isError === true, text: resultText(result) }
+  await appendFile(join(process.cwd(), SANDBOX_RECORD), `${JSON.stringify(entry)}\n`)
+}
+
+function sandboxSteps(child) {
+  if (child) {
+    return [
+      ['child-read-secret', 'read', { file_path: 'secret.txt' }],
+      ['child-write-pem', 'write', { file_path: 'certs/child.pem', content: 'CHILD_PEM\n' }],
+      ['child-bash', 'bash', { command: sandboxChildCommand(), description: 'sandbox child probe' }],
+    ]
+  }
+  return [
+    ['read-secret', 'read', { file_path: 'secret.txt' }],
+    ['read-hook', 'read', { file_path: 'hooks/guard.sh' }],
+    ['edit-hook', 'edit', { file_path: 'hooks/guard.sh', old_string: 'guard', new_string: 'patched' }],
+    ['write-pem', 'write', { file_path: 'certs/new.pem', content: 'NEW_PEM\n' }],
+    ['bash', 'bash', { command: sandboxBashCommand('PARENT'), description: 'sandbox probe' }],
+    ['read-note', 'read', { file_path: 'note.txt' }],
+    ['edit-note', 'edit', { file_path: 'note.txt', old_string: 'alpha', new_string: 'ALPHA' }],
+    ['subagent', 'subagent', {
+      description: 'sandbox child probe',
+      prompt: `${SANDBOX_CHILD}: attempt the protected reads, writes, and renames, then report.`,
+      run_in_background: false,
+    }],
+  ]
+}
+
+async function * sandboxSessionTurn(options) {
+  const child = userTexts(options).some(text => text.includes(SANDBOX_CHILD))
+  const agent = child ? 'child' : 'parent'
+  const steps = sandboxSteps(child)
+  const done = toolResults(options)
+  if (done.length > 0) await recordSandboxResult(agent, steps[done.length - 1]?.[0] ?? `extra-${done.length}`, done.at(-1))
+  if (done.length < steps.length) {
+    const [id, name, args] = steps[done.length]
+    yield* mockToolCall(`rust-acp-sandbox-${id}`, name, args)
+    return
+  }
+  yield* mockText(child ? 'RUST_ACP_SANDBOX_CHILD_DONE' : 'RUST_ACP_SANDBOX_DONE')
+}
+
 class RustAcpMockAdapter extends LlmAdapter {
   listModels(provider) {
     if (provider === 'narrow') {
@@ -392,6 +481,10 @@ class RustAcpMockAdapter extends LlmAdapter {
         history.includes('TODO_KEEP') ? '- TODO_KEEP' : '- (none)',
       ].join('\n')
       yield* mockText(reply)
+      return
+    }
+    if (MODE === 'sandbox-session') {
+      yield* sandboxSessionTurn(options)
       return
     }
     const turn = String(userTurns(options))

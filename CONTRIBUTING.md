@@ -171,9 +171,27 @@ nothing itself and runs the debug or staged `codsh-rust` with `--sandbox project
 The probe must show Seatbelt (macOS) or Landlock (Linux) denying an outside write,
 a rename, a rename of `$GROK_HOME`, a hook parent, or a deeper hook ancestor onto a write root, a symlink escape, a hook
 retarget, a protected `config.toml` write, and
-a `*.pem` glob, a workspace `**/.env` and `certs/**/*.pem` (without denying the sibling or a same-prefix path), and negated `[!a]` / `[^b]` classes, while an allowed sibling write succeeds. Its fixture is created
+a `*.pem` glob, a workspace `**/.env` and `certs/**/*.pem` (without denying the sibling or a same-prefix path), and negated `[!a]` / `[^b]` classes, while an allowed sibling write succeeds. It also runs a
+`devbox`-based profile whose `deny` list must still hold, absolute globs and an
+exact not-yet-existing file under `/tmp` and under a symlinked directory (denied
+at the resolved path), a workspace named `ws[12]*?` whose relative glob must not
+hit the sibling `ws1ab`, and refusals for a deny under a dangling symlink or
+with a control character. Its fixture is created
 outside `/tmp`, `/private/tmp`, `/var/tmp`, and `TMPDIR`, because those directories
-are write roots. A macOS result does not
+are write roots. `python3 scripts/rust-sandbox-pty-test.py` is the
+installed-product check: it packs `codsh`, runs `codsh --rust --sandbox session`
+in a PTY with the mock model (`DSH_CODE_CLI_MOCK_TOOL=sandbox-session`), and has
+dsh's `read`/`edit`/`write`, `bash` (`cat`, redirection, `mv`, `python3`), and
+a real `subagent` (its own file tools and `bash`) attempt reads, writes, and
+renames of a denied file, a write-denied hook, and its directory. Denials must
+be kernel `EPERM` with the protected bytes and names unchanged, while allowed
+edits and writes land and the bash approval card still appears; a
+`--sandbox off` run of the same calls is the control. dsh's nested
+`sandbox-exec` fails under Seatbelt (`sandbox_apply: Operation not
+permitted`), so codsh passes dsh `$DSH_HOME/codsh-kernel-sandbox.yml`, which
+sets only its per-call file mode to `danger-full-access`. The Seatbelt profile still allows global Mach lookups apart
+from the keychain services; whether an unconfined service reached that way can
+act on a denied path has not been probed and is not claimed either way. A macOS result does not
 mark Linux or Windows supported. Linux refuses a profile that must write-deny a
 path inside a write root, because Landlock cannot express that exception.
 Child-network blocking stays on ticket 12. Terminal/editor/platform

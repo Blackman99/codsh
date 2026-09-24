@@ -135,6 +135,267 @@ def refuse_unsupported(binary, workspace, env):
     return refused
 
 
+PROBE_HELPERS = (
+    "import json, os, pathlib, sys\n"
+    "def attempt(action):\n"
+    "    try:\n"
+    "        value = action()\n"
+    "        return 'allowed' if value is None else f'allowed:{value}'\n"
+    "    except OSError as error:\n"
+    "        return f'denied:{error.errno}'\n"
+    "ops = {\n"
+    "    'read': lambda path, _: attempt(lambda: pathlib.Path(path).read_text()),\n"
+    "    'write': lambda path, _: attempt(lambda: pathlib.Path(path).write_text('changed') and None),\n"
+    "    'rename': lambda path, dest: attempt(lambda: os.rename(path, dest)),\n"
+    "}\n"
+)
+
+
+def run_checks(binary, cwd, env, profile, checks, marker, report):
+    """Run one sandboxed probe child and return (status, report, effects).
+
+    `checks` is a list of (key, op, path, dest). The probe runs as a child of
+    the sandboxed client, so every result is a real kernel effect."""
+    lines = [PROBE_HELPERS, "results = {}\n"]
+    for key, op, path, dest in checks:
+        lines.append(f"results[{key!r}] = ops[{op!r}]({str(path)!r}, {str(dest) if dest else ''!r})\n")
+    lines.append(f"pathlib.Path({str(marker)!r}).write_text(json.dumps(results))\n")
+    script = marker.with_suffix(".py")
+    script.write_text("".join(lines))
+    marker.unlink(missing_ok=True)
+    report.unlink(missing_ok=True)
+    completed = subprocess.run(
+        [str(binary), "--sandbox", profile, "--sandbox-report", str(report), "--sandbox-probe", str(script)],
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    payload = json.loads(report.read_text()) if report.is_file() else None
+    effects = json.loads(marker.read_text()) if marker.is_file() else None
+    return completed, payload, effects
+
+
+def expect_effects(label, completed, payload, effects, denied, allowed):
+    if completed.returncode != 0 or payload is None or effects is None:
+        return fail(
+            f"{label}: sandbox probe did not run: status={completed.returncode} "
+            f"stderr={completed.stderr.strip()} stdout={completed.stdout.strip()}"
+        )
+    if payload.get("applied") is not True:
+        return fail(f"{label}: report does not show kernel enforcement: {payload}")
+    for key in denied:
+        if not str(effects.get(key, "")).startswith("denied"):
+            return fail(f"{label}: {key} was not kernel-denied: {effects} report={payload}")
+    for key in allowed:
+        if not str(effects.get(key, "")).startswith("allowed"):
+            return fail(f"{label}: {key} was not allowed: {effects}")
+    return 0
+
+
+def fixture_env(home, grok, dsh):
+    env = os.environ.copy()
+    env.update({
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "GROK_HOME": str(grok),
+        "DSH_HOME": str(dsh),
+        "DSH_PROFILE": "rust",
+        "TMPDIR": "/tmp" if Path("/tmp").is_dir() else tempfile.gettempdir(),
+    })
+    return env
+
+
+def probe_devbox_deny(binary, work):
+    """`extends = "devbox"` keeps the user's deny list. Only the global
+    hook/config write protection is skipped, as the reference documents."""
+    base = work / "devbox"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "workspace"
+    for path in (grok, dsh, workspace / "keep"):
+        path.mkdir(parents=True)
+    secret = workspace / "keep" / "secret.txt"
+    secret.write_text("keep")
+    config = grok / "config.toml"
+    config.write_text("[ui]\npermission_mode = \"ask\"\n")
+    (grok / "sandbox.toml").write_text(
+        "[profiles.devdeny]\nextends = \"devbox\"\n"
+        f"deny = [\"{secret}\", \"**/*.key\"]\n"
+    )
+    (workspace / "id.key").write_text("key")
+    env = fixture_env(home, grok, dsh)
+    completed, payload, effects = run_checks(
+        binary, workspace, env, "devdeny",
+        [
+            ("secret_read", "read", secret, None),
+            ("secret_write", "write", secret, None),
+            ("secret_rename", "rename", secret, workspace / "stolen.txt"),
+            ("parent_rename", "rename", workspace / "keep", workspace / "moved"),
+            ("glob_read", "read", workspace / "id.key", None),
+            ("plain_write", "write", workspace / "plain.txt", None),
+            # devbox is documented not to write-protect global config.
+            ("config_write", "write", config, None),
+        ],
+        workspace / "devbox-marker.json",
+        base / "devbox-report.json",
+    )
+    status = expect_effects(
+        "devbox+deny", completed, payload, effects,
+        denied=("secret_read", "secret_write", "secret_rename", "parent_rename", "glob_read"),
+        allowed=("plain_write", "config_write"),
+    )
+    if status:
+        return status
+    if not any(str(secret) in str(item) for item in payload.get("readDenied", [])):
+        return fail(f"devbox+deny: report readDenied omits the user deny: {payload}")
+    if secret.read_text() != "keep" or (workspace / "stolen.txt").exists() or not (workspace / "keep").is_dir():
+        return fail(f"devbox+deny: protected bytes or names changed: {effects}")
+    return {"profile": "devdeny", "effects": effects}
+
+
+def probe_symlinked_prefix(binary, work):
+    """Seatbelt matches resolved paths. A deny under /tmp (a symlink to
+    /private/tmp) or under any symlinked directory must still hold."""
+    base = work / "symlinked"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "workspace"
+    real = base / "real"
+    link = base / "link"
+    for path in (grok, dsh, workspace, real / "nested"):
+        path.mkdir(parents=True)
+    link.symlink_to(real)
+    (real / "nested" / "x.key").write_text("key")
+    (real / "ok.txt").write_text("ok")
+    tmp = Path("/tmp") / f"codsh-glob-{os.getpid()}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    (tmp / "nested").mkdir(parents=True)
+    (tmp / "nested" / "a.key").write_text("key")
+    (tmp / "ok.txt").write_text("ok")
+    try:
+        (grok / "sandbox.toml").write_text(
+            "[profiles.linked]\nextends = \"workspace\"\n"
+            f"deny = [\"{tmp}/**/*.key\", \"{tmp}/late.txt\", \"{link}/**/*.key\"]\n"
+        )
+        env = fixture_env(home, grok, dsh)
+        private = Path("/private") / tmp.relative_to("/")
+        completed, payload, effects = run_checks(
+            binary, workspace, env, "linked",
+            [
+                ("tmp_glob_read", "read", tmp / "nested" / "a.key", None),
+                ("private_glob_read", "read", private / "nested" / "a.key", None),
+                ("tmp_glob_create", "write", tmp / "new.key", None),
+                ("tmp_late_exact_create", "write", tmp / "late.txt", None),
+                ("tmp_sibling_read", "read", tmp / "ok.txt", None),
+                ("tmp_sibling_write", "write", tmp / "other.txt", None),
+                ("link_glob_read", "read", link / "nested" / "x.key", None),
+                ("real_glob_read", "read", real / "nested" / "x.key", None),
+                ("real_sibling_read", "read", real / "ok.txt", None),
+            ],
+            workspace / "linked-marker.json",
+            base / "linked-report.json",
+        )
+        status = expect_effects(
+            "symlinked prefix", completed, payload, effects,
+            denied=("tmp_glob_read", "private_glob_read", "tmp_glob_create", "tmp_late_exact_create",
+                    "link_glob_read", "real_glob_read"),
+            allowed=("tmp_sibling_read", "tmp_sibling_write", "real_sibling_read"),
+        )
+        if status:
+            return status
+        if (tmp / "new.key").exists() or (tmp / "late.txt").exists():
+            return fail(f"symlinked prefix: a denied path was created: {effects}")
+        return {"profile": "linked", "effects": effects}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def probe_metachar_workspace(binary, work):
+    """A workspace named with glob metacharacters is a literal prefix. It must
+    not be read as a class or wildcard that misses itself and hits a sibling."""
+    base = work / "metachar"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "ws[12]*?"
+    sibling = base / "ws1ab"
+    for path in (grok, dsh, workspace, sibling):
+        path.mkdir(parents=True)
+    (workspace / "a.pem").write_text("pem")
+    (sibling / "a.pem").write_text("pem")
+    (workspace / "ok.txt").write_text("ok")
+    (grok / "sandbox.toml").write_text(
+        "[profiles.meta]\nextends = \"workspace\"\ndeny = [\"**/*.pem\"]\n"
+    )
+    env = fixture_env(home, grok, dsh)
+    completed, payload, effects = run_checks(
+        binary, workspace, env, "meta",
+        [
+            ("workspace_pem", "read", workspace / "a.pem", None),
+            ("workspace_new_pem", "write", workspace / "b.pem", None),
+            ("workspace_ok", "read", workspace / "ok.txt", None),
+            ("sibling_pem", "read", sibling / "a.pem", None),
+        ],
+        workspace / "meta-marker.json",
+        base / "meta-report.json",
+    )
+    status = expect_effects(
+        "metachar workspace", completed, payload, effects,
+        denied=("workspace_pem", "workspace_new_pem"),
+        allowed=("workspace_ok", "sibling_pem"),
+    )
+    if status:
+        return status
+    return {"profile": "meta", "effects": effects}
+
+
+def refuse_unresolvable(binary, work):
+    """A protection whose path cannot be resolved or expressed refuses
+    startup before any report, instead of starting with a dead rule."""
+    base = work / "unresolvable"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "workspace"
+    for path in (grok, dsh, workspace):
+        path.mkdir(parents=True)
+    dangling = base / "dangling"
+    dangling.symlink_to(base / "no-such-target")
+    env = fixture_env(home, grok, dsh)
+    cases = {
+        "dangling-glob": (f"{dangling}/**/*.key", str(dangling)),
+        "dangling-exact": (f"{dangling}/secret.txt", str(dangling)),
+        "control-char": ("sec\\u0007ret.txt", "control"),
+    }
+    refused = []
+    for label, (entry, needle) in cases.items():
+        (grok / "sandbox.toml").write_text(
+            f"[profiles.bad]\nextends = \"workspace\"\ndeny = [\"{entry}\"]\n"
+        )
+        report = base / f"{label}.json"
+        report.unlink(missing_ok=True)
+        completed = subprocess.run(
+            [str(binary), "--sandbox", "bad", "--sandbox-report", str(report)],
+            cwd=workspace,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        text = completed.stderr + completed.stdout
+        if report.is_file() or completed.returncode == 0 or "refusing sandbox" not in text or needle not in text:
+            return fail(
+                f"{label} was not refused before apply: status={completed.returncode} "
+                f"report={report.is_file()} text={text.strip()}"
+            )
+        refused.append(label)
+    return refused
+
+
 def probe(binary, work, outside_env):
     home = work / "home"
     # The native candidate resolves config under $HOME/.grok unless GROK_HOME
@@ -396,13 +657,27 @@ def probe(binary, work, outside_env):
     refused = refuse_unsupported(binary, workspace, env)
     if refused != ["a/./secret.txt", "**.pem", "certs/**.pem"]:
         return refused if isinstance(refused, int) else fail(f"unsupported globs were not all refused: {refused}")
+    extra = {}
+    for name, scenario in (
+        ("devbox", probe_devbox_deny),
+        ("symlinked", probe_symlinked_prefix),
+        ("metachar", probe_metachar_workspace),
+    ):
+        result = scenario(binary, work)
+        if isinstance(result, int):
+            return result
+        extra[name] = result
+    unresolvable = refuse_unresolvable(binary, work)
+    if isinstance(unresolvable, int):
+        return unresolvable
     print(json.dumps({
         "ok": True,
         "mechanism": payload.get("mechanism"),
         "platform": payload.get("platform"),
         "profile": payload.get("profile"),
-        "refused": refused,
+        "refused": refused + unresolvable,
         "effects": effects,
+        "scenarios": extra,
     }))
     return 0
 
