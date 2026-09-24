@@ -172,9 +172,14 @@ is a kernel network deny on macOS (`(deny network*)` for this process and its
 children), not a dsh file mode. Linux Landlock network and Windows confinement
 are different mechanisms: a profile that asks for network isolation refuses
 startup on a platform that cannot apply it. `[shell_environment_policy]`
-filters the environment of a shell child this client starts. dsh's own bash
-tool inherits the dsh process, because a second Seatbelt profile cannot be
-applied inside the first.
+filters the environment of a shell child this client starts and of the dsh
+process. dsh's bash tool is built from that process environment, so it sees
+the same filter; a second Seatbelt profile is still not applied inside the
+first. The acp profile's persistent terminal tools are not mounted: a patch
+cannot add a plugin the profile does not already depend on, so an interactive
+terminal session is unavailable. Window resize is not a dsh tool. A one-shot
+bash command shows stdout, stderr, and the exit code, including 0. Ctrl+C
+cancels it; dsh reports that as an aborted tool, not as success.
  After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested

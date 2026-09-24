@@ -4314,6 +4314,19 @@ fn compaction_sentence(turn: &Turn) -> Option<String> {
     ))
 }
 
+/// The tool body the live card shows. A finished shell gains the exit line
+/// dsh omitted; the original result is otherwise unchanged.
+fn shell_card_result(tool: &ToolRow) -> String {
+    let mut body = tool.result.clone();
+    if let Some(exit) = content::shell_exit_line(&tool.title, &tool.result, &tool.status) {
+        if !body.is_empty() && !body.ends_with('\n') {
+            body.push('\n');
+        }
+        body.push_str(&exit);
+    }
+    body
+}
+
 fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
     turns
         .iter()
@@ -4324,7 +4337,7 @@ fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
                 turn.answer.clone(),
                 turn.tools
                     .iter()
-                    .map(|tool| (tool.title.clone(), tool.result.clone()))
+                    .map(|tool| (tool.title.clone(), shell_card_result(tool)))
                     .collect(),
             );
             entry.tool_meta = turn

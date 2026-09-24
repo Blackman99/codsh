@@ -94,8 +94,9 @@ struct ProfileBody {
 /// `*SECRET*` / `*TOKEN*` unless `ignore_default_excludes`, drop `exclude`,
 /// apply `set`, then keep only `include_only` when that list is non-empty.
 /// Patterns are case-insensitive `*` / `?` globs. This filters the launch
-/// environment of shell children. It does not filter dsh's own credential
-/// environment, which is a separate execution grant.
+/// environment of shell children and of the dsh process. dsh's bash tool is
+/// built from that process environment. Credential keys the client adds for
+/// the model route stay a separate execution grant.
 #[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
 struct ShellEnvironmentPolicy {
     #[serde(default)]
@@ -462,7 +463,7 @@ fn network_note(restricted: bool) -> String {
 }
 
 fn platform_network_limit(restricted: bool) -> String {
-    let base = "macOS Seatbelt denies network* for a restrict_network profile, including the in-process client and every child. Linux Landlock network is a different mechanism and is not claimed from a macOS run; a profile that asks for network isolation refuses startup there. Windows network confinement is not implemented. dsh's per-call file mode is not a network sandbox. The shell environment policy filters the launch environment of a shell child this client starts (sh -c); dsh's own bash tool inherits the dsh process and is not re-filtered, because a second Seatbelt profile cannot be applied inside this one.";
+    let base = "macOS Seatbelt denies network* for a restrict_network profile, including the in-process client and every child. Linux Landlock network is a different mechanism and is not claimed from a macOS run; a profile that asks for network isolation refuses startup there. Windows network confinement is not implemented. dsh's per-call file mode is not a network sandbox. The shell environment policy filters a shell child this client starts (sh -c) and the dsh process. dsh's bash tool is built from that process environment, so it sees the same filter. A second Seatbelt profile is not applied inside this one.";
     if restricted {
         format!("{base} This profile restricts network.")
     } else {

@@ -69,7 +69,12 @@ Grok Rust UI components, requires no official account, and does not start the
 legacy Bundle, official agent core, update check, telemetry, or feedback upload.
 Enter submits the draft through dsh when connected, or reports that execution is
 unavailable without sending it. File read, write, and edit run through real dsh
-tools. `--sandbox <profile>` (`GROK_SANDBOX`, or `[sandbox] profile` in the
+tools. A shell command runs through dsh's bash tool: the card shows stdout,
+stderr, and the exit code, including 0. A non-zero exit is not shown as
+success. Ctrl+C cancels the running command and dsh reports it as aborted.
+A denied command does not run. dsh's persistent terminal is not mounted in
+the acp profile, and window resize is not a dsh tool, so an interactive
+terminal session is unavailable. Background jobs use the same bash tool. `--sandbox <profile>` (`GROK_SANDBOX`, or `[sandbox] profile` in the
 isolated `$GROK_HOME/config.toml`) applies Seatbelt on macOS or Landlock on
 Linux to this process before dsh starts. `off` is the default and adds no
 confinement. `workspace` reads broadly and writes the workspace, `$GROK_HOME`,
@@ -148,9 +153,10 @@ implemented and refuses the same way. `[shell_environment_policy]` in
 `set`, `ignore_default_excludes`) filters the environment of a shell child
 this client starts, including `sh -c`. Names matching `*KEY*`, `*SECRET*`,
 or `*TOKEN*` are dropped unless `ignore_default_excludes` is set. An unknown
-`inherit` or a pattern that is not a `*`/`?` glob refuses startup. dsh's own
-bash tool inherits the dsh process and is not re-filtered: a second Seatbelt
-profile cannot be applied inside this one. A process already under
+`inherit` or a pattern that is not a `*`/`?` glob refuses startup. The same
+filtered map is the environment of the dsh process, so dsh's bash tool sees
+it too: dsh builds that child from its own environment and only adds keys.
+A second Seatbelt profile is still not applied inside this one. A process already under
 Seatbelt cannot apply another Seatbelt policy, so dsh's own per-call bash
 sandbox cannot run inside a codsh profile. While a profile is applied, codsh
 starts dsh with its per-call file mode set to `danger-full-access` (written

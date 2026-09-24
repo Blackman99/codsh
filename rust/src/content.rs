@@ -530,6 +530,34 @@ pub fn render_turn_text(turn: &TurnView, display: &DisplayState) -> String {
     lines.join("\n")
 }
 
+/// One screen line for a finished shell. `None` while it is still running
+/// or the body is not a shell result. A marker dsh already printed wins, so
+/// this does not invent a second code.
+pub fn shell_exit_line(title: &str, result: &str, status: &str) -> Option<String> {
+    if !is_shell_tool(title) || result.is_empty() {
+        return None;
+    }
+    if result.contains("[exit code:") || result.contains("[killed by signal:") {
+        return None;
+    }
+    if result.contains("[timed out after") {
+        return Some("[exit timed out]".into());
+    }
+    match status {
+        "completed" => Some("[exit code: 0]".into()),
+        "failed" => Some("[exit failed]".into()),
+        "cancelled" => Some("[exit cancelled]".into()),
+        _ => None,
+    }
+}
+
+fn is_shell_tool(title: &str) -> bool {
+    matches!(
+        title,
+        "bash" | "run_terminal_cmd" | "run_terminal_command" | "terminal_send" | "terminal_open"
+    )
+}
+
 pub fn render_transcript(status: &str, turns: &[TurnView], display: &DisplayState) -> String {
     let mut parts = Vec::new();
     if !status.is_empty() {
@@ -833,6 +861,36 @@ mod tests {
             painted.contains("a < b && c > d"),
             "painted cells must keep comparison brackets:\n{painted}"
         );
+    }
+
+    #[test]
+    fn shell_exit_is_visible_and_not_invented_twice() {
+        assert_eq!(
+            shell_exit_line("bash", "STDOUT\n", "completed").as_deref(),
+            Some("[exit code: 0]")
+        );
+        assert_eq!(
+            shell_exit_line("bash", "STDOUT\n[exit code: 7]\n", "completed"),
+            None
+        );
+        assert_eq!(
+            shell_exit_line(
+                "bash",
+                "partial\n[killed by signal: SIGTERM]\n",
+                "completed"
+            ),
+            None
+        );
+        assert_eq!(
+            shell_exit_line("bash", "partial\n[timed out after 1000ms]\n", "completed").as_deref(),
+            Some("[exit timed out]")
+        );
+        assert_eq!(
+            shell_exit_line("bash", "Error: denied\n", "failed").as_deref(),
+            Some("[exit failed]")
+        );
+        assert_eq!(shell_exit_line("bash", "", "completed"), None);
+        assert_eq!(shell_exit_line("read", "hello\n", "completed"), None);
     }
 
     #[test]

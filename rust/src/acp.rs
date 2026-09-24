@@ -423,6 +423,8 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_WEB_FETCH",
     "CODSH_WEB_SEARCH_KEY_ENV",
     "CODSH_RUST_BIN",
+    "CODSH_SHELL_MARKER",
+    "CODSH_SHELL_WORKDIR",
     "GROK_HOME",
 ];
 

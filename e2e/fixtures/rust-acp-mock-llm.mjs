@@ -8,7 +8,7 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, file-secret, sandbox-session. Optional
+ * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
@@ -230,6 +230,48 @@ function* fileToolTurn(options) {
       return
     }
     yield* mockText(`RUST_ACP_BASH_DONE ${resultText(last)}`)
+    return
+  }
+  if (MODE === 'shell-env') {
+    if (done.length === 0) {
+      const marker = process.env.CODSH_SHELL_MARKER || 'SHELL_MARKER'
+      const command = `printf 'ENV_%s_%s\\n' '${marker}' "\${CODSH_TICKET38_SECRET-hidden}"`
+      yield* mockToolCall('rust-acp-shell', 'bash', { command, description: 'Run the shell probe' })
+      return
+    }
+    const last = done.at(-1)
+    const text = resultText(last)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_SHELL_ERROR ${text}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_SHELL_DONE ${text}`)
+    return
+  }
+  if (MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny') {
+    if (done.length === 0) {
+      const marker = process.env.CODSH_SHELL_MARKER || 'SHELL_MARKER'
+      const workdir = process.env.CODSH_SHELL_WORKDIR || ''
+      const command = MODE === 'shell-fail'
+        ? `printf 'STDOUT_${marker}\\n'; printf 'STDERR_${marker}\\n' >&2; exit 7`
+        : MODE === 'shell-long'
+          ? `printf 'STARTED_${marker}\\n' > shell-started.txt; sleep 30; printf 'FINISHED_${marker}\\n' > shell-finished.txt`
+          : MODE === 'shell-deny'
+            ? `printf 'DENIED_RAN_${marker}\\n' > denied-ran.txt`
+            : `printf 'STDOUT_${marker}\\n'; printf 'STDERR_${marker}\\n' >&2; printf '%s\\n' "$PWD"`
+      const args = { command, description: 'Run the shell probe' }
+      if (workdir) args.workdir = workdir
+      if (MODE === 'shell-fail') args.timeoutMs = 15000
+      yield* mockToolCall('rust-acp-shell', 'bash', args)
+      return
+    }
+    const last = done.at(-1)
+    const text = resultText(last)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_SHELL_ERROR ${text}`)
+      return
+    }
+    yield* mockText(`RUST_ACP_SHELL_DONE ${text}`)
     return
   }
   if (MODE === 'bash-git') {
@@ -500,7 +542,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny' || MODE === 'shell-env' || MODE === 'file-secret') {
       yield* fileToolTurn(options)
       return
     }
