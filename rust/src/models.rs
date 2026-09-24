@@ -129,6 +129,9 @@ pub struct CatalogChoice {
     pub efforts: Vec<String>,
     pub reasoning: bool,
     pub advertised_context: Option<u64>,
+    /// Exact input modalities from config. Absent means the model did not
+    /// declare image input, which is not the same as supporting it.
+    pub input_modalities: Vec<String>,
     pub usable: bool,
     pub unavailable: Option<String>,
 }
@@ -142,6 +145,7 @@ pub struct Routing {
     pub api: String,
     pub effort: Option<String>,
     pub advertised_context: Option<u64>,
+    pub accepts_images: bool,
     pub source: String,
 }
 
@@ -156,8 +160,13 @@ impl Routing {
             .advertised_context
             .map(|value| format!(" advertised_context={value}"))
             .unwrap_or_else(|| " advertised_context=unknown".into());
+        let vision = if self.accepts_images {
+            " vision=image"
+        } else {
+            " vision=text-only"
+        };
         format!(
-            "Route: {}/{} id={} api={} backend={}{effort}{context} (no silent provider fallback)",
+            "Route: {}/{} id={} api={} backend={}{effort}{context}{vision} (no silent provider fallback)",
             self.provider, self.model, self.catalog_id, self.api, self.backend
         )
     }
@@ -303,8 +312,13 @@ pub fn menu_text(choices: &[CatalogChoice], current: Option<&str>) -> String {
         } else {
             "reasoning=unavailable".into()
         };
+        let vision = if crate::images::model_accepts_images(Some(&choice.input_modalities)) {
+            "vision=image"
+        } else {
+            "vision=text-only"
+        };
         lines.push(format!(
-            "{mark}{}. {}  {}/{}  api={}  {state}",
+            "{mark}{}. {}  {}/{}  api={}  {state}  {vision}",
             index + 1,
             choice.id,
             choice.provider,
@@ -508,6 +522,7 @@ mod tests {
             efforts: vec!["low".into(), "high".into()],
             reasoning: true,
             advertised_context: Some(128000),
+            input_modalities: vec!["text".into()],
             usable: true,
             unavailable: None,
         };
@@ -555,6 +570,7 @@ mod tests {
             efforts: vec!["low".into(), "high".into()],
             reasoning: true,
             advertised_context: Some(128000),
+            input_modalities: vec!["text".into()],
             usable: true,
             unavailable: None,
         };

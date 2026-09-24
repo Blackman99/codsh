@@ -157,7 +157,9 @@ must not contact an unconfigured host. Diagnostic payloads are kind/ok/count.
 `GROK_LOG_FILE` and `GROK_HOOKS_LOG` stay unwired: the launcher allowlist does
 not forward them, and the Rust client does not read them.
 `GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` are on that
-allowlist. A packed `codsh --rust inspect` with both set off must not list
+allowlist, as are `CODSH_CLIPBOARD_IMAGE` and `GROK_CLIPBOARD_NO_NATIVE_READ`.
+The image PTY sets the clipboard file so the packed session does not read the
+host pasteboard. A packed `codsh --rust inspect` with both set off must not list
 `.claude` or `.cursor` skills (`scripts/rust-launcher.spec.mjs`).
 Do not treat model `base_url` traffic as telemetry.
 Keep shell completion separate from next-prompt suggestions, diagnostic logging from

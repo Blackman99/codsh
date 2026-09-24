@@ -1,7 +1,8 @@
 use crate::attachments::{
     AttachStatus, FileRef, PreparedAttachment, WorkspaceIndex, prompt_blocks,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::images::{self, ImageRefusal, PreparedImage};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,8 +11,12 @@ use xai_ratatui_textarea::{ElementId, ElementKind, TextArea};
 
 /// Host tag for a file-reference chip. Paste and image chips use other tags.
 pub const FILE_CHIP: ElementKind = ElementKind(2);
+/// Atomic image chip. Backspace removes the placeholder and its bytes together.
+pub const IMAGE_CHIP: ElementKind = ElementKind(3);
 
 pub const HISTORY_FILE: &str = "prompt-history.json";
+pub const IMAGE_DRAFT_FILE: &str = "image-draft.json";
+pub const TEXT_DRAFT_FILE: &str = "prompt-draft.txt";
 pub const MAX_HISTORY: usize = 500;
 const ESC_CLEAR_MS: u128 = 800;
 
@@ -199,6 +204,8 @@ pub enum Action {
     },
     /// Explicit dictation. The host inserts text and never submits it.
     Voice(VoiceGesture),
+    /// Ctrl+V / Alt+V. The host reads the platform clipboard and attaches an image.
+    PasteImage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +224,9 @@ pub struct SubmittedPrompt {
     pub blocks: Vec<serde_json::Value>,
     /// Mentions that were attached when the turn started.
     pub mentions: Vec<String>,
+    /// Verified rasters for a queued image. Blocks are rebuilt at send time
+    /// from the model selected then, so a later text-only route is not an image block.
+    pub images: Vec<PreparedImage>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,6 +243,8 @@ pub struct PromptComposer {
     pub history: Vec<String>,
     pub stash: String,
     pub slash_stash: String,
+    /// Image bytes hidden while a slash or history overlay replaces the draft.
+    slash_images: Vec<PreparedImage>,
     pub overlay: Overlay,
     pub matches: Vec<String>,
     pub cursor: usize,
@@ -255,12 +267,23 @@ pub struct PromptComposer {
     /// Prompt text cleared for a submit the host has not accepted yet.
     pending_submit: Option<String>,
     pending_files: Vec<AttachedFile>,
+    pending_images: Vec<PreparedImage>,
     prepared_submit: Option<SubmittedPrompt>,
     /// Prompts typed while a turn is running. Each keeps its own chips.
     queue: Vec<SubmittedPrompt>,
     grok_home: PathBuf,
     workspace: Option<WorkspaceIndex>,
     files: Vec<AttachedFile>,
+    images: Vec<AttachedImage>,
+    next_image_id: u32,
+    /// The selected model declared `image` in `input_modalities`.
+    accepts_images: bool,
+    /// Isolated dsh home. Originals of text-only images are stored here.
+    attachment_store: Option<PathBuf>,
+    /// Cursor or pointer is on an image chip, so the preview line is showing.
+    preview_image: Option<u32>,
+    /// The pointer is over a chip. Leaving that chip returns to the cursor.
+    hover_image: Option<ElementId>,
 }
 
 impl PromptComposer {
@@ -280,6 +303,7 @@ impl PromptComposer {
             history,
             stash: String::new(),
             slash_stash: String::new(),
+            slash_images: Vec::new(),
             overlay: Overlay::None,
             matches: Vec::new(),
             cursor: 0,
@@ -305,11 +329,26 @@ impl PromptComposer {
             browse_origin: None,
             pending_submit: None,
             pending_files: Vec::new(),
+            pending_images: Vec::new(),
             prepared_submit: None,
             queue: Vec::new(),
             grok_home: grok_home.to_path_buf(),
             workspace: None,
             files: Vec::new(),
+            images: Vec::new(),
+            next_image_id: {
+                let saved = load_image_draft(grok_home);
+                saved
+                    .iter()
+                    .map(|image| image.id)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1)
+            },
+            accepts_images: false,
+            attachment_store: None,
+            preview_image: None,
+            hover_image: None,
         }
     }
 
@@ -317,24 +356,69 @@ impl PromptComposer {
         self.workspace = Some(WorkspaceIndex::new(root));
     }
 
+    /// Record whether the selected model declared image input, and where a
+    /// text-only paste stores the original bytes.
+    pub fn set_image_route(&mut self, accepts_images: bool, store: Option<&Path>) {
+        self.accepts_images = accepts_images;
+        self.attachment_store = store.map(Path::to_path_buf);
+    }
+
+    /// Put a resumed draft's image chips back. Placeholders without saved bytes
+    /// stay text and are not sent. A file that fails the digest check is left
+    /// on disk; rewriting it here would erase a draft the user can still repair.
+    pub fn restore_image_draft(&mut self, text: &str) {
+        let saved = load_image_draft(&self.grok_home);
+        self.set_text(text);
+        if saved.is_empty() {
+            return;
+        }
+        self.rebind_saved_images();
+        if !self.images.is_empty() {
+            self.persist_image_draft();
+        }
+    }
+
+    pub fn persist_visible_draft(&self) {
+        self.persist_image_draft();
+    }
+
+    fn persist_image_draft(&self) {
+        let images: Vec<PreparedImage> = self
+            .images
+            .iter()
+            .map(|image| image.prepared.clone())
+            .collect();
+        let _ = save_image_draft(&self.grok_home, &images);
+        let _ = save_text_draft(&self.grok_home, self.draft.text());
+    }
+
     /// Put back a prompt whose submit did not start a turn. Returns whether
     /// the composer was already showing that text.
     pub fn restore_pending_submit(&mut self) -> bool {
         let files = std::mem::take(&mut self.pending_files);
+        let images = std::mem::take(&mut self.pending_images);
         let Some(text) = self.pending_submit.take() else {
             return true;
         };
-        if self.draft.text() == text && self.files == files {
+        if self.draft.text() == text && self.files == files && self.images.len() == images.len() {
             return true;
         }
         self.set_text(&text);
         self.restore_file_chips(&files);
+        self.rebind_image_chips(&images);
         false
     }
 
     pub fn accept_pending_submit(&mut self) {
         self.pending_submit = None;
         self.pending_files.clear();
+        self.pending_images.clear();
+    }
+
+    /// A bare slash submit was accepted. Do not put the parked draft back.
+    pub fn discard_parked_draft(&mut self) {
+        self.slash_stash.clear();
+        self.slash_images.clear();
     }
 
     pub fn take_prepared_submit(&mut self) -> Option<SubmittedPrompt> {
@@ -349,6 +433,12 @@ impl PromptComposer {
         self.queue.len()
     }
 
+    /// Put the oldest queued prompt back when send-time admission refuses it.
+    /// The chip and its bytes stay visible; nothing is sent.
+    pub fn restore_refused_queue_head(&mut self) -> bool {
+        self.edit_queued(0)
+    }
+
     /// Put a queued prompt back in the composer. Refused while the box holds text.
     pub fn edit_queued(&mut self, index: usize) -> bool {
         if !self.draft.is_empty() || index >= self.queue.len() {
@@ -359,6 +449,7 @@ impl PromptComposer {
         // chip would append a second copy of the same file.
         self.set_text(&item.text);
         self.rebind_file_chips(&item.mentions);
+        self.rebind_image_chips(&item.images);
         true
     }
 
@@ -371,6 +462,39 @@ impl PromptComposer {
         let mut kept = items;
         kept.append(&mut self.queue);
         self.queue = kept;
+    }
+
+    /// Blocks for a prompt that was queued under a different model.
+    /// The model and the bytes can change while it waits, so the digest is
+    /// checked again and a text-only route replaces an image block with the
+    /// saved path. An immediate submit already built its blocks and does not
+    /// call this again.
+    pub fn blocks_for_route(
+        &self,
+        prepared: &SubmittedPrompt,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        if prepared.images.is_empty() {
+            return Ok(prepared.blocks.clone());
+        }
+        let mut verified = Vec::with_capacity(prepared.images.len());
+        for image in &prepared.images {
+            let mut current = images::image_still_matches(image)
+                .map_err(|error| format!("{}: {}", image.placeholder(), error.detail))?;
+            if !self.accepts_images && current.saved_path.is_none() {
+                let Some(store) = &self.attachment_store else {
+                    return Err(format!(
+                        "{}: text-only model needs the attachment store",
+                        current.placeholder()
+                    ));
+                };
+                current.saved_path = Some(
+                    images::save_original(store, &current)
+                        .map_err(|error| format!("{}: {error}", current.placeholder()))?,
+                );
+            }
+            verified.push(current);
+        }
+        images::prompt_blocks_with_images(&prepared.text, &[], &verified, self.accepts_images)
     }
 
     fn enqueue_current(&mut self) -> bool {
@@ -412,21 +536,17 @@ impl PromptComposer {
             return;
         }
         let restored = std::mem::take(&mut self.slash_stash);
-        self.set_text(&restored);
+        self.restore_parked_draft(&restored);
     }
 
     /// Clear a slash command line without dropping a draft that was parked
     /// behind the overlay. `parked` is the draft captured before the host
-    /// discarded `slash_stash`.
+    /// discarded `slash_stash`. The parked image bytes stay until this runs.
     pub fn clear_slash_line(&mut self, parked: &str) {
         self.slash_stash.clear();
         self.overlay = Overlay::None;
         self.matches.clear();
-        if parked.is_empty() {
-            self.set_text("");
-        } else {
-            self.set_text(parked);
-        }
+        self.restore_parked_draft(parked);
     }
 
     pub fn set_text(&mut self, text: &str) {
@@ -567,6 +687,9 @@ impl PromptComposer {
             self.vim = VimPrompt::Insert;
         }
         self.close_transient_overlays(false);
+        if self.try_paste_image_payload(text) {
+            return;
+        }
         if self.try_drop_paths(text) {
             self.refresh_file_state();
             return;
@@ -574,6 +697,69 @@ impl PromptComposer {
         self.draft.insert_str(text);
         self.refresh_slash_from_draft();
         self.footer_notice.clear();
+    }
+
+    /// Ctrl+V image paste. An empty or corrupt clipboard stays out of the draft.
+    pub fn paste_image_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        match images::sniff_image(bytes) {
+            Ok(image) => {
+                self.insert_image(image);
+                Ok(())
+            }
+            Err(error) => {
+                self.footer_notice = image_notice(&error);
+                Err(self.footer_notice.clone())
+            }
+        }
+    }
+
+    /// Metadata for the chip under the pointer, or under the cursor when the
+    /// pointer has left. Frozen guide 03 shows the path here, not a graphics
+    /// protocol. This client has no Kitty, OSC 1337, or half-block renderer.
+    pub fn image_preview(&self) -> Option<String> {
+        let id = self.preview_image?;
+        let image = self.images.iter().find(|image| image.prepared.id == id)?;
+        let path = image
+            .prepared
+            .saved_path
+            .as_ref()
+            .map(|path| format!("  {}", path.display()))
+            .unwrap_or_default();
+        Some(format!(
+            "Pasted image #{}  {}{path}",
+            image.prepared.id,
+            image.prepared.preview_line()
+        ))
+    }
+
+    /// Pointing at a chip shows that image. Moving off it follows the cursor.
+    /// The prompt rect is the inner textarea from the last paint.
+    pub fn hover_image(&mut self, mouse: MouseEvent, area: ratatui::layout::Rect) {
+        if !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved) {
+            return;
+        }
+        let inside = mouse.column >= area.x
+            && mouse.column < area.x.saturating_add(area.width)
+            && mouse.row >= area.y
+            && mouse.row < area.y.saturating_add(area.height);
+        let hovered = if inside {
+            self.draft
+                .element_at_screen(
+                    mouse.column,
+                    mouse.row,
+                    area,
+                    xai_ratatui_textarea::TextAreaState::default(),
+                )
+                .filter(|element| element.kind == IMAGE_CHIP)
+                .map(|element| element.id)
+        } else {
+            None
+        };
+        if hovered == self.hover_image {
+            return;
+        }
+        self.hover_image = hovered;
+        self.refresh_image_preview();
     }
 
     /// Backspace or delete that lands on a file chip removes that attachment.
@@ -586,7 +772,7 @@ impl PromptComposer {
             .elements()
             .iter()
             .find(|element| {
-                element.kind == FILE_CHIP
+                (element.kind == FILE_CHIP || element.kind == IMAGE_CHIP)
                     && if forward {
                         cursor >= element.range.start && cursor < element.range.end
                     } else {
@@ -599,6 +785,7 @@ impl PromptComposer {
         };
         let id = element.id;
         self.files.retain(|file| file.id != id);
+        self.images.retain(|image| image.id != id);
         self.draft.set_cursor(element.range.end);
         // One atomic grapheme removes the whole chip and its undo entry.
         self.draft.delete_backward(1);
@@ -609,21 +796,35 @@ impl PromptComposer {
 
     pub fn prepare_submit(&mut self) -> Result<SubmittedPrompt, String> {
         self.sync_file_chips();
+        self.sync_image_chips();
         let text = self.draft.text().to_string();
         let attachments: Vec<PreparedAttachment> = self
             .files
             .iter()
             .filter_map(|file| file.prepared.clone())
             .collect();
-        if attachments.is_empty() && text.trim().is_empty() {
+        let images: Vec<PreparedImage> = self
+            .images
+            .iter()
+            .map(|image| image.prepared.clone())
+            .collect();
+        if attachments.is_empty() && images.is_empty() && text.trim().is_empty() {
             return Err("empty prompt".into());
         }
         let fresh = self.refresh_attached_bytes()?;
-        let blocks = prompt_blocks(&text, &fresh)?;
+        let fresh_images = self.refresh_images()?;
+        let blocks = if fresh_images.is_empty() {
+            prompt_blocks(&text, &fresh)?
+        } else {
+            images::prompt_blocks_with_images(&text, &fresh, &fresh_images, self.accepts_images)?
+        };
+        let _ = attachments;
+        let _ = images;
         Ok(SubmittedPrompt {
             text,
             blocks,
             mentions: fresh.iter().map(|item| item.mention.clone()).collect(),
+            images: fresh_images,
         })
     }
 
@@ -666,7 +867,7 @@ impl PromptComposer {
     }
 
     pub fn open_history_search(&mut self) {
-        self.slash_stash = self.draft.text().to_string();
+        self.park_draft_for_slash();
         self.overlay = Overlay::HistorySearch;
         self.replace_draft("");
         self.rebuild_history_matches("");
@@ -711,6 +912,9 @@ impl PromptComposer {
             self.toggle_stash();
             return Action::None;
         }
+        if self.is_image_paste(&key) {
+            return Action::PasteImage;
+        }
 
         match self.overlay {
             Overlay::Slash => return self.handle_slash_overlay(key),
@@ -736,6 +940,9 @@ impl PromptComposer {
             return Action::None;
         }
         if self.is_send(&key) {
+            // A slash line is a command, including while a turn is running.
+            // Queuing it would send `/model` as the next prompt instead of
+            // changing the route that queued images are rebuilt for.
             if ctx.inflight && !self.draft.text().trim().starts_with('/') {
                 self.enqueue_current();
                 return Action::None;
@@ -776,13 +983,13 @@ impl PromptComposer {
         }
         if key.modifiers.is_empty()
             && matches!(key.code, KeyCode::Char('/'))
-            && !self.draft.is_empty()
+            && (!self.draft.is_empty() || self.chips)
             && !self.draft.text().starts_with('/')
         {
             self.footer_notice.clear();
             // A nonempty prompt is not a slash command. Stash it so /minimal
             // and /fullscreen can run, then put the same draft back.
-            self.slash_stash = self.draft.text().to_string();
+            self.park_draft_for_slash();
             self.replace_draft("/");
             self.open_slash();
             return Action::None;
@@ -798,6 +1005,8 @@ impl PromptComposer {
         }
         self.draft.input(key);
         self.sync_file_chips();
+        self.sync_image_chips();
+        self.refresh_image_preview();
         if self.draft.text().starts_with('/') {
             self.open_slash();
         } else if (self.shell_mode || self.draft.text().starts_with('!')) && self.suggestions {
@@ -883,6 +1092,8 @@ impl PromptComposer {
             if matches!(key.code, KeyCode::Enter)
                 && (self.matches.is_empty() || slash_has_arguments(self.draft.text()))
             {
+                // `/model cli-mock-fork` is the typed command. The menu item
+                // is only `/model` and would drop the selected id.
                 return self.submit_or_slash();
             }
             return self.accept_slash();
@@ -903,7 +1114,7 @@ impl PromptComposer {
     fn handle_history_search(&mut self, key: KeyEvent) -> Action {
         if matches!(key.code, KeyCode::Esc) {
             let restored = std::mem::take(&mut self.slash_stash);
-            self.replace_draft(&restored);
+            self.restore_parked_draft(&restored);
             self.overlay = Overlay::None;
             self.matches.clear();
             self.footer_notice = "history search cancelled".into();
@@ -1182,33 +1393,34 @@ impl PromptComposer {
         }
     }
 
+    fn restore_stashed_draft(&mut self, restored: &str) {
+        if restored.is_empty() {
+            return;
+        }
+        self.restore_parked_draft(restored);
+    }
+
     fn submit_or_slash(&mut self) -> Action {
         let text = self.draft.text().to_string();
         if let Some(command) = slash_action(&text) {
             self.overlay = Overlay::None;
             let restored = std::mem::take(&mut self.slash_stash);
-            return match command {
+            let action = match command {
                 PromptSlash::History => {
                     self.replace_draft("");
-                    if !restored.is_empty() {
-                        self.replace_draft(&restored);
-                    }
+                    self.restore_stashed_draft(&restored);
                     self.open_history_search();
                     Action::None
                 }
                 PromptSlash::Multiline => {
                     self.replace_draft("");
-                    if !restored.is_empty() {
-                        self.replace_draft(&restored);
-                    }
+                    self.restore_stashed_draft(&restored);
                     self.footer_notice = self.toggle_multiline();
                     Action::None
                 }
                 PromptSlash::ReloadAssets => {
                     self.replace_draft("");
-                    if !restored.is_empty() {
-                        self.replace_draft(&restored);
-                    }
+                    self.restore_stashed_draft(&restored);
                     Action::Slash("/reload-assets".into())
                 }
                 PromptSlash::EditPrompt => {
@@ -1216,34 +1428,31 @@ impl PromptComposer {
                         self.replace_draft("");
                         Action::External { preserve: false }
                     } else {
-                        self.replace_draft(&restored);
+                        self.restore_stashed_draft(&restored);
                         self.footer_notice = "/edit-prompt opens an empty prompt; use Ctrl+G in minimal to preserve a draft".into();
                         Action::None
                     }
                 }
                 PromptSlash::Voice => {
                     self.replace_draft("");
-                    if !restored.is_empty() {
-                        self.replace_draft(&restored);
-                    }
+                    self.restore_stashed_draft(&restored);
                     Action::Slash(text.trim().to_string())
                 }
                 PromptSlash::Passthrough(value) => {
                     self.replace_draft("");
-                    if !restored.is_empty() {
-                        self.replace_draft(&restored);
-                    }
+                    self.restore_stashed_draft(&restored);
                     Action::Slash(value)
                 }
             };
+            self.refresh_file_state();
+            return action;
         }
         if text.trim().starts_with('/') {
             self.overlay = Overlay::None;
             let restored = std::mem::take(&mut self.slash_stash);
             self.replace_draft("");
-            if !restored.is_empty() {
-                self.replace_draft(&restored);
-            }
+            self.restore_stashed_draft(&restored);
+            self.refresh_file_state();
             return Action::Slash(text.trim().to_string());
         }
         if text.trim().is_empty() && !self.chips {
@@ -1263,8 +1472,14 @@ impl PromptComposer {
         // submit puts both back. Removed chips are already gone.
         self.pending_submit = Some(prepared.text.clone());
         self.pending_files = self.files.clone();
+        self.pending_images = self
+            .images
+            .iter()
+            .map(|image| image.prepared.clone())
+            .collect();
         self.prepared_submit = Some(prepared.clone());
         self.files.clear();
+        self.images.clear();
         self.replace_draft("");
         self.overlay = Overlay::None;
         self.slash_stash.clear();
@@ -1304,7 +1519,7 @@ impl PromptComposer {
             self.replace_draft("");
             let restored = std::mem::take(&mut self.slash_stash);
             if !restored.is_empty() {
-                self.replace_draft(&restored);
+                self.restore_parked_draft(&restored);
             }
             if item == "/history" {
                 self.open_history_search();
@@ -1351,11 +1566,7 @@ impl PromptComposer {
 
     fn cancel_slash(&mut self) {
         let restored = std::mem::take(&mut self.slash_stash);
-        if restored.is_empty() {
-            self.replace_draft("");
-        } else {
-            self.replace_draft(&restored);
-        }
+        self.restore_parked_draft(&restored);
         self.overlay = Overlay::None;
         self.matches.clear();
         self.footer_notice = "completion cancelled".into();
@@ -1760,12 +1971,253 @@ impl PromptComposer {
         self.refresh_file_state();
     }
 
+    fn park_draft_for_slash(&mut self) {
+        // The overlay replaces the visible text, which drops chip metadata.
+        // Hold the verified bytes only until that text is put back.
+        self.slash_stash = self.draft.text().to_string();
+        if self.slash_images.is_empty() {
+            self.slash_images = self
+                .images
+                .iter()
+                .map(|image| image.prepared.clone())
+                .collect();
+        }
+    }
+
+    /// Put stashed placeholder text back and retag the held image bytes.
+    /// The cursor stays at the end of that text. A caller that already put
+    /// the same draft back is left alone, so a second call cannot wipe it.
+    /// An empty stash means there was no parked draft; it does not clear a
+    /// draft the caller already restored.
+    fn restore_parked_draft(&mut self, text: &str) {
+        let parked = std::mem::take(&mut self.slash_images);
+        if text.is_empty() {
+            self.refresh_image_preview();
+            return;
+        }
+        let images = if parked.is_empty() {
+            self.images
+                .iter()
+                .map(|image| image.prepared.clone())
+                .collect::<Vec<_>>()
+        } else {
+            parked
+        };
+        if self.draft.text() == text && images_match_draft(&self.images, &images) {
+            self.refresh_image_preview();
+            return;
+        }
+        self.replace_draft(text);
+        self.rebind_image_chips(&images);
+    }
+
+    fn rebind_saved_images(&mut self) {
+        let saved = load_image_draft(&self.grok_home);
+        self.rebind_image_chips(&saved);
+    }
+
+    fn is_image_paste(&self, key: &KeyEvent) -> bool {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'));
+        let alt = key.modifiers.contains(KeyModifiers::ALT)
+            && matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'));
+        control || alt
+    }
+
+    fn try_paste_image_payload(&mut self, text: &str) -> bool {
+        let trimmed = text.trim();
+        let encoded = trimmed
+            .strip_prefix("codsh-image:")
+            .or_else(|| trimmed.strip_prefix("data:image/"));
+        let Some(rest) = encoded else {
+            return false;
+        };
+        let payload = rest
+            .split_once(";base64,")
+            .map(|(_, data)| data)
+            .unwrap_or(rest);
+        match images::decode_image_payload(payload) {
+            Ok(image) => {
+                self.insert_image(image);
+                true
+            }
+            Err(error) => {
+                self.footer_notice = image_notice(&error);
+                true
+            }
+        }
+    }
+
+    fn insert_image(&mut self, image: images::ImageBytes) {
+        let id = self.next_image_id;
+        self.next_image_id = self.next_image_id.saturating_add(1);
+        let mut prepared = images::prepare_image(id, image);
+        if !self.accepts_images
+            && let Some(store) = &self.attachment_store
+            && let Ok(path) = images::save_original(store, &prepared)
+        {
+            prepared.saved_path = Some(path);
+        }
+        let placeholder = prepared.placeholder();
+        let display = ratatui::text::Line::from(placeholder.clone());
+        let element = self.draft.replace_range_with_element(
+            self.draft.cursor()..self.draft.cursor(),
+            &placeholder,
+            IMAGE_CHIP,
+            Some(display),
+        );
+        self.images.push(AttachedImage {
+            id: element,
+            prepared,
+        });
+        self.refresh_file_state();
+        self.refresh_image_preview();
+        self.persist_image_draft();
+        self.footer_notice = format!("image #{id} attached");
+    }
+
+    fn sync_image_chips(&mut self) {
+        let live: Vec<ElementId> = self
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == IMAGE_CHIP)
+            .map(|element| element.id)
+            .collect();
+        self.images.retain(|image| live.contains(&image.id));
+        self.refresh_file_state();
+        self.refresh_image_preview();
+        // A refused resume leaves the placeholder as text and the file untouched.
+        // Writing here would replace that file with an empty draft.
+        if !self.images.is_empty() || !image_draft_path(&self.grok_home).exists() {
+            self.persist_image_draft();
+        }
+    }
+
+    fn refresh_images(&mut self) -> Result<Vec<PreparedImage>, String> {
+        let mut fresh = Vec::new();
+        for image in &self.images {
+            if let Err(error) = images::image_still_matches(&image.prepared) {
+                return Err(format!(
+                    "{}: {}",
+                    image.prepared.placeholder(),
+                    error.detail
+                ));
+            }
+            let mut prepared = image.prepared.clone();
+            if !self.accepts_images && prepared.saved_path.is_none() {
+                let Some(store) = &self.attachment_store else {
+                    return Err(format!(
+                        "{}: text-only model needs the attachment store",
+                        prepared.placeholder()
+                    ));
+                };
+                prepared.saved_path = Some(
+                    images::save_original(store, &prepared)
+                        .map_err(|error| format!("{}: {error}", prepared.placeholder()))?,
+                );
+            }
+            fresh.push(prepared);
+        }
+        for (image, prepared) in self.images.iter_mut().zip(fresh.iter()) {
+            image.prepared.saved_path.clone_from(&prepared.saved_path);
+        }
+        Ok(fresh)
+    }
+
+    fn rebind_image_chips(&mut self, parked: &[PreparedImage]) {
+        if parked.is_empty() {
+            return;
+        }
+        let text = self.draft.text().to_string();
+        let mut cursor = 0;
+        let mut elements = Vec::new();
+        let mut rebound = Vec::new();
+        for image in parked {
+            let Ok(prepared) = images::revalidate_image(image) else {
+                continue;
+            };
+            let placeholder = prepared.placeholder();
+            let Some(offset) = text[cursor..].find(&placeholder) else {
+                continue;
+            };
+            let start = cursor + offset;
+            let end = start + placeholder.len();
+            cursor = end;
+            elements.push((
+                start..end,
+                IMAGE_CHIP,
+                Some(ratatui::text::Line::from(placeholder)),
+            ));
+            rebound.push(prepared);
+        }
+        if elements.is_empty() {
+            return;
+        }
+        self.draft.restore_elements(elements);
+        let live: Vec<ElementId> = self
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == IMAGE_CHIP)
+            .map(|element| element.id)
+            .collect();
+        self.images = rebound
+            .into_iter()
+            .zip(live)
+            .map(|(prepared, id)| AttachedImage { id, prepared })
+            .collect();
+        if let Some(max_id) = self.images.iter().map(|image| image.prepared.id).max() {
+            self.next_image_id = self.next_image_id.max(max_id.saturating_add(1));
+        }
+        // `set_text` left the cursor after the placeholder. Resting it on the
+        // last chip is what shows that image until the pointer moves.
+        if let Some(end) = self
+            .draft
+            .elements()
+            .iter()
+            .filter(|element| element.kind == IMAGE_CHIP)
+            .map(|element| element.range.end)
+            .max()
+        {
+            self.draft.set_cursor(end);
+        }
+        self.refresh_file_state();
+        self.refresh_image_preview();
+    }
+
+    fn refresh_image_preview(&mut self) {
+        let cursor = self.draft.cursor();
+        let hovered = self.hover_image.and_then(|id| {
+            self.images
+                .iter()
+                .find(|image| image.id == id)
+                .map(|image| image.prepared.id)
+        });
+        self.preview_image = hovered.or_else(|| {
+            self.draft
+                .elements()
+                .iter()
+                .find(|element| {
+                    element.kind == IMAGE_CHIP
+                        && cursor >= element.range.start
+                        && cursor <= element.range.end
+                })
+                .and_then(|element| {
+                    self.images
+                        .iter()
+                        .find(|image| image.id == element.id)
+                        .map(|image| image.prepared.id)
+                })
+        });
+    }
+
     fn refresh_file_state(&mut self) {
         self.chips = self
             .draft
             .elements()
             .iter()
-            .any(|element| element.kind == FILE_CHIP);
+            .any(|element| element.kind == FILE_CHIP || element.kind == IMAGE_CHIP);
     }
 
     fn refresh_attached_bytes(&mut self) -> Result<Vec<PreparedAttachment>, String> {
@@ -1872,6 +2324,20 @@ struct AttachedFile {
     id: ElementId,
     reference: FileRef,
     prepared: Option<PreparedAttachment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AttachedImage {
+    id: ElementId,
+    prepared: PreparedImage,
+}
+
+fn image_notice(error: &ImageRefusal) -> String {
+    if error.detail.is_empty() {
+        error.status.label().to_string()
+    } else {
+        error.detail.clone()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2044,6 +2510,109 @@ pub fn save_history(grok_home: &Path, history: &[String]) -> std::io::Result<()>
     fs::write(history_path(grok_home), serde_json::to_vec_pretty(history)?)
 }
 
+fn images_match_draft(live: &[AttachedImage], parked: &[PreparedImage]) -> bool {
+    live.len() == parked.len()
+        && live.iter().zip(parked).all(|(live, parked)| {
+            live.prepared.id == parked.id && live.prepared.digest == parked.digest
+        })
+}
+
+fn json_u32(value: Option<&serde_json::Value>) -> Option<u32> {
+    let value = value?;
+    if value.is_null() {
+        return None;
+    }
+    value.as_u64().and_then(|number| u32::try_from(number).ok())
+}
+
+fn image_draft_path(grok_home: &Path) -> PathBuf {
+    grok_home.join(IMAGE_DRAFT_FILE)
+}
+
+fn text_draft_path(grok_home: &Path) -> PathBuf {
+    grok_home.join(TEXT_DRAFT_FILE)
+}
+
+pub fn load_text_draft(grok_home: &Path) -> Option<String> {
+    let text = fs::read_to_string(text_draft_path(grok_home)).ok()?;
+    if text.is_empty() { None } else { Some(text) }
+}
+
+pub fn save_text_draft(grok_home: &Path, text: &str) -> std::io::Result<()> {
+    fs::create_dir_all(grok_home)?;
+    fs::write(text_draft_path(grok_home), text)
+}
+
+/// Persist unsent image chips. Resume reads this file and rebinds the same bytes.
+pub fn save_image_draft(grok_home: &Path, images: &[PreparedImage]) -> std::io::Result<()> {
+    fs::create_dir_all(grok_home)?;
+    let body = images
+        .iter()
+        .map(|image| {
+            serde_json::json!({
+                "id": image.id,
+                "mediaType": image.media_type,
+                "data": base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &image.bytes,
+                ),
+                "width": image.width,
+                "height": image.height,
+                "digest": image.digest,
+                "savedPath": image.saved_path.as_ref().map(|path| path.display().to_string()),
+            })
+        })
+        .collect::<Vec<_>>();
+    fs::write(
+        image_draft_path(grok_home),
+        serde_json::to_vec_pretty(&body)?,
+    )
+}
+
+pub fn load_image_draft(grok_home: &Path) -> Vec<PreparedImage> {
+    let Ok(text) = fs::read_to_string(image_draft_path(grok_home)) else {
+        return Vec::new();
+    };
+    let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
+        return Vec::new();
+    };
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let id = item.get("id")?.as_u64()? as u32;
+            let encoded = item.get("data")?.as_str()?;
+            let bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).ok()?;
+            let stored_digest = item.get("digest").and_then(|value| value.as_str())?;
+            let stored_type = item.get("mediaType").and_then(|value| value.as_str())?;
+            // Sniff again. A rewritten `data` field must not keep the old digest.
+            let sniffed = images::sniff_image(&bytes).ok()?;
+            if sniffed.media_type != stored_type {
+                return None;
+            }
+            let prepared = images::prepare_image(id, sniffed);
+            if prepared.digest != stored_digest {
+                return None;
+            }
+            let stored_width = json_u32(item.get("width"));
+            let stored_height = json_u32(item.get("height"));
+            if stored_width.is_some() && stored_width != prepared.width {
+                return None;
+            }
+            if stored_height.is_some() && stored_height != prepared.height {
+                return None;
+            }
+            let mut prepared = prepared;
+            prepared.saved_path = item
+                .get("savedPath")
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from);
+            Some(prepared)
+        })
+        .collect()
+}
+
 pub fn load_histfile(path: &Path) -> Vec<String> {
     let Ok(text) = fs::read_to_string(path) else {
         return Vec::new();
@@ -2209,6 +2778,33 @@ mod tests {
             inflight: false,
             minimal: false,
             voice_release: true,
+        }
+    }
+
+    fn image_block_bytes(submitted: &SubmittedPrompt) -> Vec<Vec<u8>> {
+        image_block_bytes_from(&submitted.blocks)
+    }
+
+    fn image_block_bytes_from(blocks: &[serde_json::Value]) -> Vec<Vec<u8>> {
+        blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(|value| value.as_str()) == Some("image"))
+            .map(|block| {
+                base64::Engine::decode(
+                    &base64::engine::general_purpose::STANDARD,
+                    block.get("data").and_then(|value| value.as_str()).unwrap(),
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    fn moved(column: u16, row: u16) -> crossterm::event::MouseEvent {
+        crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
         }
     }
 
@@ -2687,6 +3283,406 @@ mod tests {
         assert!(visible_text.contains("VISIBLE"), "{visible_text}");
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn pasted_images_preview_submit_and_follow_the_model_route() {
+        let home = temp_home();
+        let store = temp_home();
+        let png = images::tiny_png();
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &png);
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(true, Some(&store));
+        composer.paste(&format!("codsh-image:{encoded}"));
+        assert!(
+            composer.chips,
+            "image chip missing: {}",
+            composer.footer_notice
+        );
+        assert!(
+            composer.text().contains("[Image #1]"),
+            "{}",
+            composer.text()
+        );
+        let preview = composer
+            .image_preview()
+            .expect("preview while the cursor is on the chip");
+        assert!(preview.contains("Pasted image #1"), "{preview}");
+        assert!(preview.contains("1x1"), "{preview}");
+        composer.paste(&format!("codsh-image:{encoded}"));
+        assert!(
+            composer.text().contains("[Image #1]"),
+            "order lost: {}",
+            composer.text()
+        );
+        assert!(
+            composer.text().contains("[Image #2]"),
+            "second image missing: {}",
+            composer.text()
+        );
+        for ch in " look".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        let submitted = composer.prepare_submit().expect("capable model submits");
+        let image_blocks: Vec<_> = submitted
+            .blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(|value| value.as_str()) == Some("image"))
+            .collect();
+        assert_eq!(image_blocks.len(), 2, "{:?}", submitted.blocks);
+        let first = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            image_blocks[0]
+                .get("data")
+                .and_then(|value| value.as_str())
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            first, png,
+            "submitted bytes differ from the previewed image"
+        );
+        assert_eq!(
+            submitted
+                .images
+                .iter()
+                .map(|image| image.id)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        for _ in 0.." look".chars().count() {
+            composer.handle_key(key(KeyCode::Backspace), ctx());
+        }
+        composer.handle_key(key(KeyCode::Backspace), ctx());
+        assert!(
+            !composer.text().contains("[Image #2]"),
+            "removed image still in the draft: {}",
+            composer.text()
+        );
+        let after = composer.prepare_submit().expect("one image remains");
+        let remaining = after
+            .blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(|value| value.as_str()) == Some("image"))
+            .count();
+        assert_eq!(
+            remaining, 1,
+            "deleted image was still sent: {:?}",
+            after.blocks
+        );
+
+        composer.set_text("");
+        composer.set_image_route(false, Some(&store));
+        composer.paste_image_bytes(&png).expect("bytes attach");
+        let text_only = composer
+            .prepare_submit()
+            .expect("text-only still submits the path");
+        let joined = text_only
+            .blocks
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect::<String>();
+        assert!(joined.contains("<pasted-image "), "{joined}");
+        assert!(
+            text_only
+                .blocks
+                .iter()
+                .all(|block| block.get("type").and_then(|value| value.as_str()) != Some("image")),
+            "text-only model must not receive an image block: {:?}",
+            text_only.blocks
+        );
+        let empty = composer.paste_image_bytes(&[]);
+        assert!(empty.is_err(), "empty clipboard must not attach");
+        assert!(
+            composer.footer_notice.contains("clipboard has no image")
+                || empty.unwrap_err().contains("clipboard")
+        );
+        let corrupt = composer.paste_image_bytes(b"not-an-image");
+        assert!(corrupt.unwrap_err().contains("not a png"));
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn image_draft_survives_a_model_switch_and_a_new_composer() {
+        let home = temp_home();
+        let store = temp_home();
+        let png = images::tiny_png();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(true, Some(&store));
+        composer.paste_image_bytes(&png).unwrap();
+        for ch in " keep".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        let draft = composer.text().to_string();
+        composer.persist_visible_draft();
+        composer.set_image_route(false, Some(&store));
+        assert!(composer.chips, "switching the model drops the chip");
+        assert_eq!(composer.text(), draft);
+        let mut resumed = PromptComposer::load(&home, &[]);
+        resumed.set_image_route(false, Some(&store));
+        resumed.restore_image_draft(&draft);
+        assert!(
+            resumed.chips,
+            "resume lost the image chip: {}",
+            resumed.text()
+        );
+        assert_eq!(resumed.text(), draft);
+        let submitted = resumed.prepare_submit().expect("resumed text-only submit");
+        let joined = serde_json::to_string(&submitted.blocks).unwrap();
+        assert!(joined.contains("<pasted-image "), "{joined}");
+        assert!(!joined.contains("\"type\":\"image\""), "{joined}");
+        let preview = resumed.image_preview().expect("preview after resume");
+        assert!(preview.contains("Pasted image #1"), "{preview}");
+        assert!(preview.contains("1x1"), "{preview}");
+
+        let honest = fs::read_to_string(home.join(IMAGE_DRAFT_FILE)).unwrap();
+        let mut tampered: serde_json::Value = serde_json::from_str(&honest).unwrap();
+        let green = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            images::tiny_png_green(),
+        );
+        tampered[0]["data"] = serde_json::Value::String(green.clone());
+        fs::write(
+            home.join(IMAGE_DRAFT_FILE),
+            serde_json::to_vec_pretty(&tampered).unwrap(),
+        )
+        .unwrap();
+        let mut forged = PromptComposer::load(&home, &[]);
+        forged.set_image_route(true, Some(&store));
+        forged.restore_image_draft(&draft);
+        assert!(
+            !forged.chips,
+            "a rewritten image-draft.json must not restore: {}",
+            forged.text()
+        );
+        assert_eq!(forged.text(), draft, "refusing the bytes keeps the text");
+        let sent = forged.prepare_submit().expect("the text still submits");
+        let encoded = serde_json::to_string(&sent.blocks).unwrap();
+        assert!(
+            !encoded.contains("\"type\":\"image\""),
+            "tampered bytes must not be sent: {encoded}"
+        );
+        let kept = fs::read_to_string(home.join(IMAGE_DRAFT_FILE)).unwrap();
+        assert!(
+            kept.contains(&green),
+            "refusing the draft must not rewrite the file the user can repair"
+        );
+
+        let mut wrong_type: serde_json::Value = serde_json::from_str(&honest).unwrap();
+        wrong_type[0]["mediaType"] = serde_json::Value::String("image/jpeg".into());
+        fs::write(
+            home.join(IMAGE_DRAFT_FILE),
+            serde_json::to_vec_pretty(&wrong_type).unwrap(),
+        )
+        .unwrap();
+        let mut typed = PromptComposer::load(&home, &[]);
+        typed.restore_image_draft(&draft);
+        assert!(
+            !typed.chips,
+            "a stored type that disagrees must not restore"
+        );
+        let mut wrong_size: serde_json::Value = serde_json::from_str(&honest).unwrap();
+        wrong_size[0]["width"] = serde_json::Value::from(9);
+        fs::write(
+            home.join(IMAGE_DRAFT_FILE),
+            serde_json::to_vec_pretty(&wrong_size).unwrap(),
+        )
+        .unwrap();
+        let mut sized = PromptComposer::load(&home, &[]);
+        sized.restore_image_draft(&draft);
+        assert!(
+            !sized.chips,
+            "a stored size that disagrees must not restore"
+        );
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn queued_image_is_rebuilt_for_the_model_selected_at_send() {
+        let home = temp_home();
+        let store = temp_home();
+        let png = images::tiny_png();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(true, Some(&store));
+        composer.paste_image_bytes(&png).unwrap();
+        let busy = HostContext {
+            inflight: true,
+            minimal: false,
+            voice_release: true,
+        };
+        assert_eq!(
+            composer.handle_key(key(KeyCode::Enter), busy),
+            Action::None,
+            "a running turn queues the image"
+        );
+        assert_eq!(composer.queue_count(), 1);
+        let queued = composer.take_ready_queue();
+        assert!(
+            queued[0]
+                .blocks
+                .iter()
+                .any(|block| block.get("type").and_then(|value| value.as_str()) == Some("image")),
+            "queued under a vision model: {:?}",
+            queued[0].blocks
+        );
+        composer.requeue(queued);
+        composer.set_image_route(false, Some(&store));
+        let released = composer.take_ready_queue();
+        let rebuilt = composer
+            .blocks_for_route(&released[0])
+            .expect("text-only rebuilds the path");
+        assert!(
+            rebuilt.iter().all(|block| {
+                block.get("type").and_then(|value| value.as_str()) != Some("image")
+            }),
+            "a later text-only model must not receive the queued image block: {rebuilt:?}"
+        );
+        let joined = rebuilt
+            .iter()
+            .filter_map(|block| block.get("text").and_then(|value| value.as_str()))
+            .collect::<String>();
+        assert!(joined.contains("<pasted-image "), "{joined}");
+
+        composer.requeue(released);
+        composer.set_image_route(true, Some(&store));
+        let again = composer.take_ready_queue();
+        let vision = composer
+            .blocks_for_route(&again[0])
+            .expect("vision route rebuilds the bytes");
+        assert_eq!(image_block_bytes_from(&vision), vec![png]);
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn image_preview_follows_the_pointer_and_returns_to_the_cursor() {
+        let home = temp_home();
+        let store = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(false, Some(&store));
+        composer.paste_image_bytes(&images::tiny_png()).unwrap();
+        composer
+            .paste_image_bytes(&images::tiny_png_green())
+            .unwrap();
+        let first = composer
+            .image_preview()
+            .expect("cursor rests on the last chip");
+        assert!(first.contains("Pasted image #2"), "{first}");
+        assert!(first.contains("2x1"), "{first}");
+        assert!(
+            first.contains("attachments"),
+            "a saved path is the preview, not a graphics protocol: {first}"
+        );
+        let area = ratatui::layout::Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 1,
+        };
+        composer.hover_image(moved(0, 0), area);
+        let hovered = composer.image_preview().expect("hover the first chip");
+        assert!(hovered.contains("Pasted image #1"), "{hovered}");
+        assert!(hovered.contains("1x1"), "{hovered}");
+        composer.hover_image(moved(0, 5), area);
+        let back = composer.image_preview().expect("cursor chip returns");
+        assert!(back.contains("Pasted image #2"), "{back}");
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn screen_mode_slash_restores_parked_image_bytes() {
+        let home = temp_home();
+        let store = temp_home();
+        let first = images::tiny_png();
+        let second = images::tiny_png_green();
+        assert_ne!(first, second);
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(true, Some(&store));
+        composer.paste_image_bytes(&first).unwrap();
+        for ch in " keep".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        composer.paste_image_bytes(&second).unwrap();
+        let before = composer.prepare_submit().expect("image is attached");
+        let before_bytes = image_block_bytes(&before);
+        assert_eq!(before_bytes, vec![first.clone(), second.clone()]);
+        composer.restore_pending_submit();
+        let draft = composer.text().to_string();
+        let saved = load_image_draft(&home);
+
+        for command in ["/minimal", "/fullscreen", "/reload-assets"] {
+            composer.set_text("");
+            let _ = save_image_draft(&home, &saved);
+            composer.restore_image_draft(&draft);
+            assert_eq!(composer.text(), draft);
+            composer.handle_key(key(KeyCode::Char('/')), ctx());
+            assert_eq!(composer.text(), "/");
+            for ch in command[1..].chars() {
+                composer.handle_key(key(KeyCode::Char(ch)), ctx());
+            }
+            assert_eq!(
+                composer.handle_key(key(KeyCode::Enter), ctx()),
+                Action::Slash(command.into()),
+                "{command}"
+            );
+            assert_eq!(composer.text(), draft, "{command} replaced the draft");
+            assert!(composer.chips, "{command} dropped the image chip");
+            let after = composer.prepare_submit().expect(command);
+            assert_eq!(
+                image_block_bytes(&after),
+                vec![first.clone(), second.clone()],
+                "{command} restored the placeholder without the parked bytes"
+            );
+            composer.restore_pending_submit();
+        }
+        composer.handle_key(key(KeyCode::Backspace), ctx());
+        assert_eq!(
+            composer.text(),
+            "[Image #1] keep",
+            "backspace was not on the last chip: {}",
+            composer.text()
+        );
+        let remaining = composer.prepare_submit().expect("first image remains");
+        assert_eq!(image_block_bytes(&remaining), vec![first]);
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn oversized_image_and_a_refused_submit_keep_the_draft_bytes() {
+        let home = temp_home();
+        let store = temp_home();
+        let png = images::tiny_png();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.set_image_route(true, Some(&store));
+        let huge = vec![0u8; (images::MAX_IMAGE_BYTES as usize) + 1];
+        let refused = composer.paste_image_bytes(&huge);
+        assert!(
+            refused.unwrap_err().contains("256 KiB"),
+            "oversize image was attached"
+        );
+        assert!(!composer.chips, "oversize image became a chip");
+        composer.paste_image_bytes(&png).unwrap();
+        for ch in " stay".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        let draft = composer.text().to_string();
+        let submitted = composer.prepare_submit().expect("image submits");
+        assert_eq!(image_block_bytes(&submitted), vec![png.clone()]);
+        assert!(
+            composer.restore_pending_submit(),
+            "a refused submit must put the same draft back"
+        );
+        assert_eq!(composer.text(), draft);
+        let again = composer
+            .prepare_submit()
+            .expect("bytes survived the refusal");
+        assert_eq!(image_block_bytes(&again), vec![png]);
+        let _ = fs::remove_dir_all(home);
+        let _ = fs::remove_dir_all(store);
     }
 
     #[test]

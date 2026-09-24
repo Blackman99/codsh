@@ -19,6 +19,9 @@ const HIGH = ReasoningEffortId('high')
 const MODE = process.env.DSH_CODE_CLI_MOCK_TOOL ?? 'echo'
 const DELAY_MS = Number(process.env.DSH_CODE_CLI_MOCK_DELAY_MS ?? '0')
 const CONTEXT_WINDOW = Number(process.env.DSH_CODE_CLI_MOCK_CONTEXT_WINDOW ?? '128000')
+const IMAGE_INPUT = process.env.DSH_CODE_CLI_MOCK_IMAGE === '1'
+const TEXT_MODALITIES = ['text']
+const VISION_MODALITIES = ['text', 'image']
 
 function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
@@ -58,6 +61,23 @@ function userTexts(options) {
 
 function latestUserText(options) {
   return userTexts(options).at(-1) ?? ''
+}
+
+function imageEcho(options) {
+  const images = options.messages
+    .filter(message => message.role === 'user')
+    .flatMap(message => message.content.filter(block => block.type === 'image'))
+  if (images.length === 0) return ''
+  const parts = images.map(block => {
+    const ref = block.attachment ?? {}
+    const mime = ref.mediaType ?? block.mimeType ?? 'unknown'
+    const bytes = Number(ref.bytes ?? 0)
+    const width = Number(ref.width ?? 0)
+    const height = Number(ref.height ?? 0)
+    const id = String(ref.attachmentId ?? '').slice(0, 12)
+    return `mime=${mime} bytes=${bytes} size=${width}x${height} id=${id}`
+  })
+  return ` images=${images.length} ${parts.join(' ')}`
 }
 
 function echoUserText(text) {
@@ -300,19 +320,29 @@ class RustAcpMockAdapter extends LlmAdapter {
         { provider, id: 'narrow', name: 'Narrow Mock', inputModalities: ['text'], contextWindow: 64000 },
       ])
     }
+    if (provider === 'text-only') {
+      return Promise.resolve([
+        { provider, id: 'text-only', name: 'Text Only', inputModalities: TEXT_MODALITIES, contextWindow: CONTEXT_WINDOW },
+      ])
+    }
+    const modalities = IMAGE_INPUT ? VISION_MODALITIES : TEXT_MODALITIES
     return Promise.resolve([
-      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
-      { provider, id: 'cli-mock-fork', name: 'CLI Mock Fork', inputModalities: ['text'], contextWindow: CONTEXT_WINDOW },
+      { provider, id: 'cli-mock', name: 'CLI Mock', inputModalities: modalities, contextWindow: CONTEXT_WINDOW },
+      // Same provider, text-only id. A live /model switch can select it
+      // without a second provider or a hidden vision route.
+      { provider, id: 'cli-mock-fork', name: 'CLI Mock Fork', inputModalities: TEXT_MODALITIES, contextWindow: CONTEXT_WINDOW },
+      { provider, id: 'text-only', name: 'Text Only', inputModalities: TEXT_MODALITIES, contextWindow: CONTEXT_WINDOW },
     ])
   }
 
   resolveModel(provider, model) {
     const window = model === 'narrow' || provider === 'narrow' ? 64000 : CONTEXT_WINDOW
+    const modalities = IMAGE_INPUT && model !== 'cli-mock-fork' && model !== 'text-only' && model !== 'narrow' ? VISION_MODALITIES : TEXT_MODALITIES
     return Promise.resolve({
       provider,
       id: model,
       name: model,
-      inputModalities: ['text'],
+      inputModalities: modalities,
       context: Number.isFinite(window) && window > 0
         ? { contextWindow: window }
         : undefined,
@@ -421,7 +451,7 @@ class RustAcpMockAdapter extends LlmAdapter {
     const markers = ['HOME_RULE', 'ROOT_RULE', 'DEEP_RULE', 'DIR_RULE_A', 'EXTRA_RULE', 'NESTED_RULE', 'IGNORED_LOCAL', 'UNTRUSTED_PROJECT', 'COMMIT_BODY', 'SHIP_NOTE_BODY', 'REVIEWER_BODY', 'SKILL_ADDED', 'SKILL_REMOVED']
       .filter(marker => corpus.includes(marker))
     const markerText = markers.length ? ` markers=${markers.join(',')}` : ''
-    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest}${markerText} ${history}`
+    const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest}${imageEcho(options)}${markerText} ${history}`
     yield { type: 'block-start', index: 0, blockType: 'text' }
     yield { type: 'text-delta', index: 0, text: reply }
     yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }

@@ -60,6 +60,8 @@ pub struct ModelSpec {
     pub reasoning_efforts: Vec<String>,
     pub reasoning_effort: Option<String>,
     pub extra_headers: BTreeMap<String, String>,
+    /// Declared input modalities. Empty means the model did not advertise image input.
+    pub input_modalities: Vec<String>,
     pub unusable_reason: Option<String>,
 }
 
@@ -181,6 +183,7 @@ impl EffectiveConfig {
                 efforts: model.reasoning_efforts.clone(),
                 reasoning: model.supports_reasoning_effort,
                 advertised_context: model.context_window,
+                input_modalities: model.input_modalities.clone(),
                 usable: model.unusable_reason.is_none()
                     && model.base_url.as_ref().is_some_and(|url| !url.is_empty()),
                 unavailable: model.unusable_reason.clone(),
@@ -202,6 +205,7 @@ impl EffectiveConfig {
                 .to_string(),
             effort: self.default_effort.clone(),
             advertised_context: model.context_window,
+            accepts_images: crate::images::model_accepts_images(Some(&model.input_modalities)),
             source: self
                 .settings
                 .iter()
@@ -2397,7 +2401,7 @@ pub fn apply_to_dsh(
     let Some(model) = config.active_model() else {
         return Ok(None);
     };
-    let yaml = generated_settings_yaml(config);
+    let yaml = generated_settings_yaml(config)?;
     match fs::read_to_string(&config.settings_yaml) {
         Ok(existing)
             if !existing.trim_start().starts_with(GENERATED_MARKER)
@@ -2529,37 +2533,56 @@ pub fn permission_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     )]
 }
 
-fn generated_settings_yaml(config: &EffectiveConfig) -> String {
+fn generated_settings_yaml(config: &EffectiveConfig) -> Result<String, io::Error> {
     let mut body = format!(
         "{GENERATED_MARKER}\n# source: {}\nllm-pi-ai:\n  providers:\n",
         config.config_path.display()
     );
+    let mut by_provider: BTreeMap<String, Vec<&ModelSpec>> = BTreeMap::new();
     for model in config.models.values() {
-        if model.unusable_reason.is_some() {
+        if model.unusable_reason.is_some()
+            || model.api_backend.is_none()
+            || model.base_url.as_ref().is_none_or(|url| url.is_empty())
+        {
             continue;
         }
-        let Some(backend) = model.api_backend else {
-            continue;
-        };
-        let Some(base_url) = model.base_url.as_deref().filter(|url| !url.is_empty()) else {
-            continue;
-        };
-        let display = if model.name.is_empty() {
-            model.id.clone()
+        let group = by_provider.entry(model.provider.clone()).or_default();
+        // A provider is one YAML key. Models join it only when the key,
+        // backend, URL, and headers are the same. A disagreeing entry would
+        // either duplicate the key or silently drop its own credentials.
+        let agrees = group.iter().all(|existing| {
+            existing.env_key == model.env_key
+                && existing.api_backend == model.api_backend
+                && existing.base_url == model.base_url
+                && existing.extra_headers == model.extra_headers
+        });
+        if !agrees {
+            return Err(io::Error::other(format!(
+                "model {} reuses provider {} with a different key, backend, url, or headers; dsh has one block per provider",
+                model.id, model.provider
+            )));
+        }
+        group.push(model);
+    }
+    for (provider, models) in &by_provider {
+        let first = models[0];
+        let backend = first.api_backend.expect("usable model has a backend");
+        let display = if first.name.is_empty() {
+            first.id.clone()
         } else {
-            model.name.clone()
+            first.name.clone()
         };
         body.push_str(&format!(
             "    {}:\n      displayName: {}\n      apiKeyEnv: {}\n      api: {}\n      baseURL: {}\n",
-            yaml_plain(&model.provider),
+            yaml_plain(provider),
             yaml_quote(&display),
-            yaml_plain(&model.env_key),
+            yaml_plain(&first.env_key),
             yaml_plain(backend.dsh_api()),
-            yaml_quote(base_url),
+            yaml_quote(first.base_url.as_deref().unwrap_or("")),
         ));
-        if !model.extra_headers.is_empty() {
+        if !first.extra_headers.is_empty() {
             body.push_str("      headers:\n");
-            for (key, value) in &model.extra_headers {
+            for (key, value) in &first.extra_headers {
                 body.push_str(&format!(
                     "        {}: {}\n",
                     yaml_plain(key),
@@ -2567,28 +2590,43 @@ fn generated_settings_yaml(config: &EffectiveConfig) -> String {
                 ));
             }
         }
-        if backend == ApiBackend::ChatCompletions && model.supports_reasoning_effort {
+        if backend == ApiBackend::ChatCompletions
+            && models.iter().any(|model| model.supports_reasoning_effort)
+        {
             body.push_str("      compat:\n        supportsReasoningEffort: true\n");
         }
         body.push_str("      models:\n");
-        body.push_str(&format!("        - id: {}\n", yaml_plain(&model.model)));
-        if !model.name.is_empty() {
-            body.push_str(&format!("          name: {}\n", yaml_quote(&model.name)));
-        }
-        if let Some(window) = model.context_window {
-            body.push_str(&format!("          contextWindow: {window}\n"));
-        }
-        if model.supports_reasoning_effort {
-            body.push_str("          reasoningEfforts:\n");
-            for effort in &model.reasoning_efforts {
-                body.push_str(&format!(
-                    "            {}: {}\n",
-                    yaml_plain(effort),
-                    yaml_plain(effort)
-                ));
+        for model in models {
+            body.push_str(&format!("        - id: {}\n", yaml_plain(&model.model)));
+            if !model.name.is_empty() {
+                body.push_str(&format!("          name: {}\n", yaml_quote(&model.name)));
             }
-        } else {
-            body.push_str("          reasoningEfforts: false\n");
+            if let Some(window) = model.context_window {
+                body.push_str(&format!("          contextWindow: {window}\n"));
+            }
+            // Only an explicit list is written. Omitting it leaves dsh unable
+            // to treat the model as vision-capable.
+            if !model.input_modalities.is_empty() {
+                let listed = model
+                    .input_modalities
+                    .iter()
+                    .map(|item| yaml_quote(item))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                body.push_str(&format!("          inputModalities: [{listed}]\n"));
+            }
+            if model.supports_reasoning_effort {
+                body.push_str("          reasoningEfforts:\n");
+                for effort in &model.reasoning_efforts {
+                    body.push_str(&format!(
+                        "            {}: {}\n",
+                        yaml_plain(effort),
+                        yaml_plain(effort)
+                    ));
+                }
+            } else {
+                body.push_str("          reasoningEfforts: false\n");
+            }
         }
     }
     if let Some(model) = config.active_model() {
@@ -2598,7 +2636,7 @@ fn generated_settings_yaml(config: &EffectiveConfig) -> String {
             yaml_plain(&model.model),
         ));
     }
-    body
+    Ok(body)
 }
 
 fn write_isolated_credential(path: &Path, env_key: &str, value: &str) -> io::Result<()> {
@@ -3147,8 +3185,14 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         .and_then(TomlValue::as_str)
         .and_then(normalize_effort);
     let extra_headers = parse_string_map(table.get("extra_headers"));
+    let provider = table
+        .get("provider")
+        .and_then(TomlValue::as_str)
+        .filter(|value| !value.is_empty())
+        .map(provider_id)
+        .unwrap_or_else(|| provider_id(id));
     Some(ModelSpec {
-        provider: provider_id(id),
+        provider,
         id: id.to_string(),
         name,
         model,
@@ -3163,8 +3207,33 @@ fn parse_model(id: &str, spec: &TomlValue) -> Option<ModelSpec> {
         reasoning_efforts,
         reasoning_effort,
         extra_headers,
+        input_modalities: parse_modalities(table.get("input_modalities")),
         unusable_reason,
     })
+}
+
+fn parse_modalities(value: Option<&TomlValue>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let raw: Vec<String> = match value {
+        TomlValue::Array(items) => items
+            .iter()
+            .filter_map(TomlValue::as_str)
+            .map(str::to_string)
+            .collect(),
+        TomlValue::String(text) => text
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    };
+    raw.into_iter()
+        .map(|item| item.to_ascii_lowercase())
+        .filter(|item| item == "text" || item == "image")
+        .collect()
 }
 
 fn parse_env_key(value: Option<&TomlValue>) -> Option<String> {
@@ -3996,6 +4065,74 @@ env_key = "XAI_API_KEY"
         assert!(yaml.contains("baseURL: \"http://127.0.0.1:9/v1\""));
         assert!(yaml.contains("apiKeyEnv: XAI_API_KEY"));
         assert!(yaml.contains("provider: gateway"));
+        assert_eq!(yaml.matches("    gateway:").count(), 1);
+
+        let dir = TempDir::new().unwrap();
+        let mut shared = input(&dir);
+        write_config(
+            &shared,
+            r#"
+[models]
+default = "vision"
+
+[model.vision]
+name = "Vision"
+provider = "cli-mock"
+model = "cli-mock"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+input_modalities = ["text", "image"]
+
+[model.fork]
+name = "Fork"
+provider = "cli-mock"
+model = "cli-mock-fork"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+input_modalities = ["text"]
+"#,
+        );
+        shared.env.insert("XAI_API_KEY".into(), "test-key".into());
+        let shared_config = load_from(shared.clone());
+        apply_to_dsh(&shared_config, &shared.env).unwrap();
+        let shared_yaml = fs::read_to_string(&shared_config.settings_yaml).unwrap();
+        assert_eq!(
+            shared_yaml.matches("    cli-mock:").count(),
+            1,
+            "{shared_yaml}"
+        );
+        assert!(shared_yaml.contains("id: cli-mock\n"), "{shared_yaml}");
+        assert!(shared_yaml.contains("id: cli-mock-fork\n"), "{shared_yaml}");
+
+        let dir = TempDir::new().unwrap();
+        let mut clash = input(&dir);
+        write_config(
+            &clash,
+            r#"
+[models]
+default = "vision"
+
+[model.vision]
+provider = "cli-mock"
+model = "cli-mock"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+
+[model.other]
+provider = "cli-mock"
+model = "other"
+base_url = "http://127.0.0.1:10/v1"
+env_key = "XAI_API_KEY"
+"#,
+        );
+        clash.env.insert("XAI_API_KEY".into(), "test-key".into());
+        let clash_config = load_from(clash.clone());
+        let clash_error = apply_to_dsh(&clash_config, &clash.env).unwrap_err();
+        assert!(
+            clash_error.to_string().contains("reuses provider"),
+            "{clash_error}"
+        );
+
         fs::write(&config.settings_yaml, "llm-pi-ai:\n  providers: {}\n").unwrap();
         let error = apply_to_dsh(&config, &load.env).unwrap_err();
         assert!(error.to_string().contains("refusing to overwrite"));

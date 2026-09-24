@@ -400,6 +400,7 @@ pub fn dsh_spawn_spec(
         "SystemRoot",
         "WINDIR",
         "DSH_CODE_CLI_MOCK_TOOL",
+        "DSH_CODE_CLI_MOCK_IMAGE",
         "DSH_CODE_CLI_MOCK_DELAY_MS",
         "DSH_CODE_CLI_TOOL_DELAY_MS",
         "FAKE_ACP_MODE",

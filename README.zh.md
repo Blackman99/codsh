@@ -109,7 +109,7 @@ Backspace 移除，Ctrl+Z 恢复。回合进行中按 Enter 会把草稿和芯�
 Alt+Up 把最早的排队提示放回空输入框。提交时才读取文件：已移除的芯片不会
 发送；文件缺失、超过 256 KiB、没有读取权限，或预览后内容已变化，都留在
 输入框并给出明确提示，且不会带上文件字节。dsh 和模型收到的是获准的文本。
-恢复会话时显示同一个 `@path` 引用。`chips=false` 只表示当前草稿没有附件。中文/组合字符、大段粘贴、缩放
+恢复会话时显示同一个 `@path` 引用。Ctrl+V（Windows 上为 Alt+V）从平台剪贴板读取图片。以 `codsh-image:` 或 `data:image/...;base64,` 开头的括号粘贴同样会附加图片。草稿里是不可拆开的 `[Image #N]` 芯片；指针悬停在芯片上，或光标停在芯片上时，提示行显示 `Pasted image #N`、识别出的尺寸（png、gif、jpeg、webp）、字节数、短摘要，以及文本模型已保存时的路径。这是冻结指南 03 的元数据行，不是 Kitty、OSC 1337 或半块拼图。Backspace 一次移除芯片及其字节。`input_modalities` 含 `image` 的模型收到 ACP 图片块（`data` 为规范 base64，`mimeType` 为 png、jpeg、webp 或 gif）。没有声明 `image` 的模型不会收到该块：原图保存在隔离 dsh Home 的 `attachments/pasted/`，提示里只带 `<pasted-image>` 路径。不会改走另一个视觉提供商。空剪贴板、不是 png/jpeg/webp/gif 的内容，以及超过 256 KiB 的文件都留在输入框并给出提示，不会发送。`GROK_CLIPBOARD_NO_NATIVE_READ` 只要出现（包括值为 `0`）就关闭 macOS 原生剪贴板读取；`CODSH_CLIPBOARD_IMAGE` 是替代用的受控文件。打包启动器会转发这两个变量，因此会话读到的是受控文件，空文件就是空剪贴板。切换 `/model`、`/minimal` 或 `/fullscreen` 后芯片和暂存的图片字节都不变，不只是占位文本。关闭模型菜单后同一草稿放回。未发送的草稿在下次启动时从 `$GROK_HOME/image-draft.json` 恢复，但仅当保存的摘要、类型和尺寸仍与字节一致。被改写的文件不会发送，也不会被覆盖。在某个模型下排队的提示，会按发送当时选中的模型重建：文本模型得到路径，而不是排队时的图片块。`chips=false` 只表示当前草稿没有附件。中文/组合字符、大段粘贴、缩放
 都会保留未发送草稿。提交被拒绝（包括尚无可用 provider 的首次运行）会把该草稿放回输入框，窄屏仍显示 `Execution unavailable`。编辑器失败也会保留草稿。`/edit-prompt` 只打开空草稿；最小模式下 Ctrl+G
 保留当前文本。HISTFILE 的 Tab 补全在 `GROK_SUGGESTIONS` 关闭时仍可用；边输入
 边补全需 `GROK_SUGGESTIONS=true`。`GROK_SUGGESTIONS_AI` 此处不是已接线的 AI
@@ -137,10 +137,11 @@ F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快�
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
 `confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段
-（`base_url`、`env_key`、`api_key`、`model`、`name`、`api_backend`、
+（`base_url`、`env_key`、`api_key`、`model`、`name`、`provider`、`api_backend`、
 `supports_reasoning_effort`、`reasoning_efforts`、`reasoning_effort`、
 `context_window`）以及 `models.default` / `models.default_reasoning_effort`
-会映射到隔离的 dsh `settings.yaml`，两份文件不会互相覆盖。支持的后端是
+会映射到隔离的 dsh `settings.yaml`，两份文件不会互相覆盖。
+`provider` 默认等于目录 id。两条目录项如果写了同一个 provider，并且密钥、后端、URL 和请求头相同，就变成该 provider 下的两个模型。再用同一 provider 配不同的凭据或后端会被拒绝，不会写出重复的 YAML 键。支持的后端是
 Grok 的 `chat_completions`、`responses`、`messages`（对应 dsh 的
 `openai-completions`、`openai-responses`、`anthropic-messages`）。同名模型
 在不同后端上是两条目录项，不是同等能力。`/model`（别名 `/m`）与 `/effort`，

@@ -105,9 +105,12 @@ User settings enter through `$GROK_HOME/config.toml` and `codsh --rust inspect`;
 Minimal mode uses the terminal palette and refuses `/theme`. Status-line
 scripts time out at 10s, clear `BASH_ENV`/`ENV`, and kill leftover process
 groups on exit. Locked requirements show their source and cannot be edited.
-applicable model/provider fields, including `api_backend` and reasoning
-effort, are translated into isolated dsh `settings.yaml` rather than competing
-with it. `/model` and `/effort` change only advertised catalog options; unknown
+applicable model/provider fields, including `provider`, `api_backend`, and
+reasoning effort, are translated into isolated dsh `settings.yaml` rather than
+competing with it. `provider` defaults to the catalog id. Entries that share a
+provider and the same key, backend, URL, and headers are one provider with
+several models. A reused provider with different credentials or a different
+backend is refused, not written as a second YAML key. `/model` and `/effort` change only advertised catalog options; unknown
 backends and efforts are refused, never treated as equivalent or silently
 swapped. Usage and context stay unknown unless the provider or config actually
 supplies them. `/context` and `/compact` are dsh-backed: occupancy is a dsh
@@ -610,34 +613,29 @@ speaks when the head row is off the screen.
 _Avoid_: tooltip, status hint
 
 **Pasted image**:
-The clipboard image Ctrl+V attaches behind an `[Image #N]` token in the box —
-one backspace removes the token whole, and a deleted token drops its image.
-At submit an image-capable model gets it as a first-class attachment block. A
-text-only model always gets the original saved under
-`$DSH_HOME/attachments/pasted/`; an explicit `CODSH_VISION_*` sidecar adds a
-verbatim description first, otherwise a `deepseek-official` text model borrows
-`deepseek-v4-flash-vision-exp` for that description automatically. Failure
-keeps the file-only path. The file context and any description ride the same
-message so they survive `--resume`; the selected conversation model never
-changes.
+The clipboard image Ctrl+V (Alt+V on Windows) attaches behind an `[Image #N]`
+token in the box — one backspace removes the token whole, and a deleted token
+drops its image. At submit, a model whose `input_modalities` includes `image`
+gets an ACP image block. A model that does not declare `image` gets the
+original saved under the isolated dsh home `attachments/pasted/` and a
+`<pasted-image>` path in the same message. The isolated client does not call
+a second vision provider. An empty clipboard, a file that is not png, jpeg,
+webp, or gif, and a file over 256 KiB stay in the composer with a notice.
+`GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read whenever it
+is set. The packed launcher forwards that switch and `CODSH_CLIPBOARD_IMAGE`,
+so the session reads the controlled file, including an empty one. Resume and a
+model or screen-mode switch keep the same bytes, not only the placeholder.
+Closing the model menu puts that draft back.
 _Avoid_: upload, embed
 
 **Image preview card**:
-The card centered over the transcript while the cursor rests against an
-`[Image #N]` token — it says what is attached, and shows it. A terminal with an
-inline-graphics protocol is handed the image itself: Kitty graphics for
-Ghostty, kitty, and WezTerm, `OSC 1337` for iTerm2. Sending the protocol a
-terminal does not implement fails silently, and a multiplexer forwards neither,
-so both are read off the environment rather than assumed; whatever is left gets
-a half-block mosaic, resampled in a child process so no native decoder is
-loaded here. The payload never travels as row text — a base64 image measures as
-thousands of columns and is cut mid-sequence by the width every row is fitted
-to, which leaves the terminal eating the rest of the frame as string data — so
-the rows reserve blank cells and the frame paints the picture over them at an
-absolute position. Transcript around the card is dimmed so the picture is what
-reads; the card itself stays undimmed. Ctrl+O and a click on the card open the original in the
-platform viewer. Card and picture come down together: a Kitty placement is not
-cell content, so clearing its rows would leave it on screen.
+The notice shown while the pointer rests on an `[Image #N]` chip, or while the
+cursor rests on or just after that chip. It names the chip, the sniffed pixel
+size (png, gif, jpeg, and webp), the byte length, a short digest, and the saved
+path when one exists. Frozen guide 03 is this metadata line, not a picture.
+This client does not speak Kitty graphics, `OSC 1337`, or a half-block mosaic,
+and it does not open a platform viewer. Those legacy protocols are not part of
+this rewrite. The image bytes stay out of the row text.
 _Avoid_: thumbnail, attachment chip
 
 **Todo readout**:

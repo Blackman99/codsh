@@ -203,6 +203,32 @@ sent, and a missing file, a file over 256 KiB, a permission failure, or a
 change since preview stays in the composer with an explicit notice and no
 file bytes. The admitted text is what dsh and the model receive. Resume shows
 the same `@path` mention.
+Ctrl+V (Alt+V on Windows) reads an image from the platform clipboard. A
+bracketed paste that starts with `codsh-image:` or `data:image/...;base64,`
+does the same. The draft shows an atomic `[Image #N]` chip. While the pointer hovers that
+chip, or the cursor rests on it, the notice is `Pasted image #N` plus the
+sniffed size (png, gif, jpeg, or webp), the byte length, a short digest, and
+the saved path when the text-only route stored one. That is the frozen guide
+03 overlay: metadata, not a Kitty, OSC 1337, or half-block picture. Backspace
+removes the chip and its bytes together. A model whose
+`input_modalities` includes `image` receives an ACP image block (`data` is
+canonical base64, `mimeType` is png, jpeg, webp, or gif). A model that omits
+`image`, or does not declare modalities, does not receive that block: the
+original is saved under the isolated dsh home `attachments/pasted/` and the
+prompt carries a `<pasted-image>` path. No second vision provider is called.
+An empty clipboard, a file that is not a png/jpeg/webp/gif, and a file over
+256 KiB stay in the composer with a notice and are not sent.
+`GROK_CLIPBOARD_NO_NATIVE_READ` disables the macOS pasteboard read even when
+set to `0`; `CODSH_CLIPBOARD_IMAGE` is the controlled file used instead.
+The packed launcher forwards both, so an empty fixture is what the session
+reads. Switching `/model`, `/minimal`, or `/fullscreen` keeps the same chip
+and the parked image bytes, not only the placeholder text. Closing the model
+menu puts that draft back. An unsent
+draft is restored from `$GROK_HOME/image-draft.json` on the next start, but
+only when the stored digest, type, and size still match the bytes. A rewritten
+file stays unsent and is not replaced. A prompt queued under one model is
+rebuilt for the model selected when it sends: a text-only model gets the path,
+not the image block that was queued earlier.
 `chips=false` only means the current draft has no attachment. Unicode, large paste, and resize keep an unsent draft. A refused
 submit, including first-run with no provider, puts that draft back and still
 shows `Execution unavailable` on a narrow screen. Failed
@@ -240,10 +266,14 @@ User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
 status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored
 in that same file. Compatible `[model.<id>]` fields
-(`base_url`, `env_key`, `api_key`, `model`, `name`, `api_backend`,
+(`base_url`, `env_key`, `api_key`, `model`, `name`, `provider`, `api_backend`,
 `supports_reasoning_effort`, `reasoning_efforts`, `reasoning_effort`,
 `context_window`) plus `models.default` / `models.default_reasoning_effort`
 map into isolated dsh `settings.yaml`; the two files are not competing sources.
+`provider` defaults to the catalog id. Two entries that name the same provider
+and share the key, backend, URL, and headers become two models under that one
+provider. A second entry that reuses the provider with different credentials
+or a different backend is refused instead of writing a duplicate YAML key.
 Supported backends are Grok `chat_completions`, `responses`, and `messages`
 (mapped to dsh `openai-completions`, `openai-responses`, `anthropic-messages`).
 The same model id on two backends is two catalog entries, not one capability.

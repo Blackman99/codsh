@@ -8,6 +8,7 @@ mod content;
 mod extra_ca;
 mod feedback_ui;
 mod filesystem_sandbox;
+mod images;
 mod import;
 mod memory;
 mod memory_ui;
@@ -38,6 +39,7 @@ use crossterm::event::{
     Event, KeyCode, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseEventKind,
     PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
+
 use crossterm::execute;
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use navigation::{Focus, FrameLayout, NavCommand, NavEntry, NavOverlay, NavState};
@@ -3407,6 +3409,7 @@ fn paint_memory(
     memory_store: Option<&memory::Store>,
 ) -> io::Result<FrameLayout> {
     let title = composer.footer();
+    let notice = composer_notice(composer, notice);
     let mut layout = FrameLayout {
         prompt: ratatui::layout::Rect::default(),
         transcript: ratatui::layout::Rect::default(),
@@ -3418,7 +3421,7 @@ fn paint_memory(
                 welcome::render_minimal(
                     frame,
                     &composer.draft,
-                    notice,
+                    &notice,
                     selected,
                     theme,
                     feedback_open,
@@ -3428,7 +3431,7 @@ fn paint_memory(
                 welcome::render(
                     frame,
                     &composer.draft,
-                    notice,
+                    &notice,
                     selected,
                     theme,
                     compact,
@@ -3437,7 +3440,7 @@ fn paint_memory(
                 )
             };
         } else if let Some(nav) = nav {
-            layout = welcome::render_session(frame, &composer.draft, notice, nav, theme, &title);
+            layout = welcome::render_session(frame, &composer.draft, &notice, nav, theme, &title);
         }
         settings_ui::render(frame, ui_overlay, theme, screen);
         if let (Some(browser), Some(store)) = (memory, memory_store) {
@@ -4026,6 +4029,50 @@ fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
     config::load_from(input)
 }
 
+fn attach_clipboard_image(
+    composer: &mut PromptComposer,
+    hint: &mut String,
+    last_error: &mut String,
+) {
+    match images::read_clipboard_image() {
+        Ok(image) => match composer.paste_image_bytes(&image.bytes) {
+            Ok(()) => {
+                *hint = std::mem::take(&mut composer.footer_notice);
+                last_error.clear();
+            }
+            Err(error) => {
+                *hint = error;
+                composer.footer_notice.clear();
+            }
+        },
+        Err(error) => {
+            *hint = if error.detail.is_empty() {
+                error.status.label().to_string()
+            } else {
+                error.detail
+            };
+            composer.footer_notice.clear();
+        }
+    }
+}
+
+fn composer_notice(composer: &PromptComposer, hint: &str) -> String {
+    // The notice slot keeps its newest lines. The preview has to follow the
+    // status, or a tall connection banner scrolls it off the screen.
+    match composer.image_preview() {
+        Some(preview) if hint.is_empty() => preview,
+        Some(preview) => format!("{hint}\n{preview}"),
+        None => hint.to_string(),
+    }
+}
+
+fn sync_image_route(composer: &mut PromptComposer, effective: &config::EffectiveConfig) {
+    let accepts = effective
+        .routing()
+        .is_some_and(|routing| routing.accepts_images);
+    composer.set_image_route(accepts, Some(&effective.dsh_home));
+}
+
 fn live_routing(
     client: Option<&AcpClient>,
     effective: &config::EffectiveConfig,
@@ -4046,6 +4093,11 @@ fn live_routing(
             routing.api = choice.api;
             routing.backend = choice.backend;
             routing.advertised_context = choice.advertised_context;
+            routing.accepts_images = images::model_accepts_images(Some(&choice.input_modalities));
+        } else {
+            // The live model is not a catalog entry this client can prove
+            // accepts images. Do not keep the previous vision route.
+            routing.accepts_images = false;
         }
     }
     if let Some(option) = client.and_then(|client| client.config_option("reasoning_effort")) {
@@ -4286,8 +4338,13 @@ fn apply_catalog_choice(
     } else {
         "saved and active"
     };
+    let vision = if images::model_accepts_images(Some(&choice.input_modalities)) {
+        "vision=image"
+    } else {
+        "vision=text-only"
+    };
     Ok(format!(
-        "Selected {} / {} api={} effort={} ({when}).",
+        "Selected {} / {} api={} effort={} {vision} ({when}).",
         choice.provider,
         choice.model,
         choice.api,
@@ -4726,6 +4783,10 @@ fn run() -> io::Result<()> {
     // still cannot stop hold-to-talk; the first release flips this on.
     let mut voice_release_supported = false;
     composer.set_workspace(&effective.cwd);
+    sync_image_route(&mut composer, &effective);
+    if let Some(draft) = prompt_edit::load_text_draft(&effective.grok_home) {
+        composer.restore_image_draft(&draft);
+    }
     composer.simple_mode = effective.simple_mode;
     composer.prompt_suggestions = effective.prompt_suggestions;
     composer.vim = if composer.simple_mode {
@@ -4894,14 +4955,38 @@ fn run() -> io::Result<()> {
                 let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, false);
             }
             let queued = composer.take_ready_queue();
+            // The catalog route is what the next submit uses. Refresh it from
+            // the model dsh is actually advertising before rebuilding blocks.
+            if let Some(routing) = live_routing(client.as_ref(), &effective) {
+                composer.set_image_route(routing.accepts_images, Some(&effective.dsh_home));
+            }
             let mut deferred = Vec::new();
+            let mut queue_refused = false;
             for prepared in queued {
-                if inflight {
+                if inflight || queue_refused {
                     deferred.push(prepared);
                     continue;
                 }
                 let text = prepared.text.clone();
-                composer.stage_prepared_submit(prepared);
+                match composer.blocks_for_route(&prepared) {
+                    Ok(blocks) => {
+                        let mut prepared = prepared;
+                        prepared.blocks = blocks;
+                        composer.stage_prepared_submit(prepared);
+                    }
+                    Err(error) => {
+                        // The route or the bytes no longer admit this image.
+                        // Put this prompt back in the composer and keep the
+                        // rest queued. Do not send the vision block.
+                        last_error = error.clone();
+                        hint = error;
+                        composer.requeue(std::iter::once(prepared).chain(deferred).collect());
+                        deferred = Vec::new();
+                        let _ = composer.restore_refused_queue_head();
+                        queue_refused = true;
+                        continue;
+                    }
+                }
                 submit_composer_prompt(
                     &text,
                     &mut client,
@@ -5853,7 +5938,7 @@ fn run() -> io::Result<()> {
                                     }
                                     continue;
                                 }
-                                PromptAction::Voice(_) => continue,
+                                PromptAction::Voice(_) | PromptAction::PasteImage => continue,
                                 PromptAction::Slash(command) => {
                                     selected = None;
                                     let dispatch_result = dispatch_composer_command(
@@ -6007,6 +6092,9 @@ fn run() -> io::Result<()> {
                                     &mut hint,
                                     &mut last_error,
                                 );
+                            }
+                            PromptAction::PasteImage => {
+                                attach_clipboard_image(&mut composer, &mut hint, &mut last_error);
                             }
                             PromptAction::Unhandled => {
                                 selected = None;
@@ -6181,9 +6269,16 @@ fn run() -> io::Result<()> {
                     hint = nav.overlay_text();
                 } else {
                     composer.paste(&text);
+                    if !composer.footer_notice.is_empty() {
+                        hint = std::mem::take(&mut composer.footer_notice);
+                        last_error.clear();
+                    }
                 }
             }
             Event::Mouse(mouse) => {
+                if matches!(mouse.kind, MouseEventKind::Moved) && ui_overlay.is_none() {
+                    composer.hover_image(mouse, nav_layout.prompt);
+                }
                 if !ui_overlay.is_none() {
                     let area = terminal
                         .size()
@@ -6304,8 +6399,8 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if text.trim() == "/reload-assets" {
-        let restored = std::mem::take(&mut composer.slash_stash);
-        composer.set_text(&restored);
+        // Same restore as /minimal: the placeholder is not the image bytes.
+        composer.restore_slash_draft();
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| effective.grok_home.clone());
@@ -6468,6 +6563,7 @@ fn dispatch_composer_command(
                         return Ok(());
                     };
                     drop_connection(client, owner);
+                    composer.persist_visible_draft();
                     return Err(io::Error::other(format!(
                         "CODSH_SCREEN_RELAUNCH:{session_id}:{target}",
                         target = target.as_str()
@@ -6604,9 +6700,9 @@ fn dispatch_composer_command(
         return Ok(());
     }
     let parked_draft = composer.voice_draft();
-    composer.slash_stash.clear();
     let trimmed = text.trim();
     if let Some(action) = session_catalog_slash(trimmed) {
+        composer.clear_slash_line(&parked_draft);
         return apply_session_catalog_slash(
             action,
             client,
@@ -6949,12 +7045,14 @@ fn dispatch_composer_command(
         *previous_ready = effective.ready;
         if applied.apply_failed {
             *last_error = applied.error;
+            composer.clear_slash_line(&parked_draft);
             return Ok(());
         }
         *patch = applied.patch;
         *apply_failed = false;
         if !can_execute(effective, *apply_failed) {
             *last_error = effective.first_run_message();
+            composer.clear_slash_line(&parked_draft);
             return Ok(());
         }
         let mut live = LiveSession {
@@ -6970,10 +7068,12 @@ fn dispatch_composer_command(
             open_live_session(mode, extra_env, (*patch).as_ref(), effective, &mut live)
         {
             *last_error = error;
+            composer.clear_slash_line(&parked_draft);
             return Ok(());
         }
     }
     if text.trim().is_empty() {
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     config::refresh_assets(
@@ -7041,6 +7141,7 @@ fn dispatch_composer_command(
                     Ok(message) => {
                         if message.starts_with("Selected ") {
                             *selection_ready = true;
+                            sync_image_route(composer, effective);
                         }
                         *hint = message;
                         last_error.clear();
@@ -7053,12 +7154,14 @@ fn dispatch_composer_command(
         }
     }
     if *inflight {
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if !turn_allowed(*selection_ready) {
         if last_error.is_empty() {
             *last_error = "configured model was not applied; no silent provider fallback".into();
         }
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if (*owner).as_ref().is_some_and(|held| !held.still_held()) {
@@ -7070,6 +7173,7 @@ fn dispatch_composer_command(
                 .unwrap_or("unknown")
         );
         drop_connection(client, owner);
+        composer.clear_slash_line(&parked_draft);
         return Ok(());
     }
     if let Some(active) = (*client).as_mut() {
@@ -7097,7 +7201,7 @@ fn dispatch_composer_command(
                     compaction: None,
                     timestamp: Some(clock_stamp()),
                 });
-                composer.clear_slash_line(&parked_draft);
+                composer.discard_parked_draft();
                 *inflight = true;
                 *memory_injected = true;
                 last_error.clear();
@@ -7105,9 +7209,14 @@ fn dispatch_composer_command(
                     let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, true);
                 }
             }
-            Err(error) => *last_error = error.message,
+            Err(error) => {
+                *last_error = error.message;
+                composer.clear_slash_line(&parked_draft);
+            }
         }
+        return Ok(());
     }
+    composer.clear_slash_line(&parked_draft);
     Ok(())
 }
 
