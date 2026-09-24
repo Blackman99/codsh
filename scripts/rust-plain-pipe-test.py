@@ -185,6 +185,18 @@ def main():
             assert script.returncode == 0, (shell, script.stderr)
             assert marker in script.stdout, shell
             assert 'help' not in script.stderr.lower() or marker in script.stdout
+        completions_help = plain(launcher, project, env('echo'), ['completions', '--help'])
+        assert completions_help.returncode == 0, completions_help.stderr
+        assert '--leader-socket <PATH>' in completions_help.stdout
+        assert 'dsh owns execution' in completions_help.stdout
+        leader = plain(
+            launcher, project, env('echo'),
+            ['completions', '--leader-socket', '/tmp/unused.sock', 'bash'],
+        )
+        assert leader.returncode != 0
+        assert 'completions --leader-socket' in leader.stderr
+        assert 'dsh owns execution' in leader.stderr
+        assert '_codsh_rust_complete' not in leader.stdout
         missing_shell = plain(launcher, project, env('echo'), ['completions'])
         assert missing_shell.returncode == 2
         assert 'completions <SHELL>' in missing_shell.stderr

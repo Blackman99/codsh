@@ -506,12 +506,13 @@ fn deferred_plain_flag(arg: &str) -> Option<String> {
         "--experimental-memory" | "--memory-flush" => {
             named("memory controls are not available in this client; a later ticket owns them")
         }
-        "--leader"
-        | "--no-leader"
-        | "--leader-socket"
-        | "--bind"
-        | "--no-exit-on-disconnect"
-        | "--relay-on-demand" => {
+        "--leader" | "--no-leader" | "--bind" | "--no-exit-on-disconnect" | "--relay-on-demand" => {
+            named("shared leader controls are not available; dsh owns execution")
+        }
+        // `--leader-socket` is global on the reference client. Subcommands that
+        // own the flag (completions, inspect, login) parse it themselves and
+        // say that name. A bare invocation still has no shared leader.
+        "--leader-socket" | "--leader-socket=" => {
             named("shared leader controls are not available; dsh owns execution")
         }
         "--no-auto-update" => named(
@@ -801,7 +802,12 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             ));
         } else {
             let arg = &args[index];
-            if let Some(message) = deferred_plain_flag(arg) {
+            // `completions` owns `--leader-socket` and reports that command
+            // name. Other invocations still hit `deferred_plain_flag`.
+            let completions_owns_leader = (arg == "--leader-socket"
+                || arg.starts_with("--leader-socket="))
+                && args.iter().any(|item| item == "completions");
+            if !completions_owns_leader && let Some(message) = deferred_plain_flag(arg) {
                 return Err(io::Error::other(message));
             }
             if arg == "--trust" && args.iter().any(|item| item == "plugin") {
@@ -1231,8 +1237,17 @@ fn parse_completions(flags: &[&str]) -> io::Result<LaunchMode> {
                 debug_file = Some(PathBuf::from(path));
             }
             "--leader-socket" => {
+                index += 1;
+                let _path = flags
+                    .get(index)
+                    .ok_or_else(|| missing_flag_value("--leader-socket <PATH>"))?;
                 return Err(io::Error::other(
-                    "--leader-socket: shared leader controls are not available; dsh owns execution",
+                    "completions --leader-socket is unused; dsh owns execution. Omit the flag.",
+                ));
+            }
+            other if other.starts_with("--leader-socket=") => {
+                return Err(io::Error::other(
+                    "completions --leader-socket is unused; dsh owns execution. Omit the flag.",
                 ));
             }
             other if other.starts_with("--debug-file=") => {
@@ -1271,7 +1286,7 @@ fn parse_completions(flags: &[&str]) -> io::Result<LaunchMode> {
 }
 
 fn completions_help() -> &'static str {
-    "Generate shell completion scripts (bash, zsh, fish, powershell, elvish)\n\nUsage: codsh --rust completions [OPTIONS] <SHELL>\n\nArguments:\n  <SHELL>  Target shell [possible values: bash, elvish, fish, powershell, zsh]\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n\nThe script completes this command's flags and subcommands. It is not a help page."
+    "Generate shell completion scripts (bash, zsh, fish, powershell, elvish)\n\nUsage: codsh --rust completions [OPTIONS] <SHELL>\n\nArguments:\n  <SHELL>  Target shell [possible values: bash, elvish, fish, powershell, zsh]\n\nOptions:\n      --debug                 Enable debug logging\n      --debug-file <FILE>     Write debug logs to FILE\n  -h, --help                  Print help\n      --leader-socket <PATH>  unused; dsh owns execution. Omit the flag.\n\nThe script completes this command's flags and subcommands. It is not a help page."
 }
 
 fn completion_script(shell: &str) -> &'static str {
@@ -8792,6 +8807,24 @@ mod tests {
     fn parse_leader_socket_is_refused() {
         let error = parse_launch(&args(&["inspect", "--leader-socket", "x"])).unwrap_err();
         assert!(error.to_string().contains("dsh owns execution"));
+        let completions = parse_launch(&args(&[
+            "completions",
+            "--leader-socket",
+            "/tmp/unused.sock",
+            "bash",
+        ]))
+        .unwrap_err();
+        let message = completions.to_string();
+        assert!(message.contains("completions --leader-socket"));
+        assert!(message.contains("dsh owns execution"));
+        let equals =
+            parse_launch(&args(&["completions", "--leader-socket=/tmp/unused.sock"])).unwrap_err();
+        assert!(equals.to_string().contains("dsh owns execution"));
+        let missing = parse_launch(&args(&["completions", "--leader-socket"])).unwrap_err();
+        assert!(missing.to_string().contains("--leader-socket <PATH>"));
+        let help = completions_help();
+        assert!(help.contains("--leader-socket <PATH>"));
+        assert!(help.contains("dsh owns execution"));
     }
 
     #[test]
