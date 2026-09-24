@@ -155,7 +155,8 @@ dsh with its per-call file mode at `danger-full-access` and unchanged
 approvals; the kernel policy confines bash children and child agents. A deny
 glob's literal prefix is pinned against rename, and so is a directory inside
 the glob tail (including one created after launch), because Seatbelt matches
-the resolved path; the launchd escape is
+the resolved path. The ancestor walk stops at the resolved write root, so a
+workspace under `/tmp` does not pin `/tmp` itself. The launchd escape is
 kernel-blocked, matching the reference `mach-lookup` rules.
  After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the

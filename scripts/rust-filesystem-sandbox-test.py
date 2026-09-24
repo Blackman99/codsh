@@ -7,7 +7,8 @@ write, a rename of a protected file, and a symlink escape, while an allowed
 sibling write still succeeds. Unavailable enforcement must refuse startup.
 
 It also proves the glob literal-prefix rename is pinned, that a directory
-inside the glob tail cannot be renamed onto another write root, and probes the
+inside the glob tail cannot be renamed onto another write root, that a
+workspace `**/.env` does not pin `/tmp` itself, and probes the
 launchd escape (`launchctl submit` / `bootstrap gui/$UID`) with a unique
 user-domain job label and strict teardown, asserting a sandboxed child cannot
 get an unconfined process to read a denied file.
@@ -16,6 +17,7 @@ get an unconfined process to read a denied file.
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -577,6 +579,106 @@ def _glob_tail_case(binary, base, label, deny, cwd, source, protected, destinati
                 shutil.rmtree(dest, ignore_errors=True)
 
 
+def pin_regex_matches_bare(profile_text, path):
+    """True when a generated directory pin's regex matches `path` alone.
+
+    The body is a quoted `^(a|b)$`. An alternative equal to `path`, or a
+    prefix alternative whose following group can be empty, matches the
+    directory itself. A longer prefix such as `path/workspace` does not.
+    """
+    for line in profile_text.splitlines():
+        if "vnode-type DIRECTORY" not in line:
+            continue
+        for quoted in re.findall(r'"(\^\(.*\)\$)"', line):
+            body = quoted[2:-2]
+            for alternative in body.split("|"):
+                if alternative == path:
+                    return True
+                if alternative.startswith(path) and re.fullmatch(
+                    re.escape(path) + r"(\([^)]*\))*", alternative
+                ):
+                    return True
+    return False
+
+
+def probe_dotenv_does_not_pin_temp_root(binary, work):
+    """`**/.env` is anchored at the workspace. A workspace under `/tmp`
+    resolves to `/private/tmp/...`, which starts with the write root `/tmp`
+    but is not that root. The ancestor walk must stop at the resolved write
+    root, so renaming a workspace directory onto a fresh `/tmp` sibling stays
+    allowed. The workspace `.env` stays unreadable and `outside/.env` stays
+    readable. A directory under `secrets/**/*.key` is still pinned."""
+    base = Path("/tmp") / f"codsh-dotenv-pin-{os.getpid()}"
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    workspace = base / "ws"
+    # Not under secrets: `secrets/**/*.key` still pins that tree.
+    later = workspace / "box"
+    key_dir = workspace / "secrets" / "sub"
+    for path in (grok, dsh, later, key_dir):
+        path.mkdir(parents=True)
+    (workspace / ".env").write_text("inside")
+    (later / "note.txt").write_text("keep")
+    (key_dir / "deep.key").write_text("DEEP")
+    outside = Path("/tmp") / f"codsh-dotenv-outside-{os.getpid()}"
+    outside.mkdir()
+    (outside / ".env").write_text("outside")
+    dest_parent = Path("/tmp") / f"codsh-pin-dest-{os.getpid()}"
+    dest_parent.mkdir()
+    dest = dest_parent / "later"
+    key_dest = Path("/tmp") / f"codsh-pin-key-{os.getpid()}"
+    public = workspace / "public" / "moved"
+    (grok / "sandbox.toml").write_text(
+        "[profiles.gr]\nextends = \"workspace\"\n"
+        "deny = [\"**/.env\", \"secrets/**/*.key\"]\n"
+    )
+    env = fixture_env(home, grok, dsh)
+    report = base / "dotenv-pin-report.json"
+    try:
+        completed, payload, effects = run_checks(
+            binary, workspace, env, "gr",
+            [
+                ("inside_env", "read", workspace / ".env", None),
+                ("outside_env", "read", outside / ".env", None),
+                ("rename_later_tmp", "rename", later, dest),
+                ("key_read", "read", key_dir / "deep.key", None),
+                ("rename_key_tmp", "rename", key_dir, key_dest),
+                ("rename_key_public", "rename", key_dir, public),
+                ("key_read_after", "read", key_dir / "deep.key", None),
+            ],
+            workspace / "dotenv-pin-marker.json",
+            report,
+        )
+        status = expect_effects(
+            "dotenv temp pin", completed, payload, effects,
+            denied=("inside_env", "key_read", "rename_key_tmp", "rename_key_public", "key_read_after"),
+            allowed=("outside_env", "rename_later_tmp"),
+        )
+        if status:
+            return status
+        if not dest.is_dir() or not (dest / "note.txt").is_file() or (dest / "note.txt").read_text() != "keep":
+            return fail(f"dotenv temp pin: workspace directory was not renamed onto /tmp: {effects}")
+        if later.exists():
+            return fail(f"dotenv temp pin: source still exists after an allowed rename: {effects}")
+        if not (key_dir / "deep.key").is_file() or (key_dir / "deep.key").read_text() != "DEEP":
+            return fail(f"dotenv temp pin: secrets directory bytes changed: {effects}")
+        if key_dest.exists() or public.exists():
+            return fail(f"dotenv temp pin: secrets directory was renamed: {effects}")
+        tail = payload.get("denyTail", "")
+        for bare in ("/tmp", "/private/tmp"):
+            if pin_regex_matches_bare(tail, bare):
+                return fail(f"dotenv temp pin: generated profile pins {bare} alone: {tail}")
+        if "vnode-type DIRECTORY" not in tail:
+            return fail(f"dotenv temp pin: directory pin lost vnode-type DIRECTORY: {tail}")
+        return {"profile": "gr", "effects": effects}
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+        shutil.rmtree(outside, ignore_errors=True)
+        shutil.rmtree(dest_parent, ignore_errors=True)
+        shutil.rmtree(key_dest, ignore_errors=True)
+
+
 def probe_glob_tail_rename(binary, work):
     """Seatbelt matches the resolved path. Renaming a directory created inside
     the glob tail onto another write root (`/tmp`, or an in-workspace
@@ -1019,6 +1121,7 @@ def probe(binary, work, outside_env):
         ("metachar", probe_metachar_workspace),
         ("glob_rename", probe_glob_parent_rename),
         ("glob_tail_rename", probe_glob_tail_rename),
+        ("dotenv_temp_pin", probe_dotenv_does_not_pin_temp_root),
         ("launchd", probe_launchd_escape),
         ("inspect", probe_inspect_keeps_diagnostics),
     ):

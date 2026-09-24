@@ -335,7 +335,7 @@ pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
         caps = deny_subpath(caps, path, true, &prepared.name)?;
     }
     for glob in &prepared.read_denied_globs {
-        caps = deny_glob(caps, glob, &prepared.name)?;
+        caps = deny_glob(caps, glob, &prepared.write_roots, &prepared.name)?;
     }
     // nono emits platform rules before its own write allows. Seatbelt uses the
     // last match, so a write grant on $GROK_HOME would reopen config.toml.
@@ -512,7 +512,7 @@ fn tail_marker() -> String {
     "\n;; codsh-deny-tail\n".into()
 }
 
-fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
+pub fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
     let mut tail = String::new();
     for path in &prepared.write_denied {
         for form in resolved_forms(path)? {
@@ -555,7 +555,9 @@ fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
 /// grandparent onto another write root carries the protected file out.
 /// The containing write root is included. `$GROK_HOME` is that root for
 /// config and hooks, and a workspace root is that root for a nested hook.
-/// Ancestors above the write root are not pinned.
+/// Ancestors above the write root are not pinned. The stop compares
+/// resolved paths: `/private/tmp` is the write root `/tmp`, so a workspace
+/// under `/tmp` does not pin `/tmp` or `/private/tmp`.
 ///
 /// A deny glob is anchored at its literal prefix, so renaming that prefix
 /// directory (or an ancestor of it under the write root) moves the whole
@@ -574,15 +576,24 @@ fn pinned_directories(prepared: &Prepared) -> Vec<PathBuf> {
             if directory.as_os_str().is_empty() || directory == Path::new("/") {
                 break;
             }
-            if !under_write_root(directory, &prepared.write_roots) {
+            if !under_resolved_write_root(directory, &prepared.write_roots).unwrap_or(false) {
                 break;
             }
+            // A temp write root is not pinned. `/tmp` is a symlink to
+            // `/private/tmp`, and pinning that vnode denies renaming any
+            // directory that lives under it.
+            let reached = write_root_reached(directory, &prepared.write_roots).unwrap_or(false);
+            let temp_root = reached && is_temp_write_root(directory);
             if directory.is_dir()
+                && !temp_root
                 && !directories
                     .iter()
                     .any(|existing: &PathBuf| existing == directory)
             {
                 directories.push(directory.to_path_buf());
+            }
+            if reached {
+                break;
             }
             current = directory.parent();
         }
@@ -600,10 +611,41 @@ fn pinned_directories(prepared: &Prepared) -> Vec<PathBuf> {
     directories
 }
 
-fn under_write_root(path: &Path, roots: &[PathBuf]) -> bool {
-    roots.iter().any(|root| {
-        !root.as_os_str().is_empty() && root != Path::new("/") && path.starts_with(root)
-    })
+/// Resolved containment. `path.starts_with("/tmp")` is true for
+/// `/private/tmp`, which is the `/tmp` write root itself.
+fn under_resolved_write_root(path: &Path, roots: &[PathBuf]) -> Result<bool, Refusal> {
+    let path = resolve_through_existing_ancestor(path)?;
+    for root in roots {
+        if root.as_os_str().is_empty() || root == Path::new("/") {
+            continue;
+        }
+        let root = resolve_through_existing_ancestor(root)?;
+        if path.starts_with(&root) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// True when `directory` is a write root, including `/tmp` and `/private/tmp`.
+fn write_root_reached(directory: &Path, write_roots: &[PathBuf]) -> Result<bool, Refusal> {
+    let directory = resolve_through_existing_ancestor(directory)?;
+    for root in write_roots {
+        if root.as_os_str().is_empty() || root == Path::new("/") {
+            continue;
+        }
+        let resolved = resolve_through_existing_ancestor(root)?;
+        if resolved == directory {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn is_temp_write_root(directory: &Path) -> bool {
+    temp_roots()
+        .iter()
+        .any(|root| write_root_reached(directory, std::slice::from_ref(root)).unwrap_or(false))
 }
 
 /// Block renaming or unlinking the directory itself. `file-write-unlink`
@@ -644,9 +686,12 @@ fn glob_directory_regexes(
                 form.display()
             ),
         })?;
-        let ancestors = directory_ancestors(&form, write_roots);
-        let regex =
-            glob_directory_regex(root, &glob.tail, &ancestors).map_err(|message| Refusal {
+        let ancestors = directory_ancestors(&form, write_roots)?;
+        // A leading `**` on a write root would pin every directory under it.
+        // A narrower root (`secrets`) still pins the directories under it.
+        let root_is_write_root = write_root_reached(Path::new(root), write_roots)?;
+        let regex = glob_directory_regex(root, &glob.tail, &ancestors, root_is_write_root)
+            .map_err(|message| Refusal {
                 message: format!("refusing sandbox: {message} (deny glob {})", glob.pattern),
             })?;
         if !regexes.contains(&regex) {
@@ -659,29 +704,42 @@ fn glob_directory_regexes(
 /// Parents of the glob root, up through the write root that contains it.
 /// A literal pin only names a directory that already exists. These stay in
 /// the regex so a prefix created after launch cannot be renamed away either.
-fn directory_ancestors(path: &Path, write_roots: &[PathBuf]) -> Vec<String> {
+/// The walk stops at the resolved write root and does not emit that root
+/// when it is `/tmp`: `/private/tmp` equals `/tmp` after resolution, and a
+/// pin of that vnode denies renaming any directory under it.
+fn directory_ancestors(path: &Path, write_roots: &[PathBuf]) -> Result<Vec<String>, Refusal> {
     let mut ancestors = Vec::new();
     let mut current = path.parent();
     while let Some(directory) = current {
         if directory.as_os_str().is_empty() || directory == Path::new("/") {
             break;
         }
-        if !under_write_root(directory, write_roots) {
+        if write_root_reached(directory, write_roots)? {
+            if !is_temp_write_root(directory) {
+                if let Some(text) = directory.to_str() {
+                    ancestors.push(text.to_string());
+                }
+            }
+            break;
+        }
+        if !under_resolved_write_root(directory, write_roots)? {
             break;
         }
         let Some(text) = directory.to_str() else {
             break;
         };
         ancestors.push(text.to_string());
-        if write_roots.iter().any(|root| root == directory) {
-            break;
-        }
         current = directory.parent();
     }
-    ancestors
+    Ok(ancestors)
 }
 
-fn glob_directory_regex(root: &str, tail: &str, ancestors: &[String]) -> Result<String, String> {
+fn glob_directory_regex(
+    root: &str,
+    tail: &str,
+    ancestors: &[String],
+    root_is_write_root: bool,
+) -> Result<String, String> {
     // Seatbelt checks the path without a trailing slash. Each segment
     // therefore starts with `/`; a pattern that ends in `/` misses the rename.
     let segments = directory_tail_segments(tail);
@@ -692,7 +750,12 @@ fn glob_directory_regex(root: &str, tail: &str, ancestors: &[String]) -> Result<
     };
     // `**` can put a match under any later directory. Names after `**` do
     // not narrow the pin: that directory is an ancestor of the match.
-    let mut chain = if star.is_some() {
+    // A leading `**` whose root is a write root (a workspace `**/.env`)
+    // does not pin every directory under that root: the file regex still
+    // covers the matched file, and pinning the tree would deny renaming a
+    // directory that the caller can move onto another directory of the
+    // same write root. A narrower root keeps the descendant pin.
+    let mut chain = if star.is_some() && !(prefix.is_empty() && root_is_write_root) {
         "(/[^/]+)*".to_string()
     } else {
         String::new()
@@ -1020,11 +1083,12 @@ fn deny_subpath(
 fn deny_glob(
     caps: CapabilitySet,
     glob: &DenyGlob,
+    write_roots: &[PathBuf],
     profile: &str,
 ) -> Result<CapabilitySet, Refusal> {
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = caps;
+        let _ = (caps, write_roots);
         return Err(Refusal {
             message: format!(
                 "refusing sandbox profile {profile}: glob deny {} is not kernel-enforced on {}",
@@ -1042,10 +1106,9 @@ fn deny_glob(
             }
             rule.push_str(&format!("(deny file-read* file-write* (regex {regex}))"));
         }
-        // The platform rule is built before write roots are known to this
-        // helper. The same regex is appended again, with those ancestors,
-        // after every write allow. This copy still has to be accepted.
-        for regex in glob_directory_regexes(glob, &[])? {
+        // Same directory pin as the tail. An empty root list would treat a
+        // workspace `**` as pinning every directory under that workspace.
+        for regex in glob_directory_regexes(glob, write_roots)? {
             if !rule.is_empty() {
                 rule.push(' ');
             }
@@ -2617,6 +2680,64 @@ mod tests {
     }
 
     #[test]
+    fn workspace_glob_does_not_pin_the_temp_write_root() {
+        let base = std::env::temp_dir().join(format!(
+            "codsh-pin-stop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        let workspace = base.join("ws");
+        let home = workspace.join(".grok");
+        fs::create_dir_all(&home).unwrap();
+        fs::write(
+            home.join("sandbox.toml"),
+            "[profiles.gr]\nextends = \"workspace\"\ndeny = [\"**/.env\"]\n",
+        )
+        .unwrap();
+        let prepared = prepare("gr", &workspace, &home, None, true)
+            .unwrap()
+            .unwrap();
+        let tail = deny_tail(&prepared).unwrap();
+        for bare in ["/tmp", "/private/tmp", "/var/tmp", "/private/var/tmp"] {
+            let pin = format!(
+                "(deny file-write-unlink (literal {}))",
+                seatbelt_string(bare)
+            );
+            assert!(
+                !tail.contains(&pin),
+                "bare temp root pinned: {pin} in {tail}"
+            );
+            assert!(
+                !tail.lines().any(|line| {
+                    line.contains("vnode-type DIRECTORY") && line.contains(&format!("\"^{bare}$\""))
+                }),
+                "directory pin matches {bare} alone in {tail}"
+            );
+        }
+        let directory =
+            glob_directory_regexes(&prepared.read_denied_globs[0], &prepared.write_roots).unwrap();
+        for regex in &directory {
+            let pattern = regex.trim_matches('"');
+            let Some(body) = pattern
+                .strip_prefix("^(")
+                .and_then(|rest| rest.strip_suffix(")$"))
+            else {
+                continue;
+            };
+            for bare in ["/tmp", "/private/tmp"] {
+                assert!(
+                    !body.split('|').any(|alternative| alternative == bare),
+                    "{regex} matches {bare} alone"
+                );
+            }
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
     fn glob_tail_directory_regex_covers_later_directories_only() {
         let root = Path::new("/workspace");
         let ancestors = vec!["/workspace".to_string()];
@@ -2640,17 +2761,25 @@ mod tests {
         ];
         for (pattern, want) in cases {
             let glob = split_glob(pattern, root);
-            let regex =
-                glob_directory_regex(&glob.root.display().to_string(), &glob.tail, &ancestors)
-                    .unwrap_or_else(|error| panic!("{pattern}: {error}"));
+            let regex = glob_directory_regex(
+                &glob.root.display().to_string(),
+                &glob.tail,
+                &ancestors,
+                false,
+            )
+            .unwrap_or_else(|error| panic!("{pattern}: {error}"));
             assert_eq!(regex, seatbelt_string(want), "{pattern}");
         }
         // A literal directory that cannot carry a match is not in the regex,
         // so `other` beside `sub` is not pinned by `secrets/sub/*.key`.
         let nested = split_glob("secrets/sub/*.key", root);
-        let regex =
-            glob_directory_regex(&nested.root.display().to_string(), &nested.tail, &ancestors)
-                .unwrap();
+        let regex = glob_directory_regex(
+            &nested.root.display().to_string(),
+            &nested.tail,
+            &ancestors,
+            false,
+        )
+        .unwrap();
         assert!(!regex.contains("other"), "{regex}");
     }
 

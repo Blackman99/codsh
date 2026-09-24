@@ -5081,6 +5081,11 @@ fn activate_filesystem_sandbox(
                 })
                 .unwrap_or_default(),
             "writeDenied": prepared.as_ref().map(|item| item.write_denied.clone()).unwrap_or_default(),
+            "denyTail": match prepared.as_ref() {
+                Some(item) => filesystem_sandbox::deny_tail(item)
+                    .map_err(|error| io::Error::other(error.message))?,
+                None => String::new(),
+            },
             "limits": prepared.as_ref().map(|item| item.limits.clone()).unwrap_or_default(),
             "network": prepared.as_ref().map(|item| item.network_note.clone()),
         });

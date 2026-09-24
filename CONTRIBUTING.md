@@ -181,6 +181,10 @@ out of the deny (a directory inside the tail cannot be renamed either, because
 Seatbelt does not see the destination), a directory inside the glob tail
 (including one created after launch) that cannot be renamed onto `/tmp` or
 another in-workspace write root,
+a workspace `**/.env` whose ancestor walk stops at the resolved write root
+(renaming a workspace directory onto a fresh `/tmp` sibling stays allowed,
+`outside/.env` stays readable, and the generated profile does not pin `/tmp`
+or `/private/tmp` alone),
 an absolute deny glob whose nested directory cannot be renamed to a sibling
 outside that glob, and a
 `inspect --json` probe that prints every config error (including an unknown
