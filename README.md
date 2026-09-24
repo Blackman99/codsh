@@ -108,7 +108,10 @@ empty Esc Esc) fork conversation-only history through dsh; `/fork` copies the
 current history into a new session. Disk files are not restored; `--restore-code`
 is refused. The UI restores persisted turns from the
 dsh log (not a second store). Interrupted or never-finished tools show
-`[interrupted]` / unknown and are not replayed. A second client that cannot
+`[interrupted]` / unknown and are not replayed. Fullscreen and minimal paint
+that marker, `[cancelled]`, `[empty answer]`, and a compaction sentence on the
+transcript itself; a finished tool whose status is unknown is not treated as
+an interrupted turn. A second client that cannot
 take write ownership is refused instead of forking a duplicate executor.
 Default fullscreen uses the alternate screen. `/minimal` (or `--minimal`)
 switches to native terminal history through the official inline renderer;

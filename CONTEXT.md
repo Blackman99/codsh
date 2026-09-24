@@ -20,7 +20,10 @@ executing agent core and durable session owner; the Rust process does not link
 the official agent runtime or own tools. Protocol mismatch, empty answers,
 mid-stream failure, disconnect, and cancellation are reported truthfully.
 `Ctrl+C` clears a draft first; an empty draft cancels the running dsh turn. Esc
-does not cancel. `--continue` / `--resume <id>` restore the same dsh session;
+does not cancel. `--continue` / `--resume <id>` restore the same dsh session and, in both
+fullscreen and minimal, keep `[interrupted]`, `[cancelled]`, `[empty answer]`,
+and the compaction sentence on the transcript; a finished unknown tool is not
+inferred to be interrupted;
 `--fork-session`, `/fork`, and `/rewind` copy conversation through dsh
 seed/projection without restoring files or replaying tools. A second write
 owner is refused. `/minimal` and `/fullscreen` switch render mode

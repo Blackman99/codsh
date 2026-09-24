@@ -71,6 +71,8 @@ dsh 会话 id。`/rewind` 与 `/undo`（或空闲时空草稿上的 Esc Esc）�
 仅对话历史；`/fork` 复制当前历史。磁盘文件不会被回滚；`--restore-code` 会被拒绝。
 界面从 dsh 日志恢复已持久化的回合（不是第二套会话库）。中断或
 未完成的工具显示为 `[interrupted]` / unknown，并且不会自动重放副作用。
+全屏和最小模式都会在记录本身画出该标记、`[cancelled]`、`[empty answer]`
+以及压缩摘要句；已完成但状态为 unknown 的工具不会被当成中断回合。
 第二个客户端若不能取得写入权会被明确拒绝，而不会再开一个执行核心。
 默认 fullscreen 使用备用屏幕。`/minimal`（或 `--minimal`）按官方内联渲染
 把已提交内容写入终端原生历史；`/fullscreen`（别名 `/full`）切回全屏。

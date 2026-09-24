@@ -140,6 +140,12 @@ pub struct NavEntry {
     /// Turn errors such as a failed tool. Paint-only; not model history.
     pub errors: Vec<String>,
     pub diffs: Vec<String>,
+    /// Paint-only turn flags. They do not rewrite model history.
+    pub interrupted: bool,
+    pub cancelled: bool,
+    pub done: bool,
+    /// Compaction sentence when the turn was compacted; `None` otherwise.
+    pub compaction: Option<String>,
     pub folded_thought: bool,
     pub folded_answer: bool,
     pub folded_tools: bool,
@@ -160,6 +166,10 @@ impl NavEntry {
             tool_meta: Vec::new(),
             errors: Vec::new(),
             diffs: Vec::new(),
+            interrupted: false,
+            cancelled: false,
+            done: true,
+            compaction: None,
             folded_thought: false,
             folded_answer: false,
             folded_tools: false,
@@ -3034,6 +3044,121 @@ mod tests {
                 .iter()
                 .any(|span| { span.style.fg.is_some() && span.content.contains("Heading") })),
             "heading color reaches the session painter: {dump}"
+        );
+    }
+
+    fn paint_entry(entry: NavEntry) -> String {
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        state.rebuild(vec![entry], 80, 16);
+        state
+            .lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn fullscreen_layout_paints_turn_markers_without_inferring_interrupted() {
+        let mut interrupted = NavEntry::from_parts(
+            "TOKEN_CRASH_EDIT",
+            "",
+            "",
+            vec![(
+                "tool".into(),
+                "The tool call was interrupted after it was recorded".into(),
+            )],
+        );
+        interrupted.tool_meta = vec![("".into(), "unknown".into())];
+        interrupted.interrupted = true;
+        interrupted.done = true;
+        let painted = paint_entry(interrupted);
+        assert!(painted.contains("TOKEN_CRASH_EDIT"), "{painted}");
+        assert!(painted.contains("[tool tool unknown]"), "{painted}");
+        assert!(painted.contains("[interrupted]"), "{painted}");
+        assert!(!painted.contains("pending]"), "{painted}");
+        assert!(!painted.contains("in_progress]"), "{painted}");
+        assert!(
+            painted.rfind("[interrupted]").unwrap() > painted.find("[tool tool unknown]").unwrap(),
+            "{painted}"
+        );
+
+        let mut cancelled =
+            NavEntry::from_parts("prompt", "", "", vec![("tool".into(), String::new())]);
+        cancelled.tool_meta = vec![("t1".into(), "cancelled".into())];
+        cancelled.cancelled = true;
+        cancelled.done = true;
+        let painted = paint_entry(cancelled);
+        assert!(painted.contains("[cancelled]"), "{painted}");
+        assert!(!painted.contains("[interrupted]"), "{painted}");
+
+        let empty = NavEntry::from_parts("prompt", "", "", vec![]);
+        let painted = paint_entry(empty);
+        assert!(painted.contains("[empty answer]"), "{painted}");
+        assert!(!painted.contains("[interrupted]"), "{painted}");
+
+        let mut compact = NavEntry::from_parts("compaction summary", "", "summary", vec![]);
+        compact.compaction = Some("✂ compacted 4 history items · purpose=compaction".into());
+        compact.done = true;
+        let painted = paint_entry(compact);
+        assert!(
+            painted.contains("✂ compacted 4 history items · purpose=compaction"),
+            "{painted}"
+        );
+        assert!(!painted.contains("[empty answer]"), "{painted}");
+
+        let mut disconnect = NavEntry::from_parts("prompt", "", "", vec![]);
+        disconnect.errors = vec!["disconnect".into()];
+        disconnect.interrupted = true;
+        disconnect.done = true;
+        let painted = paint_entry(disconnect);
+        assert!(painted.contains("[error] disconnect"), "{painted}");
+        assert!(painted.contains("[interrupted]"), "{painted}");
+        let error_at = painted.find("[error] disconnect").unwrap();
+        let marker_at = painted.rfind("[interrupted]").unwrap();
+        assert!(error_at < marker_at, "{painted}");
+        assert_eq!(painted.matches("[error]").count(), 1, "{painted}");
+
+        let mut unknown =
+            NavEntry::from_parts("prompt", "", "done", vec![("tool".into(), "result".into())]);
+        unknown.tool_meta = vec![("".into(), "unknown".into())];
+        unknown.done = true;
+        let painted = paint_entry(unknown);
+        assert!(painted.contains("[tool tool unknown]"), "{painted}");
+        assert!(
+            !painted.contains("[interrupted]"),
+            "unknown tool status is not an interrupted turn: {painted}"
+        );
+
+        let mut streaming = NavEntry::from_parts("prompt", "", "", vec![]);
+        streaming.done = false;
+        let painted = paint_entry(streaming);
+        assert!(painted.contains('…'), "{painted}");
+        assert!(!painted.contains("[empty answer]"), "{painted}");
+
+        let mut viewer = NavState::new(NavigationPrefs::default(), true);
+        let mut entry = NavEntry::from_parts("TOKEN_CRASH_EDIT", "", "", vec![]);
+        entry.interrupted = true;
+        entry.done = true;
+        entry.compaction = Some("✂ compacted history into a summary · purpose=compaction".into());
+        viewer.rebuild(vec![entry], 80, 8);
+        viewer.selected = Some(0);
+        viewer.open_viewer();
+        let body = viewer
+            .viewer_lines(8)
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(body.contains("[interrupted]"), "{body}");
+        assert!(
+            body.contains("✂ compacted history into a summary · purpose=compaction"),
+            "{body}"
         );
     }
 

@@ -441,6 +441,31 @@ pub fn entry_lines(
             Line::from(status_span(&format!("[error] {error}"))),
         ));
     }
+    if let Some(sentence) = entry.compaction.as_ref().filter(|text| !text.is_empty()) {
+        out.push((LineKind::Tool, Line::from(sentence.clone())));
+    }
+    // Interrupted wins over cancelled, an already-painted error, an empty
+    // answer, and a still-open turn. Do not infer interrupted from a tool
+    // status of unknown: that status is a separate fact.
+    let marker = if entry.interrupted {
+        Some("[interrupted]".to_string())
+    } else if entry.cancelled {
+        Some("[cancelled]".to_string())
+    } else if entry.done
+        && entry.errors.is_empty()
+        && entry.answer.is_empty()
+        && entry.thought.is_empty()
+        && entry.tools.is_empty()
+    {
+        Some("[empty answer]".to_string())
+    } else if !entry.done {
+        Some("…".to_string())
+    } else {
+        None
+    };
+    if let Some(marker) = marker {
+        out.push((LineKind::Tool, Line::from(marker)));
+    }
     out
 }
 
@@ -454,24 +479,40 @@ pub fn render_turn_text(turn: &TurnView, display: &DisplayState) -> String {
             .iter()
             .map(|tool| (tool.title.clone(), tool.result.clone()))
             .collect(),
+        // Status lines stay here, after the body. `entry_lines` would also
+        // paint them from `tool_meta`, so leave that empty and avoid a second copy.
         tool_meta: Vec::new(),
-        errors: Vec::new(),
+        errors: turn.error.iter().cloned().collect(),
         diffs: Vec::new(),
+        interrupted: turn.interrupted,
+        cancelled: turn.cancelled,
+        done: turn.done,
+        compaction: if turn.compacted {
+            Some(turn.compaction.clone().unwrap_or_else(|| {
+                "✂ compacted history into a summary · purpose=compaction".into()
+            }))
+        } else {
+            None
+        },
         folded_thought: false,
         folded_answer: false,
         folded_tools: false,
     };
+    let marker_added = entry.interrupted
+        || entry.cancelled
+        || (entry.done
+            && entry.errors.is_empty()
+            && entry.answer.is_empty()
+            && entry.thought.is_empty()
+            && entry.tools.is_empty())
+        || !entry.done;
     let mut lines: Vec<String> = entry_lines(0, &entry, display)
         .into_iter()
         .map(|(_, line)| line_text(&line))
         .collect();
-    if turn.compacted {
-        if let Some(info) = &turn.compaction {
-            lines.push(info.clone());
-        } else {
-            lines.push("✂ compacted history into a summary · purpose=compaction".into());
-        }
-    }
+    // Diffs and the extra status lines stay outside `entry_lines`. The
+    // terminal marker still has to be the last line.
+    let marker = if marker_added { lines.pop() } else { None };
     for tool in &turn.tools {
         if !tool.diff.is_empty() {
             lines.push(sanitize(&tool.diff));
@@ -483,20 +524,8 @@ pub fn render_turn_text(turn: &TurnView, display: &DisplayState) -> String {
     if let Some(permission) = &turn.permission {
         lines.push(permission.clone());
     }
-    if turn.interrupted {
-        lines.push("[interrupted]".into());
-    } else if turn.cancelled {
-        lines.push("[cancelled]".into());
-    } else if let Some(error) = &turn.error {
-        lines.push(format!("[error] {error}"));
-    } else if turn.done
-        && turn.answer.is_empty()
-        && turn.thought.is_empty()
-        && turn.tools.is_empty()
-    {
-        lines.push("[empty answer]".into());
-    } else if !turn.done {
-        lines.push("…".into());
+    if let Some(marker) = marker {
+        lines.push(marker);
     }
     lines.join("\n")
 }
@@ -932,6 +961,10 @@ mod tests {
             tool_meta: Vec::new(),
             errors: Vec::new(),
             diffs: Vec::new(),
+            interrupted: false,
+            cancelled: false,
+            done: true,
+            compaction: None,
             folded_thought: false,
             folded_answer: false,
             folded_tools: true,
@@ -947,5 +980,91 @@ mod tests {
         assert!(painted.contains("folded"), "{painted}");
         assert_eq!(original_block(&turn, BlockKind::Tool, 0), huge);
         assert!(raw_transcript(std::slice::from_ref(&turn)).contains("HUGE_LINE_020_MARKER"));
+    }
+
+    fn marker_view(
+        interrupted: bool,
+        cancelled: bool,
+        done: bool,
+        error: Option<&str>,
+        tools: Vec<ToolView>,
+        compacted: bool,
+        compaction: Option<&str>,
+    ) -> TurnView {
+        TurnView {
+            user: "TOKEN_CRASH_EDIT".into(),
+            thought: String::new(),
+            answer: String::new(),
+            error: error.map(str::to_string),
+            tools,
+            permission: None,
+            done,
+            cancelled,
+            interrupted,
+            compacted,
+            compaction: compaction.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn terminal_markers_keep_priority_and_compaction_order() {
+        let interrupted = marker_view(true, false, true, None, Vec::new(), false, None);
+        let cancelled = marker_view(false, true, true, None, Vec::new(), false, None);
+        let failed = marker_view(
+            false,
+            false,
+            true,
+            Some("tool t1 failed"),
+            Vec::new(),
+            false,
+            None,
+        );
+        let empty = marker_view(false, false, true, None, Vec::new(), false, None);
+        let display = DisplayState::default();
+        let interrupted_text = render_turn_text(&interrupted, &display);
+        let cancelled_text = render_turn_text(&cancelled, &display);
+        let failed_text = render_turn_text(&failed, &display);
+        let empty_text = render_turn_text(&empty, &display);
+        assert!(
+            interrupted_text.ends_with("[interrupted]"),
+            "{interrupted_text}"
+        );
+        assert!(cancelled_text.ends_with("[cancelled]"), "{cancelled_text}");
+        assert!(
+            failed_text.contains("[error] tool t1 failed"),
+            "{failed_text}"
+        );
+        assert!(
+            !failed_text.contains("[interrupted]") && !failed_text.contains("[empty answer]"),
+            "{failed_text}"
+        );
+        assert!(empty_text.ends_with("[empty answer]"), "{empty_text}");
+
+        let both = marker_view(
+            true,
+            false,
+            true,
+            Some("disconnect"),
+            Vec::new(),
+            false,
+            None,
+        );
+        let both_text = render_turn_text(&both, &display);
+        assert!(both_text.contains("[error] disconnect"), "{both_text}");
+        assert!(both_text.ends_with("[interrupted]"), "{both_text}");
+        assert_eq!(both_text.matches("[error]").count(), 1, "{both_text}");
+
+        let sentence = "✂ compacted 4 history items (~210 tokens) into a summary · cli-mock/cli-mock purpose=compaction";
+        let compact = marker_view(true, false, true, None, Vec::new(), true, Some(sentence));
+        let compact_text = render_turn_text(&compact, &display);
+        let compact_at = compact_text.find(sentence).expect("compaction sentence");
+        let marker_at = compact_text.rfind("[interrupted]").expect("marker");
+        assert!(compact_at < marker_at, "{compact_text}");
+        assert!(compact_text.ends_with("[interrupted]"), "{compact_text}");
+
+        let open = marker_view(false, false, false, None, Vec::new(), false, None);
+        let open_text = render_turn_text(&open, &display);
+        assert!(open_text.ends_with('…'), "{open_text}");
+        assert!(!open_text.contains("[empty answer]"), "{open_text}");
     }
 }

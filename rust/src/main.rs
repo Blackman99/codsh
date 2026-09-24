@@ -2763,6 +2763,24 @@ fn copy_selected_original(turns: &[Turn], nav: &NavState, home: &Path, hint: &mu
     }
 }
 
+fn compaction_sentence(turn: &Turn) -> Option<String> {
+    if !turn.compacted {
+        return None;
+    }
+    Some(turn.compaction.as_ref().map_or_else(
+        || "✂ compacted history into a summary · purpose=compaction".into(),
+        |info| {
+            models::compaction_line(
+                info.items,
+                info.tokens,
+                Some(&info.provider),
+                Some(&info.model),
+                info.error.as_deref(),
+            )
+        },
+    ))
+}
+
 fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
     turns
         .iter()
@@ -2784,6 +2802,10 @@ fn nav_entries(turns: &[Turn]) -> Vec<NavEntry> {
             if let Some(error) = &turn.error {
                 entry.errors.push(error.clone());
             }
+            entry.interrupted = turn.interrupted;
+            entry.cancelled = turn.cancelled;
+            entry.done = turn.done;
+            entry.compaction = compaction_sentence(turn);
             entry.diffs = turn
                 .tools
                 .iter()
@@ -2836,22 +2858,7 @@ fn turn_views(turns: &[Turn]) -> Vec<content::TurnView> {
             cancelled: turn.cancelled,
             interrupted: turn.interrupted,
             compacted: turn.compacted,
-            compaction: if turn.compacted {
-                Some(turn.compaction.as_ref().map_or_else(
-                    || "✂ compacted history into a summary · purpose=compaction".into(),
-                    |info| {
-                        models::compaction_line(
-                            info.items,
-                            info.tokens,
-                            Some(&info.provider),
-                            Some(&info.model),
-                            info.error.as_deref(),
-                        )
-                    },
-                ))
-            } else {
-                None
-            },
+            compaction: compaction_sentence(turn),
         })
         .collect()
 }
@@ -4018,7 +4025,10 @@ fn run() -> io::Result<()> {
                         hint = compact_reload_hint(&turns, &restored.compaction, compact_cancelled);
                         if hint.starts_with("Compaction failed") || hint == "Compaction cancelled."
                         {
+                            // The transcript already paints this sentence.
+                            // Keep it as the error, not a second hint copy.
                             last_error = hint.clone();
+                            hint.clear();
                         } else {
                             last_error.clear();
                         }
@@ -4128,6 +4138,17 @@ fn run() -> io::Result<()> {
         } else {
             status_line(view)
         };
+        if screen == ScreenMode::Fullscreen
+            && let Some(sentence) = turns.iter().rev().find_map(compaction_sentence)
+        {
+            // The transcript paints this sentence. Repeating it in the
+            // six-row notice pushes the session id off the screen.
+            notice = notice
+                .lines()
+                .filter(|line| *line != sentence)
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
         if let Overlay::Feedback(form) = &overlay {
             notice = feedback_overlay_text(&effective.dsh_home, client.as_ref(), form);
         }
@@ -6257,6 +6278,55 @@ mod tests {
         assert_eq!(launch.effort.as_deref(), Some("high"));
         let alias = parse_launch(&args(&["--reasoning-effort=low"])).unwrap();
         assert_eq!(alias.effort.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn restored_turn_copies_interrupted_and_compaction_into_nav() {
+        let restored = turn_from_restored(session_history::RestoredTurn {
+            user: "TOKEN_CRASH_EDIT".into(),
+            thought: String::new(),
+            answer: String::new(),
+            tools: vec![session_history::RestoredTool {
+                id: "t1".into(),
+                title: "tool".into(),
+                status: "pending".into(),
+                diff: String::new(),
+                result: String::new(),
+            }],
+            error: None,
+            cancelled: false,
+            interrupted: true,
+            compacted: false,
+            compaction: None,
+        });
+        let entries = nav_entries(std::slice::from_ref(&restored));
+        assert!(entries[0].interrupted);
+        assert!(entries[0].done);
+        assert_eq!(entries[0].tool_meta[0].1, "unknown");
+        assert!(entries[0].compaction.is_none());
+
+        let compacted = turn_from_restored(session_history::RestoredTurn {
+            user: "compaction summary".into(),
+            thought: String::new(),
+            answer: "summary".into(),
+            tools: Vec::new(),
+            error: None,
+            cancelled: false,
+            interrupted: false,
+            compacted: true,
+            compaction: Some(session_history::RestoredCompaction {
+                items: Some(4),
+                tokens: Some(210),
+                provider: "cli-mock".into(),
+                model: "cli-mock".into(),
+                error: None,
+            }),
+        });
+        let entries = nav_entries(std::slice::from_ref(&compacted));
+        let sentence = entries[0].compaction.as_deref().unwrap_or("");
+        assert!(sentence.contains("purpose=compaction"), "{sentence}");
+        assert!(sentence.contains("cli-mock"), "{sentence}");
+        assert!(!entries[0].interrupted);
     }
 
     #[test]
