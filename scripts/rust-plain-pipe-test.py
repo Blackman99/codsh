@@ -230,6 +230,71 @@ def main():
         verbatim = plain(launcher, project, env('echo'), ['-p', 'VERBATIM_TOKEN', '--verbatim'])
         assert verbatim.returncode == 0, verbatim.stderr
         assert 'VERBATIM_TOKEN' in verbatim.stdout
+        alias_dir = work / 'alias-cwd'
+        alias_dir.mkdir()
+        named = plain(launcher, alias_dir, env('echo'), ['-p', 'ALIAS_TITLE'])
+        assert named.returncode == 0, named.stderr
+        short_continue = plain(launcher, alias_dir, env('echo'), ['-c', '-p', 'ALIAS_NEXT'])
+        assert short_continue.returncode == 0, short_continue.stderr
+        assert 'ALIAS_TITLE' in short_continue.stdout and 'ALIAS_NEXT' in short_continue.stdout
+        listed = run([
+            NODE, str(ROOT / 'packages/cli/bin/rust-acp-session-read.mjs'), '--list',
+        ], env={
+            'DSH_HOME': str(home / '.codsh-rust' / 'dsh'),
+            'DSH_BIN': dsh,
+            'PATH': os.environ['PATH'],
+        })
+        catalog = json.loads(listed.stdout)
+        here = [
+            session for session in catalog.get('sessions', [])
+            if str(alias_dir) in str(session.get('cwd', ''))
+        ]
+        assert len(here) == 1, here
+        assert 'ALIAS_TITLE' in here[0].get('prompts', []), here[0]
+        short_resume = plain(launcher, alias_dir, env('echo'), ['-p', 'ALIAS_RESUME', '-r', here[0]['id']])
+        assert short_resume.returncode == 0, short_resume.stderr
+        assert 'ALIAS_TITLE' in short_resume.stdout and 'ALIAS_RESUME' in short_resume.stdout
+        grok_home = home / '.codsh-rust' / '.grok'
+        (grok_home / 'commands').mkdir(parents=True, exist_ok=True)
+        (grok_home / 'rules').mkdir(parents=True, exist_ok=True)
+        (grok_home / 'commands' / 'ship-note.md').write_text(
+            '---\ndescription: note\n---\nSHIP_NOTE_BODY\n')
+        (grok_home / 'rules' / 'home.md').write_text('HOME_RULE\n')
+        wire = work / 'verbatim-trace.jsonl'
+        wire_env = {**env('echo'), 'CODSH_REVIEW_TRACE': str(wire)}
+        slash = '/ship-note  keep\nline'
+        expanded = plain(launcher, project, wire_env, ['-p', slash, '--rules', 'SESSION_RULE_SENTINEL'])
+        assert expanded.returncode == 0, expanded.stderr
+        assert 'SHIP_NOTE_BODY' in expanded.stdout
+        assert 'HOME_RULE' in expanded.stdout
+        frozen = plain(launcher, project, wire_env, ['-p', slash, '--verbatim', '--rules', 'SESSION_RULE_SENTINEL'])
+        assert frozen.returncode == 0, frozen.stderr
+        rows = [json.loads(line) for line in wire.read_text().splitlines() if line.strip()]
+        assert len(rows) >= 2, rows
+        expanded_user = '\n'.join(rows[0]['user'])
+        frozen_user = '\n'.join(rows[-1]['user'])
+        assert 'SHIP_NOTE_BODY' in expanded_user and 'HOME_RULE' in expanded_user, expanded_user
+        assert slash in frozen_user, frozen_user
+        assert 'SHIP_NOTE_BODY' not in frozen_user
+        assert 'SESSION_RULE_SENTINEL' not in frozen_user
+        assert 'HOME_RULE' not in frozen_user
+        (project / 'spaced.txt').write_text('  keep\nline')
+        wire.unlink()
+        spaced = plain(launcher, project, wire_env, ['--verbatim', '--prompt-file', 'spaced.txt'])
+        assert spaced.returncode == 0, spaced.stderr
+        spaced_rows = [json.loads(line) for line in wire.read_text().splitlines() if line.strip()]
+        spaced_user = '\n'.join(spaced_rows[0]['user'])
+        assert '  keep\nline' in spaced_user, spaced_user
+        assert 'HOME_RULE' not in spaced_user
+        wire.unlink()
+        denied_agent = plain(launcher, project, env('echo'),
+                             ['-p', 'hello', '--disallowed-tools', 'Agent'])
+        assert denied_agent.returncode == 0, denied_agent.stderr
+        scoped_agent = plain(launcher, project, env('echo'),
+                             ['-p', 'hello', '--disallowed-tools', 'Agent(explore),edit'])
+        assert scoped_agent.returncode != 0, scoped_agent.stdout
+        assert 'Agent(explore)' in scoped_agent.stderr
+        assert 'later ticket' in scoped_agent.stderr
 
         positional = plain(launcher, project, env('echo'), ['just words'])
         assert positional.returncode == 1

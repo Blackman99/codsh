@@ -1671,6 +1671,13 @@ mod tests {
         assert!(!replaced.contains("HOME_RULE"));
         assert!(replaced.contains("ONLY_THIS"));
         assert!(replaced.ends_with("ASK"));
+        let slash = "/ship-note  keep\nline";
+        let expanded = prompt_for_model(&catalog, slash);
+        assert!(expanded.contains("SHIP_NOTE_BODY"), "{expanded}");
+        assert_ne!(expanded, slash);
+        let spaced = prompt_for_model(&catalog, "  keep\nline");
+        assert!(spaced.starts_with("<human_rules>"), "{spaced}");
+        assert!(spaced.ends_with("  keep\nline"), "{spaced}");
     }
 
     #[test]

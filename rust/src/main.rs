@@ -465,6 +465,9 @@ struct Launch {
     sandbox: Option<String>,
     sandbox_report: Option<PathBuf>,
     sandbox_probe: Option<PathBuf>,
+    /// `--verbatim`: the admitted user text is not rewritten. System
+    /// instructions and permission policy stay on their own channels.
+    verbatim: bool,
 }
 
 const PLAIN_OUTPUT_FORMATS: &[&str] =
@@ -609,6 +612,18 @@ fn split_tool_list(value: &str) -> Vec<String> {
         .collect()
 }
 
+/// `Agent(type)` needs a type argument the released subagent tool does not have.
+/// Ticket 172 owns that filter. Refusing here avoids a stored name that never runs.
+fn scoped_agent_filter(name: &str) -> bool {
+    let Some(inner) = name
+        .strip_prefix("Agent(")
+        .or_else(|| name.strip_prefix("agent("))
+    else {
+        return false;
+    };
+    inner.ends_with(')') && inner.len() > 1
+}
+
 fn parse_launch(args: &[String]) -> io::Result<Launch> {
     if args.iter().any(|flag| flag == "--restore-code") {
         return Err(io::Error::other(session_fork::restore_code_error()));
@@ -619,7 +634,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut revoke_trust = false;
     let mut trust_folder = None;
     let mut screen = None;
-    let mut rest = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
     let mut fork_session = false;
     let mut child_id = None;
     let mut permission_mode = None;
@@ -724,6 +739,11 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             if names.is_empty() {
                 return Err(usage_error("--tools requires at least one tool name"));
             }
+            if let Some(scoped) = names.iter().find(|name| scoped_agent_filter(name)) {
+                return Err(io::Error::other(format!(
+                    "plain tool filter cannot apply {scoped}; subagent types are not available until a later ticket. Use Agent to deny every subagent"
+                )));
+            }
             plain_allow.get_or_insert_with(Vec::new).extend(names);
         } else if let Some(value) = plain_flag_value(args, &mut index, "--disallowed-tools")? {
             let names = split_tool_list(&value);
@@ -732,9 +752,19 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                     "--disallowed-tools requires at least one tool name",
                 ));
             }
+            if let Some(scoped) = names.iter().find(|name| scoped_agent_filter(name)) {
+                return Err(io::Error::other(format!(
+                    "plain tool filter cannot apply {scoped}; subagent types are not available until a later ticket. Use Agent to deny every subagent"
+                )));
+            }
             plain_deny.get_or_insert_with(Vec::new).extend(names);
         } else if args[index] == "--verbatim" {
             verbatim = true;
+        } else if args[index] == "-c" && !rest.iter().any(|item| is_subcommand(item)) {
+            // `export <id> -c` keeps its own clipboard short.
+            rest.push("--continue".to_string());
+        } else if args[index] == "-r" && !rest.iter().any(|item| is_subcommand(item)) {
+            rest.push("--resume".to_string());
         } else if let Some(value) = plain_flag_value(args, &mut index, "--output-format")? {
             if !PLAIN_OUTPUT_FORMATS.contains(&value.as_str()) {
                 return Err(usage_error(format!(
@@ -860,7 +890,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             } else if arg.starts_with('-')
                 && !matches!(
                     arg.as_str(),
-                    "--continue" | "--resume" | "--help" | "-h" | "--version" | "-V"
+                    "--continue" | "--resume" | "-c" | "-r" | "--help" | "-h" | "--version" | "-V"
                 )
                 && !args.iter().any(|item| is_subcommand(item))
             {
@@ -882,7 +912,6 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         (None, None) => None,
         (allow, deny) => Some(PlainTools::Filter { allow, deny }),
     };
-    let _ = verbatim;
     if child_id.is_some() && !fork_session {
         return Err(io::Error::other(
             "--session-id is only valid together with --fork-session",
@@ -1092,6 +1121,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         sandbox,
         sandbox_report,
         sandbox_probe,
+        verbatim,
     })
 }
 
@@ -1403,7 +1433,7 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
 }
 
 fn short_help() -> &'static str {
-    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n--cwd, --continue, --resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, sessions, dashboard.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n--cwd, -c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, sessions, dashboard.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -8174,6 +8204,12 @@ fn model_prompt(
     memory_session_on: Option<bool>,
     first_turn: bool,
 ) -> String {
+    // --verbatim freezes the user content. Rules and slash bodies are not
+    // pasted into it. dsh still owns the system message, and permission
+    // policy still runs on the tool channel.
+    if launch.verbatim {
+        return text.to_string();
+    }
     let base = model_prompt_inner(launch, effective, text);
     if !first_turn {
         return base;
@@ -8662,13 +8698,44 @@ mod tests {
             other => panic!("{other:?}"),
         }
         let verbatim = parse_launch(&args(&["-p", "keep  spaces", "--verbatim"])).unwrap();
+        assert!(verbatim.verbatim);
         assert!(matches!(
             verbatim.mode,
             LaunchMode::Plain {
-                prompt: PlainPrompt::Text(_),
+                prompt: PlainPrompt::Text(text),
+                ..
+            } if text == "keep  spaces"
+        ));
+        let continued = parse_launch(&args(&["-c", "-p", "again"])).unwrap();
+        assert!(matches!(
+            continued.mode,
+            LaunchMode::Plain {
+                resume: Some(PlainResume::Continue),
                 ..
             }
         ));
+        let resumed = parse_launch(&args(&["-p", "again", "-r", "title"])).unwrap();
+        assert!(matches!(
+            resumed.mode,
+            LaunchMode::Plain {
+                resume: Some(PlainResume::Id(id)),
+                ..
+            } if id == "title"
+        ));
+        let bare_continue = parse_launch(&args(&["-c"])).unwrap();
+        assert!(matches!(bare_continue.mode, LaunchMode::Continue));
+        let missing_resume = parse_launch(&args(&["-r"])).unwrap_err();
+        assert!(missing_resume.to_string().contains("missing session id"));
+        let scoped = parse_launch(&args(&[
+            "-p",
+            "hello",
+            "--disallowed-tools",
+            "Agent(explore),edit",
+        ]))
+        .unwrap_err();
+        assert!(scoped.to_string().contains("Agent(explore)"));
+        assert!(scoped.to_string().contains("later ticket"));
+        assert!(!scoped.to_string().starts_with("usage: "));
         let duplicate = parse_launch(&args(&["-p", "one", "-p", "two"])).unwrap_err();
         assert!(duplicate.to_string().contains("conflicting prompt"));
         let unknown = parse_launch(&args(&["--not-a-real-option"])).unwrap_err();
@@ -8716,6 +8783,63 @@ mod tests {
         assert!(deferred.to_string().contains("later ticket"));
         let subagents = parse_launch(&args(&["-p", "hello", "--no-subagents"])).unwrap_err();
         assert!(subagents.to_string().contains("later ticket"));
+    }
+
+    #[test]
+    fn verbatim_keeps_user_text_and_normal_prompt_still_expands() {
+        let root = tempfile::tempdir().unwrap();
+        let grok = root.path().join("grok");
+        std::fs::create_dir_all(grok.join("commands")).unwrap();
+        std::fs::create_dir_all(grok.join("rules")).unwrap();
+        std::fs::write(
+            grok.join("commands").join("ship-note.md"),
+            "---\ndescription: note\n---\nSHIP_NOTE_BODY\n",
+        )
+        .unwrap();
+        std::fs::write(grok.join("rules").join("home.md"), "HOME_RULE\n").unwrap();
+        let home = root.path().join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let mut input = config::LoadInput {
+            home: home.clone(),
+            dsh_home: root.path().join("dsh"),
+            cwd: root.path().join("empty"),
+            grok_home: Some(grok),
+            ..config::LoadInput::default()
+        };
+        std::fs::create_dir_all(&input.cwd).unwrap();
+        input.env.insert("HOME".into(), home.display().to_string());
+        let mut effective = config::load_from(input);
+        config::refresh_assets(&mut effective, &home);
+        let slash = "/ship-note  keep\nline";
+        let normal = parse_launch(&args(&["-p", slash])).unwrap();
+        let wrapped = model_prompt(&normal, &effective, slash, None, true);
+        assert!(wrapped.contains("SHIP_NOTE_BODY"), "{wrapped}");
+        assert!(wrapped.contains("<human_rules>"), "{wrapped}");
+        assert_ne!(wrapped, slash);
+        let frozen = parse_launch(&args(&["-p", slash, "--verbatim"])).unwrap();
+        assert_eq!(model_prompt(&frozen, &effective, slash, None, true), slash);
+        let spaced = "  keep\nline";
+        assert_eq!(
+            model_prompt(&frozen, &effective, spaced, None, true),
+            spaced
+        );
+        let blocks = blocks_with_model_prompt(
+            &frozen,
+            &effective,
+            vec![serde_json::json!({ "type": "text", "text": slash })],
+            None,
+            true,
+        );
+        assert_eq!(blocks[0]["text"], slash);
+        let rules = parse_launch(&args(&[
+            "-p",
+            slash,
+            "--verbatim",
+            "--rules",
+            "SESSION_RULE_SENTINEL",
+        ]))
+        .unwrap();
+        assert_eq!(model_prompt(&rules, &effective, slash, None, true), slash);
     }
 
     #[test]

@@ -3,7 +3,9 @@
  * one step bound inside the released dsh agent loop.
  * CODSH_PLAIN_TOOLS is "allow:read,grep", "deny:edit", or both joined by ";".
  * When both are set, deny wins. Public ids (read_file, Bash, Agent) map to
- * the dsh tool name. CODSH_PLAIN_MAX_TURNS is a positive step bound. dsh
+ * the dsh tool name. Agent denies every subagent. Agent(type) is refused:
+ * the released tool has no type argument, and ticket 172 owns that filter.
+ * CODSH_PLAIN_MAX_TURNS is a positive step bound. dsh
  * calls one model step `step`; the listener cancels before step N+1. This
  * is not a second agent loop and does not count printed lines.
  */
@@ -34,9 +36,13 @@ const TOOL_ALIASES = new Map([
 
 function canonicalTool(name) {
   const text = String(name ?? '').trim()
-  if (!text || text.startsWith('Agent(')) return text
+  if (!text) return text
   const mapped = TOOL_ALIASES.get(text.toLowerCase())
   return mapped ?? text
+}
+
+function scopedAgentFilter(name) {
+  return name.startsWith('Agent(') && name.endsWith(')') && name.length > 'Agent()'.length
 }
 
 function parseTools(raw) {
@@ -44,7 +50,7 @@ function parseTools(raw) {
   if (!text) return null
   const allow = []
   const deny = []
-  const agentTypes = []
+  let denySubagent = false
   for (const clause of text.split(';').map(part => part.trim()).filter(Boolean)) {
     const split = clause.indexOf(':')
     if (split <= 0) throw new Error('CODSH_PLAIN_TOOLS must be allow:<names> and/or deny:<names>')
@@ -55,16 +61,24 @@ function parseTools(raw) {
     }
     const target = mode === 'allow' ? allow : deny
     for (const name of names) {
-      if (name.startsWith('Agent(')) {
-        if (mode !== 'deny') throw new Error(`plain tool filter cannot allow ${name}`)
-        agentTypes.push(name)
+      if (scopedAgentFilter(name)) {
+        // Ticket 172 owns per-type filters. The released subagent tool has
+        // no type argument, so storing the name would leave the call allowed.
+        throw new Error(
+          `plain tool filter cannot apply ${name}; subagent types are not available until a later ticket. Use Agent to deny every subagent`,
+        )
+      }
+      if (name === 'Agent' || name.toLowerCase() === 'agent') {
+        if (mode !== 'deny') throw new Error('plain tool filter cannot allow Agent')
+        denySubagent = true
         continue
       }
       target.push(canonicalTool(name))
     }
   }
-  if (allow.length === 0 && deny.length === 0 && agentTypes.length === 0) return null
-  return { allow, deny, agentTypes }
+  if (denySubagent && !deny.includes('subagent')) deny.push('subagent')
+  if (allow.length === 0 && deny.length === 0) return null
+  return { allow, deny }
 }
 
 function parseMaxTurns(raw) {
@@ -113,9 +127,6 @@ export function apply(ctx) {
         // this view, so the first request must not wait for agent/pre-step.
         if (filter.allow.length > 0) agent.ctx.tools.restrict({ allow: filter.allow })
         if (filter.deny.length > 0) agent.ctx.tools.restrict({ deny: filter.deny })
-        if (filter.allow.length === 0 && filter.deny.length === 0 && filter.agentTypes.length > 0) {
-          agent.ctx.tools.restrict({ deny: ['subagent'] })
-        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         refused = `plain tool filter refused: ${message}`

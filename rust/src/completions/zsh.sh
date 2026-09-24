@@ -21,7 +21,9 @@ _codsh_rust() {
     '--help[Print help]' '-h[Print a short summary]'
     '--version[Print version]' '-V[Print version]'
     '--continue[Continue the most recent session]'
+    '-c[Continue the most recent session]'
     '--resume[Resume a session by id or title]'
+    '-r[Resume a session by id or title]'
     '--fork-session[Copy a resumed session]'
     '--session-id[Session id for --fork-session]'
     '-s[Session id for --fork-session]'
@@ -52,7 +54,7 @@ _codsh_rust() {
   case ${words[CURRENT-1]} in
     --output-format) _values 'format' $formats; return ;;
     --permission-mode) _values 'mode' $modes; return ;;
-    --resume|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json)
+    --resume|-r|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json)
       return
       ;;
   esac

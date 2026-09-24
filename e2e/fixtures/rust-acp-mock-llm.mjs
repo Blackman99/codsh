@@ -358,11 +358,15 @@ class RustAcpMockAdapter extends LlmAdapter {
     const trace = process.env.CODSH_REVIEW_TRACE
     if (trace && options.purpose !== 'compaction') {
       const names = Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : []
+      const user = options.messages
+        .filter(message => message.role === 'user')
+        .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       appendFileSync(trace, `${JSON.stringify({
         purpose: options.purpose ?? 'turn',
         provider: options.provider,
         model: options.model?.id ?? options.model ?? '',
         tools: names,
+        user,
       })}\n`)
     }
     if (DELAY_MS > 0) {

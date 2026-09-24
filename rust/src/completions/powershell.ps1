@@ -4,7 +4,7 @@ Register-ArgumentCompleter -CommandName codsh -ScriptBlock {
   $shells = @('bash', 'elvish', 'fish', 'powershell', 'zsh')
   $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'sessions', 'dashboard')
   $flags = @(
-    '--help', '-h', '--version', '-V', '--continue', '--resume', '--fork-session',
+    '--help', '-h', '--version', '-V', '--continue', '-c', '--resume', '-r', '--fork-session',
     '--session-id', '-s', '--model', '-m', '--effort', '--reasoning-effort', '--cwd',
     '-p', '--single', '--prompt-file', '--prompt-json', '--verbatim', '--tools',
     '--disallowed-tools', '--max-turns', '--rules', '--append-system-prompt',
