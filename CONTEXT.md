@@ -160,7 +160,14 @@ glob's literal prefix is pinned against rename, and so is a directory inside
 the glob tail (including one created after launch), because Seatbelt matches
 the resolved path. The ancestor walk stops at the resolved write root, so a
 workspace under `/tmp` does not pin `/tmp` itself. The launchd escape is
-kernel-blocked, matching the reference `mach-lookup` rules.
+kernel-blocked, matching the reference `mach-lookup` rules. `restrict_network`
+is a kernel network deny on macOS (`(deny network*)` for this process and its
+children), not a dsh file mode. Linux Landlock network and Windows confinement
+are different mechanisms: a profile that asks for network isolation refuses
+startup on a platform that cannot apply it. `[shell_environment_policy]`
+filters the environment of a shell child this client starts. dsh's own bash
+tool inherits the dsh process, because a second Seatbelt profile cannot be
+applied inside the first.
  After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested

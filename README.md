@@ -121,7 +121,21 @@ protection refuses startup there instead of applying an allow-only policy.
 The status
 line names the active profile and its write roots. Protected config and hook
 files stay unchanged; a permission-mode change is kept for the session only.
-Child-process network blocking is not this control. A process already under
+`restrict_network` (built-in `read-only` and `strict`, or a custom profile)
+denies network for this process and its children with macOS Seatbelt
+`(deny network*)`. A profile that leaves it off still allows network. dsh's
+per-call file mode is not this control and is not a network sandbox. Linux
+Landlock network blocking is a different mechanism and is not claimed from a
+macOS run: a profile that asks for network isolation refuses startup there
+instead of continuing with network open. Windows network confinement is not
+implemented and refuses the same way. `[shell_environment_policy]` in
+`sandbox.toml` (`inherit` `all`/`core`/`none`, `exclude`, `include_only`,
+`set`, `ignore_default_excludes`) filters the environment of a shell child
+this client starts, including `sh -c`. Names matching `*KEY*`, `*SECRET*`,
+or `*TOKEN*` are dropped unless `ignore_default_excludes` is set. An unknown
+`inherit` or a pattern that is not a `*`/`?` glob refuses startup. dsh's own
+bash tool inherits the dsh process and is not re-filtered: a second Seatbelt
+profile cannot be applied inside this one. A process already under
 Seatbelt cannot apply another Seatbelt policy, so dsh's own per-call bash
 sandbox cannot run inside a codsh profile. While a profile is applied, codsh
 starts dsh with its per-call file mode set to `danger-full-access` (written

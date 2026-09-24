@@ -1,10 +1,14 @@
-//! Filesystem confinement for `codsh --rust` (ticket 11 / #143).
+//! Filesystem, network, and launch-environment confinement for `codsh --rust`
+//! (tickets 11 / #143 and 12 / #144).
 //!
 //! A requested non-`off` profile is applied to this process with the Apache-2.0
 //! `nono` 0.53 library (Seatbelt on macOS, Landlock on Linux) before dsh starts.
 //! Children inherit that kernel policy. This is not a dsh fork and not a
-//! per-tool string check. Network and process restrictions stay with ticket 12.
-//! Linux and Windows kernel effects are not claimed from a macOS run.
+//! per-tool string check. dsh's per-call file mode is not a network sandbox.
+//! On macOS a `restrict_network` profile denies `network*` in the same Seatbelt
+//! profile. Linux Landlock/seccomp network blocking is a different mechanism
+//! and is not claimed from a macOS run: a profile that asks for it refuses
+//! startup there. Windows confinement is not implemented.
 
 use nono::{AccessMode, CapabilitySet, Sandbox};
 use serde::Deserialize;
@@ -37,7 +41,13 @@ pub struct Prepared {
     pub read_denied_globs: Vec<DenyGlob>,
     pub session_only_config: bool,
     pub devbox: bool,
+    /// When true, the kernel profile denies outbound network for this process
+    /// and every child. A dsh file mode is not this switch.
+    pub restrict_network: bool,
     pub network_note: String,
+    /// `None` keeps the launch environment. `Some` is the filtered map a
+    /// shell child is allowed to see, including names forced by `set`.
+    pub shell_env: Option<BTreeMap<String, String>>,
     pub limits: Vec<String>,
 }
 
@@ -61,6 +71,8 @@ pub struct DenyGlob {
 struct FileConfig {
     #[serde(default)]
     profiles: BTreeMap<String, ProfileBody>,
+    #[serde(default, rename = "shell_environment_policy")]
+    shell_environment_policy: Option<ShellEnvironmentPolicy>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -74,6 +86,28 @@ struct ProfileBody {
     read_write: Vec<String>,
     #[serde(default)]
     deny: Vec<String>,
+}
+
+/// `[shell_environment_policy]` in `$GROK_HOME/sandbox.toml`.
+///
+/// Order matches the reference: start from `inherit`, drop `*KEY*` /
+/// `*SECRET*` / `*TOKEN*` unless `ignore_default_excludes`, drop `exclude`,
+/// apply `set`, then keep only `include_only` when that list is non-empty.
+/// Patterns are case-insensitive `*` / `?` globs. This filters the launch
+/// environment of shell children. It does not filter dsh's own credential
+/// environment, which is a separate execution grant.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+struct ShellEnvironmentPolicy {
+    #[serde(default)]
+    inherit: Option<String>,
+    #[serde(default)]
+    ignore_default_excludes: bool,
+    #[serde(default)]
+    exclude: Vec<String>,
+    #[serde(default)]
+    include_only: Vec<String>,
+    #[serde(default)]
+    set: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +125,7 @@ struct Resolved {
     dsh_home: Option<PathBuf>,
     devbox: bool,
     restrict_network: bool,
+    shell_env: Option<ShellEnvironmentPolicy>,
     warnings: Vec<String>,
 }
 
@@ -188,11 +223,17 @@ pub fn prepare(
         });
     }
     let resolved = resolve(name, workspace, grok_home, dsh_home, workspace_trusted)?;
+    // A requested network restriction that this platform cannot apply is a
+    // refusal, not a warning. Linux Landlock/seccomp is not claimed here.
+    if resolved.restrict_network {
+        network_enforceable(name)?;
+    }
+    let shell_env = match &resolved.shell_env {
+        Some(policy) => Some(filter_launch_env(policy, &std::env::vars().collect())?),
+        None => None,
+    };
     let mut limits = resolved.warnings.clone();
-    limits.push(
-        "macOS Seatbelt does not restrict child-process network; Linux child-network blocking is ticket 12 and is not claimed here."
-            .into(),
-    );
+    limits.push(platform_network_limit(resolved.restrict_network));
     limits.push(
         "Linux glob deny is launch-time only in the reference; this client uses Seatbelt subpath rules on macOS and refuses a deny glob on Linux rather than scanning a partial tree."
             .into(),
@@ -282,11 +323,9 @@ pub fn prepare(
         read_denied_globs: resolved.deny_globs,
         session_only_config: !resolved.devbox,
         devbox: resolved.devbox,
-        network_note: if resolved.restrict_network {
-            "child network restriction requested; not enforced by this filesystem ticket (Linux seccomp is ticket 12; macOS is a documented no-op)".into()
-        } else {
-            "child network unrestricted by this filesystem profile".into()
-        },
+        restrict_network: resolved.restrict_network,
+        network_note: network_note(resolved.restrict_network),
+        shell_env,
         limits,
     };
     // Every rule must be expressible and resolved before the report says
@@ -324,6 +363,9 @@ pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
     for directory in pinned_directories(prepared) {
         // Metadata read only. A write grant here would reopen the directory.
         caps = grant(caps, &directory, AccessMode::Read, &prepared.name)?;
+    }
+    if prepared.restrict_network {
+        caps.set_network_blocked(true);
     }
     for path in &prepared.write_denied {
         caps = deny_subpath(caps, path, false, &prepared.name)?;
@@ -384,6 +426,163 @@ pub fn status_line(prepared: Option<&Prepared>) -> String {
         Some(prepared) => prepared.summary.clone(),
         None => "sandbox off (no filesystem confinement)".into(),
     }
+}
+
+/// What this process can actually enforce. A macOS run does not claim the
+/// Linux mechanism, and a requested restriction that cannot be enforced is
+/// refused by the caller rather than recorded as applied.
+fn network_enforceable(profile: &str) -> Result<(), Refusal> {
+    match std::env::consts::OS {
+        "macos" => Ok(()),
+        "linux" => Err(Refusal {
+            message: format!(
+                "refusing sandbox profile {profile}: restrict_network needs a Linux seccomp child filter, which is not applied by this Landlock profile. Startup is refused instead of continuing with network open."
+            ),
+        }),
+        other => Err(Refusal {
+            message: format!(
+                "refusing sandbox profile {profile}: network isolation is not enforceable on {other}"
+            ),
+        }),
+    }
+}
+
+fn network_note(restricted: bool) -> String {
+    if !restricted {
+        return format!(
+            "network unrestricted ({}); dsh per-call file mode is not a network sandbox",
+            mechanism_name()
+        );
+    }
+    match std::env::consts::OS {
+        "macos" => "network denied by macOS Seatbelt (deny network*) for this process and its children; dsh per-call file mode is not this control".into(),
+        "linux" => "network restriction requested; Linux seccomp is not applied by this profile".into(),
+        other => format!("network restriction requested; not enforceable on {other}"),
+    }
+}
+
+fn platform_network_limit(restricted: bool) -> String {
+    let base = "macOS Seatbelt denies network* for a restrict_network profile, including the in-process client and every child. Linux Landlock network is a different mechanism and is not claimed from a macOS run; a profile that asks for network isolation refuses startup there. Windows network confinement is not implemented. dsh's per-call file mode is not a network sandbox. The shell environment policy filters the launch environment of a shell child this client starts (sh -c); dsh's own bash tool inherits the dsh process and is not re-filtered, because a second Seatbelt profile cannot be applied inside this one.";
+    if restricted {
+        format!("{base} This profile restricts network.")
+    } else {
+        base.into()
+    }
+}
+
+/// Names a shell child keeps when `inherit = "core"`. A secret is not here.
+const CORE_ENV: &[&str] = &[
+    "HOME",
+    "USERPROFILE",
+    "LOGNAME",
+    "USER",
+    "PATH",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TERM",
+    "TZ",
+];
+
+/// Build the environment a shell child may see. An unknown `inherit` value,
+/// or a pattern this filter cannot express, refuses instead of keeping the
+/// secret.
+fn filter_launch_env(
+    policy: &ShellEnvironmentPolicy,
+    parent: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, String>, Refusal> {
+    let inherit = policy.inherit.as_deref().unwrap_or("all").trim();
+    let mut env = match inherit {
+        "all" => parent.clone(),
+        "core" => parent
+            .iter()
+            .filter(|(key, _)| CORE_ENV.iter().any(|core| core.eq_ignore_ascii_case(key)))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+        "none" => BTreeMap::new(),
+        other => {
+            return Err(Refusal {
+                message: format!(
+                    "refusing sandbox: shell_environment_policy.inherit {other:?} is not all, core, or none"
+                ),
+            });
+        }
+    };
+    if !policy.ignore_default_excludes {
+        env.retain(|key, _| !default_secret_name(key));
+    }
+    for pattern in &policy.exclude {
+        validate_env_pattern(pattern)?;
+        env.retain(|key, _| !env_glob_match(pattern, key));
+    }
+    for (key, value) in &policy.set {
+        validate_env_name(key)?;
+        env.insert(key.clone(), value.clone());
+    }
+    if !policy.include_only.is_empty() {
+        for pattern in &policy.include_only {
+            validate_env_pattern(pattern)?;
+        }
+        env.retain(|key, _| {
+            policy
+                .include_only
+                .iter()
+                .any(|pattern| env_glob_match(pattern, key))
+        });
+    }
+    Ok(env)
+}
+
+fn default_secret_name(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    upper.contains("KEY") || upper.contains("SECRET") || upper.contains("TOKEN")
+}
+
+fn validate_env_name(name: &str) -> Result<(), Refusal> {
+    if name.is_empty() || name.contains(['=', '\0']) || name.chars().any(char::is_control) {
+        return Err(Refusal {
+            message: format!(
+                "refusing sandbox: shell_environment_policy name {name:?} cannot be set"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_env_pattern(pattern: &str) -> Result<(), Refusal> {
+    if pattern.is_empty()
+        || pattern.contains(['=', '\0', '[', ']'])
+        || pattern.chars().any(char::is_control)
+    {
+        return Err(Refusal {
+            message: format!(
+                "refusing sandbox: shell_environment_policy pattern {pattern:?} is not a * or ? glob"
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Case-insensitive `*` / `?`. `*` matches any run, including empty.
+fn env_glob_match(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().flat_map(char::to_lowercase).collect();
+    let name: Vec<char> = name.chars().flat_map(char::to_lowercase).collect();
+    fn rec(pattern: &[char], name: &[char]) -> bool {
+        match (pattern.first(), name.first()) {
+            (None, None) => true,
+            (Some('*'), _) => {
+                rec(&pattern[1..], name) || (!name.is_empty() && rec(pattern, &name[1..]))
+            }
+            (Some('?'), Some(_)) => rec(&pattern[1..], &name[1..]),
+            (Some(left), Some(right)) if left == right => rec(&pattern[1..], &name[1..]),
+            _ => false,
+        }
+    }
+    rec(&pattern, &name)
 }
 
 fn mechanism_name() -> &'static str {
@@ -1018,9 +1217,57 @@ fn nono_profile(caps: &CapabilitySet, tail: &str) -> Result<String, String> {
     // of that directory. These denies follow every write allow.
     profile.push_str(tail);
     profile.push_str(&tail_marker());
-    profile.push_str("(allow system-socket)\n(allow network-outbound)\n");
-    profile.push_str("(allow network-inbound)\n(allow network-bind)\n");
+    profile.push_str(&network_rules(caps.network_mode()));
     Ok(profile)
+}
+
+/// The network rules this profile will install, empty when no profile is
+/// applied. The probe reads this from the report and checks the same text
+/// the kernel received.
+pub fn network_profile_rules(prepared: &Prepared) -> Result<String, Refusal> {
+    #[cfg(target_os = "macos")]
+    {
+        let mode = if prepared.restrict_network {
+            nono::NetworkMode::Blocked
+        } else {
+            nono::NetworkMode::AllowAll
+        };
+        Ok(network_rules(&mode))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = prepared;
+        Ok(String::new())
+    }
+}
+
+/// Seatbelt network rules for the mode the profile selected.
+///
+/// `Blocked` is `(deny network*)`. Last match wins, so this deny is not
+/// followed by an allow. Unix-domain sockets are `network-outbound` on
+/// macOS; local IPC the process still needs (the listener, mDNS) is named.
+/// `AllowAll` is the unrestricted profile. This is not a dsh file mode.
+#[cfg(target_os = "macos")]
+fn network_rules(mode: &nono::NetworkMode) -> String {
+    match mode {
+        nono::NetworkMode::Blocked => "\
+(deny network*)
+(allow system-socket (socket-domain AF_UNIX) (socket-type SOCK_STREAM))
+(allow network-outbound (path \"/private/var/run/mDNSResponder\"))
+(allow network-outbound (path \"/var/run/mDNSResponder\"))
+(allow system-socket (socket-domain AF_INET) (socket-type SOCK_STREAM))
+(allow system-socket (socket-domain AF_INET6) (socket-type SOCK_STREAM))
+"
+        .into(),
+        nono::NetworkMode::AllowAll => "\
+(allow system-socket)
+(allow network-outbound)
+(allow network-inbound)
+(allow network-bind)
+"
+        .into(),
+        nono::NetworkMode::ProxyOnly { .. } => String::new(),
+    }
 }
 
 /// True when a capability names a keychain database itself, not a parent
@@ -1348,6 +1595,7 @@ fn resolve(
     workspace_trusted: bool,
 ) -> Result<Resolved, Refusal> {
     let dsh_home = checked_dsh_home(dsh_home)?;
+    let shell_env = read_shell_policy(workspace, grok_home, workspace_trusted)?;
     if name == "devbox" {
         return Ok(Resolved {
             base: "devbox".into(),
@@ -1363,6 +1611,7 @@ fn resolve(
             dsh_home,
             devbox: true,
             restrict_network: false,
+            shell_env: shell_env.clone(),
             warnings: vec![
                 "devbox write-deny of /data is not separately mounted; top-level write is still bounded by the kernel allowlist (workspace, $GROK_HOME, temps)."
                     .into(),
@@ -1407,6 +1656,7 @@ fn resolve(
             dsh_home: dsh_home.clone(),
             devbox: false,
             restrict_network: false,
+            shell_env: None,
             warnings: Vec::new(),
         },
         "read-only" => Resolved {
@@ -1423,6 +1673,7 @@ fn resolve(
             dsh_home: dsh_home.clone(),
             devbox: false,
             restrict_network: true,
+            shell_env: None,
             warnings: Vec::new(),
         },
         "strict" => Resolved {
@@ -1439,6 +1690,7 @@ fn resolve(
             dsh_home: dsh_home.clone(),
             devbox: false,
             restrict_network: true,
+            shell_env: None,
             warnings: Vec::new(),
         },
         "devbox" => {
@@ -1459,6 +1711,7 @@ fn resolve(
         }
     };
     resolved.warnings = profile_warnings;
+    resolved.shell_env = shell_env;
     if let Some(body) = custom {
         if let Some(flag) = body.restrict_network {
             resolved.restrict_network = flag;
@@ -1538,7 +1791,7 @@ fn load_custom(
             Err(error) => return Err(error),
         }
     };
-    Ok(match (user, project) {
+    let (profile, warnings) = match (user, project) {
         (Some(user_body), Some(project_body)) => {
             let user_profile = user_body.profiles.get(name).cloned();
             let project_profile = project_body.profiles.get(name).cloned();
@@ -1563,7 +1816,26 @@ fn load_custom(
         (Some(body), None) => (body.profiles.get(name).cloned(), Vec::new()),
         (None, Some(body)) => (body.profiles.get(name).cloned(), Vec::new()),
         (None, None) => (None, Vec::new()),
-    })
+    };
+    Ok((profile, warnings))
+}
+
+/// The user file wins, matching profile resolution. An untrusted project
+/// file is not read as policy. A missing table leaves the environment as-is.
+fn read_shell_policy(
+    workspace: &Path,
+    grok_home: &Path,
+    workspace_trusted: bool,
+) -> Result<Option<ShellEnvironmentPolicy>, Refusal> {
+    let user = read_profile_file(&grok_home.join("sandbox.toml"))?;
+    if let Some(policy) = user.and_then(|body| body.shell_environment_policy) {
+        return Ok(Some(policy));
+    }
+    if !workspace_trusted {
+        return Ok(None);
+    }
+    let project = read_profile_file(&workspace.join(".grok").join("sandbox.toml"))?;
+    Ok(project.and_then(|body| body.shell_environment_policy))
 }
 
 fn profiles_equal(left: &ProfileBody, right: &ProfileBody) -> bool {
@@ -1920,6 +2192,127 @@ mod tests {
         ));
         fs::create_dir_all(path.join(".grok")).unwrap();
         path
+    }
+
+    #[test]
+    fn strict_requests_network_isolation_and_workspace_does_not() {
+        let root = temp_tree("net-builtin");
+        let strict = prepare("strict", &root, &root.join(".grok"), None, true)
+            .unwrap()
+            .unwrap();
+        let workspace = prepare("workspace", &root, &root.join(".grok"), None, true)
+            .unwrap()
+            .unwrap();
+        assert!(strict.restrict_network, "strict must restrict network");
+        assert!(!workspace.restrict_network, "workspace must not");
+        assert!(
+            strict.network_note.contains("Seatbelt") || strict.network_note.contains("refusing"),
+            "network note must name the mechanism: {}",
+            strict.network_note
+        );
+        assert!(
+            !strict
+                .limits
+                .iter()
+                .any(|line| line.contains("not enforced") || line.contains("no-op")),
+            "a requested restriction must not be documented as a no-op: {:?}",
+            strict.limits
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn shell_policy_hides_a_secret_and_keeps_an_allowed_name() {
+        let root = temp_tree("env-filter");
+        fs::write(
+            root.join(".grok/sandbox.toml"),
+            "[shell_environment_policy]\ninherit = \"all\"\nexclude = [\"CODSH_TEST_SECRET\"]\n",
+        )
+        .unwrap();
+        let prepared = prepare("workspace", &root, &root.join(".grok"), None, true)
+            .unwrap()
+            .unwrap();
+        assert!(prepared.shell_env.is_some(), "user policy is loaded");
+        let mut parent = BTreeMap::new();
+        parent.insert("PATH".into(), "/usr/bin".into());
+        parent.insert("CODSH_TEST_SECRET".into(), "s3cret".into());
+        parent.insert("CODSH_TEST_TOKEN".into(), "tok".into());
+        let policy = ShellEnvironmentPolicy {
+            inherit: Some("all".into()),
+            exclude: vec!["CODSH_TEST_SECRET".into()],
+            ..ShellEnvironmentPolicy::default()
+        };
+        let filtered = filter_launch_env(&policy, &parent).unwrap();
+        assert_eq!(filtered.get("PATH").map(String::as_str), Some("/usr/bin"));
+        assert!(!filtered.contains_key("CODSH_TEST_SECRET"));
+        assert!(
+            !filtered.contains_key("CODSH_TEST_TOKEN"),
+            "default excludes drop TOKEN"
+        );
+        let open = filter_launch_env(
+            &ShellEnvironmentPolicy {
+                inherit: Some("all".into()),
+                ignore_default_excludes: true,
+                include_only: vec!["CODSH_TEST_SECRET".into(), "PATH".into()],
+                ..ShellEnvironmentPolicy::default()
+            },
+            &parent,
+        )
+        .unwrap();
+        assert_eq!(
+            open.get("CODSH_TEST_SECRET").map(String::as_str),
+            Some("s3cret")
+        );
+        assert!(!open.contains_key("CODSH_TEST_TOKEN"));
+        let refused = filter_launch_env(
+            &ShellEnvironmentPolicy {
+                inherit: Some("maybe".into()),
+                ..ShellEnvironmentPolicy::default()
+            },
+            &parent,
+        );
+        assert!(refused.is_err(), "unknown inherit must refuse");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn seatbelt_network_rules_deny_when_restricted_and_allow_otherwise() {
+        let root = temp_tree("net-rules");
+        let strict = prepare("strict", &root, &root.join(".grok"), None, true)
+            .unwrap()
+            .unwrap();
+        let rules = network_profile_rules(&strict).unwrap();
+        assert!(
+            rules.contains("(deny network*)"),
+            "restricted profile must deny network: {rules}"
+        );
+        assert!(
+            !rules.contains("(allow network-outbound)\n"),
+            "a blanket outbound allow would undo the deny: {rules}"
+        );
+        let workspace = prepare("workspace", &root, &root.join(".grok"), None, true)
+            .unwrap()
+            .unwrap();
+        let open = network_profile_rules(&workspace).unwrap();
+        assert!(open.contains("(allow network-outbound)"));
+        assert!(!open.contains("(deny network*)"));
+        // The text installed by sandbox_init, not only the report fragment.
+        let mut blocked = CapabilitySet::new();
+        blocked.set_network_blocked(true);
+        let installed = nono_profile(&blocked, "").unwrap();
+        assert!(
+            installed.contains("(deny network*)"),
+            "installed profile must deny network: {installed}"
+        );
+        assert!(
+            !installed.contains("(allow network-outbound)\n"),
+            "installed profile must not reopen outbound: {installed}"
+        );
+        let allowed = nono_profile(&CapabilitySet::new(), "").unwrap();
+        assert!(allowed.contains("(allow network-outbound)"));
+        assert!(!allowed.contains("(deny network*)"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

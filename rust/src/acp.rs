@@ -489,6 +489,13 @@ impl AcpClient {
         for (key, value) in &spec.env {
             command.env(key, value);
         }
+        // Own process group, so shutdown can signal grandchildren (a bash
+        // child of dsh) and not only the dsh pid. The group id is the pid.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
         let stdout = child
@@ -1000,6 +1007,7 @@ impl AcpClient {
         }
         let _ = self.close_session(Duration::from_millis(400));
         self.stdin.take();
+        kill_process_group(self.child.id());
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -1378,6 +1386,22 @@ impl AcpClient {
             .map_err(|error| AcpError {
                 message: format!("ACP write failed: {error}"),
             })
+    }
+}
+
+/// Signal the whole group. `id` is the process-group id because spawn
+/// called `process_group(0)`. A direct `child.kill()` would leave a
+/// grandchild running after the session ends.
+fn kill_process_group(pid: u32) {
+    #[cfg(unix)]
+    {
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
     }
 }
 

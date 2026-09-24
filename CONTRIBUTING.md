@@ -213,7 +213,11 @@ from the keychain services; whether an unconfined service reached that way can
 act on a denied path has not been probed and is not claimed either way. A macOS result does not
 mark Linux or Windows supported. Linux refuses a profile that must write-deny a
 path inside a write root, because Landlock cannot express that exception.
-Child-network blocking stays on ticket 12. Terminal/editor/platform
+`python3 scripts/rust-network-env-sandbox-test.py` is the ticket 12 probe. It
+checks a denied outbound TCP connect (EPERM to 127.0.0.1), an allowed connect,
+a secret hidden from and shown to `sh -c env`, a cancel path that kills the
+probe process group, and a startup refusal when the policy cannot be applied.
+A macOS run does not claim Linux Landlock network. Terminal/editor/platform
 aliases and background model/admission/login/goal/compaction controls need observable
 functional effects. Memory prose must retain capture, queue/lease diagnostics and
 telemetry privacy only where quoted; merged source/binary paragraph identities can
