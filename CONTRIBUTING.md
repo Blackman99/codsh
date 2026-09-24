@@ -177,7 +177,12 @@ exact not-yet-existing file under `/tmp` and under a symlinked directory (denied
 at the resolved path), a workspace named `ws[12]*?` whose relative glob must not
 hit the sibling `ws1ab`, refusals for a deny under a dangling symlink or with
 a control character, a glob whose literal-prefix directory cannot be renamed
-out of the deny (while a rename inside the glob tail stays allowed), and a
+out of the deny (a directory inside the tail cannot be renamed either, because
+Seatbelt does not see the destination), a directory inside the glob tail
+(including one created after launch) that cannot be renamed onto `/tmp` or
+another in-workspace write root,
+an absolute deny glob whose nested directory cannot be renamed to a sibling
+outside that glob, and a
 `inspect --json` probe that prints every config error (including an unknown
 field and unsigned `fail_closed`) instead of stopping at the sandbox precheck,
 and a launchd escape probe: a sandboxed child running `launchctl submit` and

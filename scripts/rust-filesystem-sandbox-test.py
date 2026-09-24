@@ -6,7 +6,8 @@ the launcher environment allowlist. A requested profile must deny an outside
 write, a rename of a protected file, and a symlink escape, while an allowed
 sibling write still succeeds. Unavailable enforcement must refuse startup.
 
-It also proves the glob literal-prefix rename is pinned, and probes the
+It also proves the glob literal-prefix rename is pinned, that a directory
+inside the glob tail cannot be renamed onto another write root, and probes the
 launchd escape (`launchctl submit` / `bootstrap gui/$UID`) with a unique
 user-domain job label and strict teardown, asserting a sandboxed child cannot
 get an unconfined process to read a denied file.
@@ -166,6 +167,7 @@ def run_checks(binary, cwd, env, profile, checks, marker, report):
         lines.append(f"results[{key!r}] = ops[{op!r}]({str(path)!r}, {str(dest) if dest else ''!r})\n")
     lines.append(f"pathlib.Path({str(marker)!r}).write_text(json.dumps(results))\n")
     script = marker.with_suffix(".py")
+    script.parent.mkdir(parents=True, exist_ok=True)
     script.write_text("".join(lines))
     marker.unlink(missing_ok=True)
     report.unlink(missing_ok=True)
@@ -475,7 +477,9 @@ def probe_glob_parent_rename(binary, work):
     """A deny glob is anchored at its literal prefix. Renaming that prefix
     directory would move the matched subtree out from under the runtime regex,
     so the literal prefix and its ancestors up to the write root are pinned.
-    A rename inside the glob tail still matches the regex and stays allowed."""
+    A directory inside the tail is pinned too, including a rename that stays
+    inside the glob. Seatbelt only sees the source path, so it cannot allow
+    one destination and refuse another."""
     base = work / "glob-rename"
     home = base / "home"
     grok = home / ".grok"
@@ -496,24 +500,134 @@ def probe_glob_parent_rename(binary, work):
             ("deep_read", "read", workspace / "secrets" / "sub" / "deep.key", None),
             # Renaming the glob root out of the anchor must be denied.
             ("rename_glob_root", "rename", workspace / "secrets", workspace / "public"),
-            # A rename inside the tail keeps matching the regex, so it is
-            # allowed and does not expose the key.
+            # The tail directory is pinned. Seatbelt does not see the
+            # destination, so a rename that stays inside the glob is denied
+            # along with one that would leave it.
             ("rename_intermediate", "rename", workspace / "secrets" / "sub", workspace / "secrets" / "moved"),
-            ("deep_read_after", "read", workspace / "secrets" / "moved" / "deep.key", None),
+            ("deep_read_after", "read", workspace / "secrets" / "sub" / "deep.key", None),
         ],
         workspace / "glob-rename-marker.json",
         base / "glob-rename-report.json",
     )
     status = expect_effects(
         "glob parent rename", completed, payload, effects,
-        denied=("glob_read", "deep_read", "rename_glob_root", "deep_read_after"),
-        allowed=("rename_intermediate",),
+        denied=("glob_read", "deep_read", "rename_glob_root", "rename_intermediate", "deep_read_after"),
+        allowed=(),
     )
     if status:
         return status
     if not (workspace / "secrets" / "a.key").is_file() or (workspace / "public").exists():
         return fail(f"glob parent rename: the glob root was moved: {effects}")
+    if not (workspace / "secrets" / "sub" / "deep.key").is_file() or (workspace / "secrets" / "moved").exists():
+        return fail(f"glob parent rename: the tail directory was moved: {effects}")
+    if (workspace / "secrets" / "sub" / "deep.key").read_text() != "DEEP":
+        return fail(f"glob parent rename: protected bytes changed: {effects}")
     return {"profile": "gr", "effects": effects}
+
+
+def _glob_tail_case(binary, base, label, deny, cwd, source, protected, destinations):
+    """Rename one directory that sits inside a deny-glob tail onto each
+    destination write root. The protected file must stay unreadable and
+    unchanged. Destinations are cleaned up even when a rename is denied.
+    `cwd` is the workspace the profile is anchored at."""
+    home = base / "home"
+    grok = home / ".grok"
+    dsh = home / "dsh"
+    for path in (grok, dsh, source):
+        path.mkdir(parents=True, exist_ok=True)
+    protected.write_text("DEEP")
+    (grok / "sandbox.toml").write_text(
+        "[profiles.tail]\nextends = \"workspace\"\n"
+        f"deny = [\"{deny}\"]\n"
+    )
+    checks = [("before", "read", protected, None)]
+    for index, dest in enumerate(destinations):
+        if dest.parent != Path("/tmp"):
+            dest.parent.mkdir(parents=True, exist_ok=True)
+        checks.append((f"rename_{index}", "rename", source, dest))
+        checks.append((f"after_{index}", "read", dest / protected.name, None))
+    env = fixture_env(home, grok, dsh)
+    slug = label.replace(" ", "-")
+    try:
+        completed, payload, effects = run_checks(
+            binary, cwd, env, "tail", checks,
+            cwd / f"{slug}-marker.json",
+            base / f"{slug}-report.json",
+        )
+        denied = ["before"] + [
+            key
+            for index in range(len(destinations))
+            for key in (f"rename_{index}", f"after_{index}")
+        ]
+        status = expect_effects(
+            label, completed, payload, effects, denied=tuple(denied), allowed=(),
+        )
+        if status:
+            return status
+        if not protected.is_file() or protected.read_text() != "DEEP":
+            return fail(f"{label}: protected bytes moved or changed: {effects}")
+        for dest in destinations:
+            moved = dest / protected.name
+            if moved.exists():
+                return fail(f"{label}: {moved} exists after a denied rename: {effects}")
+        return {"deny": deny, "effects": effects}
+    finally:
+        for dest in destinations:
+            if dest.parent == Path("/tmp") or dest.parent == Path("/private/tmp"):
+                shutil.rmtree(dest, ignore_errors=True)
+
+
+def probe_glob_tail_rename(binary, work):
+    """Seatbelt matches the resolved path. Renaming a directory created inside
+    the glob tail onto another write root (`/tmp`, or an in-workspace
+    `public/`) carries the matched file out from under the regex. The same
+    move of a nested directory under an absolute `/tmp` deny glob, onto a
+    sibling outside that glob root, must stay denied too."""
+    base = work / "glob-tail"
+    workspace = base / "workspace"
+    results = {}
+    tmp_key = Path("/tmp") / f"codsh-tail-key-{os.getpid()}"
+    tmp_pem = Path("/tmp") / f"codsh-tail-pem-{os.getpid()}"
+    tmp_abs = Path("/tmp") / f"codsh-tail-abs-{os.getpid()}"
+    tmp_abs_dest = Path("/tmp") / f"codsh-tail-abs-out-{os.getpid()}"
+    try:
+        key = _glob_tail_case(
+            binary, base / "key", "glob tail key",
+            "secrets/**/*.key",
+            workspace,
+            workspace / "secrets" / "sub",
+            workspace / "secrets" / "sub" / "deep.key",
+            [tmp_key, workspace / "public" / "moved"],
+        )
+        if isinstance(key, int):
+            return key
+        results["key"] = key
+        pem = _glob_tail_case(
+            binary, base / "pem", "glob tail pem",
+            "certs/**/*.pem",
+            workspace,
+            workspace / "certs" / "sub",
+            workspace / "certs" / "sub" / "deep.pem",
+            [tmp_pem],
+        )
+        if isinstance(pem, int):
+            return pem
+        results["pem"] = pem
+        absolute = _glob_tail_case(
+            binary, base / "absolute", "glob tail absolute",
+            f"{tmp_abs}/**/*.key",
+            base / "absolute" / "workspace",
+            tmp_abs / "nested",
+            tmp_abs / "nested" / "deep.key",
+            [tmp_abs_dest],
+        )
+        if isinstance(absolute, int):
+            return absolute
+        results["absolute"] = absolute
+    finally:
+        for path in (tmp_key, tmp_pem, tmp_abs, tmp_abs_dest):
+            shutil.rmtree(path, ignore_errors=True)
+    return results
 
 
 def launchctl_present():
@@ -904,6 +1018,7 @@ def probe(binary, work, outside_env):
         ("symlinked", probe_symlinked_prefix),
         ("metachar", probe_metachar_workspace),
         ("glob_rename", probe_glob_parent_rename),
+        ("glob_tail_rename", probe_glob_tail_rename),
         ("launchd", probe_launchd_escape),
         ("inspect", probe_inspect_keeps_diagnostics),
     ):

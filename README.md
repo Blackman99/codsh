@@ -80,10 +80,11 @@ contains `[`, `*`, or `?`. A deny path under a dangling symlink, or one with a
 control character, cannot be written as a matching kernel rule and refuses
 startup. A deny glob is anchored at its literal prefix, so that prefix
 directory and its existing ancestors up to the write root are pinned against
-rename or unlink; renaming a directory inside the glob tail keeps matching the
-runtime regex, so it is allowed and does not expose the file, and a directory
-created under the glob after launch is not pre-pinned (launch-time, as in the
-reference). A sandboxed child cannot use launchd (`launchctl submit`,
+rename or unlink. A directory inside the glob tail, including one created
+after launch, is pinned the same way by a directory regex: Seatbelt matches
+the resolved path, so renaming that directory onto another write root would
+carry a matched file out from under the regex. Seatbelt only sees the source
+path, so a rename that stays inside the glob is denied as well. A sandboxed child cannot use launchd (`launchctl submit`,
 `launchctl bootstrap gui/$UID`) to get an unconfined process to read a denied
 file: this escape is kernel-blocked under the profile, matching the reference
 nono profile's `mach-lookup` rules (a probe confirms it succeeds only when the

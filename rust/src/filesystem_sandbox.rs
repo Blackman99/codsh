@@ -205,7 +205,7 @@ pub fn prepare(
             .into(),
     );
     limits.push(
-        "The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under this profile, matching the reference nono profile's mach-lookup rules; a directory created after launch under a deny glob is not pre-pinned against rename (launch-time, as in the reference)."
+        "The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under this profile, matching the reference nono profile's mach-lookup rules. A directory under a deny glob, including one created after launch, cannot be renamed or unlinked: Seatbelt matches the resolved path, so moving that directory onto another write root would carry a matched file out from under the regex."
             .into(),
     );
     if resolved.devbox {
@@ -538,6 +538,14 @@ fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
         for regex in glob_regexes(glob)? {
             tail.push_str(&format!("(deny file-read* file-write* (regex {regex}))\n"));
         }
+        // After the file deny. A directory created inside the glob tail is
+        // not a path that exists at launch, so a literal pin cannot name it.
+        // The regex covers that directory whenever it is created. Last match
+        // still denies its rename onto another write root.
+        for regex in glob_directory_regexes(glob, &prepared.write_roots)? {
+            tail.push_str(&directory_pin_rule(&regex));
+            tail.push('\n');
+        }
     }
     Ok(tail)
 }
@@ -553,9 +561,11 @@ fn deny_tail(prepared: &Prepared) -> Result<String, Refusal> {
 /// directory (or an ancestor of it under the write root) moves the whole
 /// matched subtree out from under the runtime regex. The glob's literal
 /// root is therefore pinned starting at the directory itself, not its parent.
-/// A rename that only changes a component inside the glob tail keeps matching
-/// the regex, so it does not escape; that is the same runtime-regex behaviour
-/// as the reference.
+/// A directory inside the tail is not pinned here: it may be created after
+/// launch, so no literal path exists to name. `glob_directory_regexes`
+/// denies renaming any such directory. A rename that stays under the glob
+/// would still match the file regex; a rename onto another write root would
+/// not, which is why the directory itself is pinned.
 fn pinned_directories(prepared: &Prepared) -> Vec<PathBuf> {
     let mut directories = Vec::new();
     let pin_chain = |start: Option<&Path>, directories: &mut Vec<PathBuf>| {
@@ -601,6 +611,167 @@ fn under_write_root(path: &Path, roots: &[PathBuf]) -> bool {
 fn pin_rule(path: &Path) -> String {
     let escaped = seatbelt_string(&path.display().to_string());
     format!("(deny file-write-unlink (literal {escaped}))")
+}
+
+/// Block renaming or unlinking a directory the glob can match, including one
+/// created after launch. `vnode-type DIRECTORY` is required: a bare regex
+/// also matches files, and then a note next to a denied key could not be
+/// renamed. Creating and rewriting children stays allowed.
+fn directory_pin_rule(regex: &str) -> String {
+    format!("(deny file-write-unlink (require-all (vnode-type DIRECTORY) (regex {regex})))")
+}
+
+/// Seatbelt regexes for directories under a deny glob. The file regex only
+/// matches the protected file, so renaming a directory that contains it onto
+/// another write root (`/tmp`, an in-workspace `public/`, or a sibling of an
+/// absolute glob root) carries the file out from under that regex. The regex
+/// matches the directory being renamed, including one created after launch.
+/// Seatbelt does not see the destination, so the rename is denied even when
+/// the new path would still match. A directory that cannot contain a match
+/// is not covered: `secrets/other` stays renameable under `secrets/sub/*.key`.
+fn glob_directory_regexes(
+    glob: &DenyGlob,
+    write_roots: &[PathBuf],
+) -> Result<Vec<String>, Refusal> {
+    let mut regexes = Vec::new();
+    let forms = resolved_forms(&glob.root).map_err(|refusal| Refusal {
+        message: format!("{} (deny glob {})", refusal.message, glob.pattern),
+    })?;
+    for form in forms {
+        let root = form.to_str().ok_or_else(|| Refusal {
+            message: format!(
+                "refusing sandbox: glob root {} is not UTF-8",
+                form.display()
+            ),
+        })?;
+        let ancestors = directory_ancestors(&form, write_roots);
+        let regex =
+            glob_directory_regex(root, &glob.tail, &ancestors).map_err(|message| Refusal {
+                message: format!("refusing sandbox: {message} (deny glob {})", glob.pattern),
+            })?;
+        if !regexes.contains(&regex) {
+            regexes.push(regex);
+        }
+    }
+    Ok(regexes)
+}
+
+/// Parents of the glob root, up through the write root that contains it.
+/// A literal pin only names a directory that already exists. These stay in
+/// the regex so a prefix created after launch cannot be renamed away either.
+fn directory_ancestors(path: &Path, write_roots: &[PathBuf]) -> Vec<String> {
+    let mut ancestors = Vec::new();
+    let mut current = path.parent();
+    while let Some(directory) = current {
+        if directory.as_os_str().is_empty() || directory == Path::new("/") {
+            break;
+        }
+        if !under_write_root(directory, write_roots) {
+            break;
+        }
+        let Some(text) = directory.to_str() else {
+            break;
+        };
+        ancestors.push(text.to_string());
+        if write_roots.iter().any(|root| root == directory) {
+            break;
+        }
+        current = directory.parent();
+    }
+    ancestors
+}
+
+fn glob_directory_regex(root: &str, tail: &str, ancestors: &[String]) -> Result<String, String> {
+    // Seatbelt checks the path without a trailing slash. Each segment
+    // therefore starts with `/`; a pattern that ends in `/` misses the rename.
+    let segments = directory_tail_segments(tail);
+    let star = segments.iter().position(|segment| *segment == "**");
+    let prefix = match star {
+        Some(index) => &segments[..index],
+        None => segments.as_slice(),
+    };
+    // `**` can put a match under any later directory. Names after `**` do
+    // not narrow the pin: that directory is an ancestor of the match.
+    let mut chain = if star.is_some() {
+        "(/[^/]+)*".to_string()
+    } else {
+        String::new()
+    };
+    for segment in prefix.iter().rev() {
+        let mut piece = String::from("(/");
+        append_segment_regex(&mut piece, segment)?;
+        piece.push_str(&chain);
+        piece.push_str(")?");
+        chain = piece;
+    }
+    let mut body = String::new();
+    for ancestor in ancestors {
+        if !body.is_empty() {
+            body.push('|');
+        }
+        for ch in ancestor.chars() {
+            push_regex_literal(&mut body, ch);
+        }
+    }
+    // `*.key` makes the glob root the same directory as its write-root
+    // ancestor and adds no further directory. Emitting it twice is noise.
+    let root_already = chain.is_empty() && ancestors.iter().any(|ancestor| ancestor == root);
+    if !root_already {
+        if !body.is_empty() {
+            body.push('|');
+        }
+        if root != "/" {
+            for ch in root.chars() {
+                push_regex_literal(&mut body, ch);
+            }
+        }
+        body.push_str(&chain);
+    }
+    Ok(seatbelt_string(&format!("^({body})$")))
+}
+
+/// Tail segments that name a directory. The last segment is the file, so
+/// `secrets/**/*.key` contributes `**` and `sub/*.key` contributes `sub`.
+/// A trailing `**` (`certs/**`) is itself a directory and stays.
+fn directory_tail_segments(tail: &str) -> Vec<&str> {
+    if tail.is_empty() {
+        return Vec::new();
+    }
+    let mut segments: Vec<&str> = tail.split('/').collect();
+    if segments.last().is_some_and(|segment| *segment != "**") {
+        segments.pop();
+    }
+    segments
+}
+
+fn append_segment_regex(regex: &mut String, segment: &str) -> Result<(), String> {
+    let chars: Vec<char> = segment.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        match chars[index] {
+            '*' if chars.get(index + 1) == Some(&'*') => {
+                return Err(format!("unsupported deny glob directory segment {segment}"));
+            }
+            '*' => {
+                regex.push_str("[^/]*");
+                index += 1;
+            }
+            '?' => {
+                regex.push_str("[^/]");
+                index += 1;
+            }
+            '[' => {
+                let class = seatbelt_class(&chars, index, segment)?;
+                regex.push_str(&class.text);
+                index = class.next;
+            }
+            other => {
+                push_regex_literal(regex, other);
+                index += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn pin_directory(
@@ -870,6 +1041,15 @@ fn deny_glob(
                 rule.push(' ');
             }
             rule.push_str(&format!("(deny file-read* file-write* (regex {regex}))"));
+        }
+        // The platform rule is built before write roots are known to this
+        // helper. The same regex is appended again, with those ancestors,
+        // after every write allow. This copy still has to be accepted.
+        for regex in glob_directory_regexes(glob, &[])? {
+            if !rule.is_empty() {
+                rule.push(' ');
+            }
+            rule.push_str(&directory_pin_rule(&regex));
         }
         caps.platform_rule(rule).map_err(|error| Refusal {
             message: format!(
@@ -2415,17 +2595,63 @@ mod tests {
             )),
             "write root pin missing from {tail}"
         );
-        // A directory inside the glob tail is not pinned: a rename there keeps
-        // matching the runtime regex, so it does not escape.
+        // The tail directory is not a literal pin: it may not exist at launch.
+        // A regex covers it, and a directory created under it later.
         let sub = root.join("secrets/sub").display().to_string();
         assert!(
             !tail.contains(&format!(
                 "(deny file-write-unlink (literal {}))",
                 seatbelt_string(&sub)
             )),
-            "a directory inside the glob tail must not be pinned: {tail}"
+            "a directory inside the glob tail is covered by regex, not a literal: {tail}"
+        );
+        let directory =
+            glob_directory_regexes(&prepared.read_denied_globs[0], &prepared.write_roots).unwrap();
+        assert!(
+            directory
+                .iter()
+                .any(|regex| tail.contains(&directory_pin_rule(regex))),
+            "glob tail directory pin missing from {tail}"
         );
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn glob_tail_directory_regex_covers_later_directories_only() {
+        let root = Path::new("/workspace");
+        let ancestors = vec!["/workspace".to_string()];
+        let cases = [
+            (
+                "secrets/**/*.key",
+                r#"^(/workspace|/workspace/secrets(/[^/]+)*)$"#,
+            ),
+            // Only the directory that holds `*.key`. A subdirectory cannot.
+            ("*.key", r#"^(/workspace)$"#),
+            ("certs/**", r#"^(/workspace|/workspace/certs(/[^/]+)*)$"#),
+            (
+                "secrets/sub/*.key",
+                r#"^(/workspace|/workspace/secrets/sub)$"#,
+            ),
+            ("a/b/*.txt", r#"^(/workspace|/workspace/a/b)$"#),
+            (
+                "pre/*/mid/*.key",
+                r#"^(/workspace|/workspace/pre(/[^/]*(/mid)?)?)$"#,
+            ),
+        ];
+        for (pattern, want) in cases {
+            let glob = split_glob(pattern, root);
+            let regex =
+                glob_directory_regex(&glob.root.display().to_string(), &glob.tail, &ancestors)
+                    .unwrap_or_else(|error| panic!("{pattern}: {error}"));
+            assert_eq!(regex, seatbelt_string(want), "{pattern}");
+        }
+        // A literal directory that cannot carry a match is not in the regex,
+        // so `other` beside `sub` is not pinned by `secrets/sub/*.key`.
+        let nested = split_glob("secrets/sub/*.key", root);
+        let regex =
+            glob_directory_regex(&nested.root.display().to_string(), &nested.tail, &ancestors)
+                .unwrap();
+        assert!(!regex.contains("other"), "{regex}");
     }
 
     #[test]
