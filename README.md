@@ -47,7 +47,22 @@ Common flags:
 
 `codsh --rust` explicitly selects the parallel Rust client; plain `codsh` keeps
 using the existing version. The Rust UI submits prompts over ACP/JSON-RPC to a
-real `dsh --profile acp` process in the isolated Home. Streamed answers, provider
+real `dsh --profile acp` process in the isolated Home. `codsh --rust agent stdio`
+is the editor entry for that same dsh session: ACP version 1, `session/new`,
+`session/load` (dsh resume plus read-only history replay), `session/prompt`,
+`session/cancel`, `session/set_config_option` (model, reasoning effort, and
+`permission_mode`), and approval requests. Model and reasoning changes are
+written to `$GROK_HOME/model-selection.toml` before the next prompt and restored
+on `session/load` and on a terminal resume, including an advertised model that
+is not a `config.toml` catalog id. A model that is neither is refused. Terminal
+`/dontAsk` and `/acceptEdits` set the same session modes, and that mode is on
+the policy file before dsh starts. Proprietary `x.ai/*` methods,
+`session/delete`, `session/fork`, and `session/set_mode` return JSON-RPC
+method-not-found. Closing the editor releases the write owner; a second client
+is refused while it is held. In Zed, add a custom agent server whose command is
+the installed `codsh` with arguments `--rust`, `agent`, `stdio`. This checkout
+did not launch Zed or another GUI editor; the repeatable check is an external
+ACP client over stdio. Streamed answers, provider
 thoughts, empty replies, and failures are shown as dsh reports them; a protocol
 mismatch or missing dsh is refused instead of faked as success. It reuses licensed
 Grok Rust UI components, requires no official account, and does not start the

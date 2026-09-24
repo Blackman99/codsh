@@ -39,6 +39,9 @@ impl ApiBackend {
 pub struct SavedSelection {
     pub model_id: String,
     pub effort: Option<String>,
+    /// Advertised ACP model value. Present when the editor saved a route that
+    /// may not be a config.toml catalog id.
+    pub acp_value: Option<String>,
 }
 
 pub fn selection_path(grok_home: &Path) -> PathBuf {
@@ -60,14 +63,37 @@ pub fn load_saved_selection(grok_home: &Path) -> Option<SavedSelection> {
         .and_then(toml::Value::as_str)
         .map(str::to_string)
         .filter(|value| !value.is_empty());
-    Some(SavedSelection { model_id, effort })
+    let acp_value = table
+        .get("acp")
+        .and_then(toml::Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.is_empty());
+    Some(SavedSelection {
+        model_id,
+        effort,
+        acp_value,
+    })
 }
 
 pub fn save_selection(grok_home: &Path, model_id: &str, effort: Option<&str>) -> io::Result<()> {
+    save_selection_route(grok_home, model_id, effort, None)
+}
+
+/// Persist the advertised ACP value next to the catalog id. Terminal resume
+/// and a later editor `session/load` read the same file.
+pub fn save_selection_route(
+    grok_home: &Path,
+    model_id: &str,
+    effort: Option<&str>,
+    acp_value: Option<&str>,
+) -> io::Result<()> {
     fs::create_dir_all(grok_home)?;
     let mut body = format!("default = {}\n", toml_quote(model_id));
     if let Some(effort) = effort.filter(|value| !value.is_empty()) {
         body.push_str(&format!("effort = {}\n", toml_quote(effort)));
+    }
+    if let Some(acp_value) = acp_value.filter(|value| !value.is_empty()) {
+        body.push_str(&format!("acp = {}\n", toml_quote(acp_value)));
     }
     let path = selection_path(grok_home);
     let mut options = fs::OpenOptions::new();

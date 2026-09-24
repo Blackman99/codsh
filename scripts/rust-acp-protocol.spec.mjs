@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -140,6 +140,21 @@ describe('dsh session log projection', () => {
     expect(turns[0].interrupted).toBe(true)
     expect(turns[0].tools[0].status).toBe('unknown')
     expect(JSON.stringify(turns[0]).toLowerCase()).not.toContain('success')
+  })
+
+  it('replays a nested tool-result denial as failed', () => {
+    const turns = projectTurns([
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { message: { content: [{ type: 'text', text: 'edit the note' }] } } },
+      { type: 'tool/call', data: { callId: 'rust-acp-edit', name: 'edit', arguments: '{"file_path":"note.txt"}' } },
+      { type: 'session/event', data: { message: {
+        source: { callId: 'rust-acp-edit' },
+        content: [{ type: 'tool-result', content: [{ type: 'text', text: 'dontAsk blocked this action' }] }],
+      } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+    ])
+    expect(turns[0].tools[0].status).toBe('failed')
+    expect(turns[0].tools[0].result).toMatch(/dontAsk/)
   })
 
   it('restores a text-only image turn as the typed row, not the fallback path', () => {
@@ -1515,4 +1530,551 @@ describe('public ACP/JSON-RPC against real dsh', () => {
       hooked.child.kill('SIGTERM')
     }
   }, 60000)
+
+  it('serves an editor through codsh agent stdio without stubbing unsupported methods', async () => {
+    const binary = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'rust/target/debug/codsh-rust')
+    expect(existsSync(binary), 'cargo build -p codsh-rust first').toBe(true)
+    const rootDir = mkdtempSync(join('/tmp', 'codsh-editor-acp-'))
+    homes.push(rootDir)
+    const isolated = join(rootDir, 'isolated')
+    const cwd = join(rootDir, 'workspace')
+    mkdirSync(join(isolated, 'dsh'), { recursive: true })
+    mkdirSync(cwd)
+    writeFileSync(join(cwd, 'note.txt'), 'alpha\n')
+    const overlay = join(rootDir, 'overlay.yml')
+    writeFileSync(overlay, rustAcpOverlay())
+    const child = spawn(binary, ['--permission-mode', 'ask', 'agent', 'stdio'], {
+      cwd,
+      env: {
+        PATH: process.env.PATH,
+        HOME: isolated,
+        USERPROFILE: isolated,
+        DSH_HOME: join(isolated, 'dsh'),
+        DSH_BIN: dshPath(),
+        CODSH_NODE: process.execPath,
+        CODSH_ACP_PATCH: overlay,
+        DSH_CODE_CLI_MOCK_TOOL: 'file-edit',
+        DSH_TELEMETRY_DISABLED: '1',
+        DSH_TELEMETRY_MODE: 'OFF',
+        DEEPSEEK_API_KEY: '',
+        CODSH_UPDATE_CHECK: 'off',
+        CODSH_SESSION_READ: resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const pending = new Map()
+    const updates = []
+    const permissions = []
+    const stderr = []
+    createInterface({ input: child.stdout }).on('line', line => {
+      let msg
+      try { msg = JSON.parse(line) } catch { return }
+      if (msg.method === 'session/update') updates.push(msg.params)
+      if (msg.method === 'session/request_permission') permissions.push(msg)
+      if (msg.id != null && pending.has(String(msg.id))) {
+        const waiter = pending.get(String(msg.id))
+        pending.delete(String(msg.id))
+        if (msg.error) waiter.reject(Object.assign(new Error(msg.error.message), { error: msg.error }))
+        else waiter.resolve(msg.result)
+      }
+    })
+    child.stderr.on('data', chunk => { stderr.push(String(chunk)) })
+    function send(id, method, params) {
+      return new Promise((resolve, reject) => {
+        pending.set(String(id), { resolve, reject })
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+        setTimeout(() => {
+          if (pending.has(String(id))) {
+            pending.delete(String(id))
+            reject(new Error(`timeout ${method}: ${stderr.join('')}`))
+          }
+        }, 25000)
+      })
+    }
+    let createdSession = ''
+    try {
+      const init = await send(1, 'initialize', {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: true }, terminal: true },
+        clientInfo: { name: 'zed-shaped-editor', version: '0' },
+      })
+      expect(init.protocolVersion).toBe(1)
+      expect(init.agentInfo.name).toBe('codsh-rust')
+      expect(init.agentCapabilities.loadSession).toBe(true)
+      expect(init.agentCapabilities.sessionCapabilities).toMatchObject({ list: {}, resume: {}, close: {} })
+      expect(init.agentCapabilities.promptCapabilities).toMatchObject({ image: false, audio: false, embeddedContext: false })
+      const upstream = init.agentCapabilities._meta['codsh/upstream']
+      expect(upstream.agent).toBe('dsh')
+      expect(upstream.protocolVersion).toBe(1)
+      expect(upstream.loadSession).toBe(false)
+      const extensions = init.agentCapabilities._meta['codsh/extensions']
+      expect(extensions['session/load'].status).toBe('supported')
+      for (const method of [
+        'x.ai/session/update',
+        'x.ai/session/updates',
+        'x.ai/session/updates/chunk',
+        'x.ai/billing',
+        'x.ai/review/comment',
+        'session/delete',
+        'session/fork',
+        'session/set_mode',
+      ]) {
+        expect(extensions[method].status).toBe('unsupported')
+        await expect(send(90 + method.length, method, { sessionId: 'none' })).rejects.toThrow(/Method not found/)
+      }
+      const created = await send(2, 'session/new', { cwd, mcpServers: [] })
+      createdSession = created.sessionId
+      expect(created.sessionId).toMatch(/^[0-9a-f-]{36}$/u)
+      expect(JSON.stringify(created.configOptions)).toContain('cli-mock')
+      const mode = created.configOptions.find(option => option.id === 'permission_mode')
+      expect(mode.currentValue).toBe('ask')
+      await expect(send(4, 'session/set_config_option', {
+        sessionId: created.sessionId,
+        configId: 'reasoning_effort',
+        value: 'not-a-real-effort',
+      })).rejects.toThrow()
+      const model = created.configOptions.find(option => option.id === 'model')
+      const fork = model.options.find(option => option.value.includes('cli-mock-fork'))
+      expect(fork, JSON.stringify(model.options)).toBeTruthy()
+      const effort = created.configOptions.find(option => option.id === 'reasoning_effort')
+      const effortValue = effort.options.find(option => option.value === 'high' || option.value === 'low')?.value
+        ?? effort.options[0].value
+      const configured = await send(41, 'session/set_config_option', {
+        sessionId: created.sessionId,
+        configId: 'model',
+        value: fork.value,
+      })
+      expect(configured.configOptions.find(option => option.id === 'model').currentValue).toBe(fork.value)
+      const reasoned = await send(42, 'session/set_config_option', {
+        sessionId: created.sessionId,
+        configId: 'reasoning_effort',
+        value: effortValue,
+      })
+      expect(reasoned.configOptions.find(option => option.id === 'reasoning_effort').currentValue).toBe(effortValue)
+      const selectionPath = join(isolated, '.grok', 'model-selection.toml')
+      const selection = readFileSync(selectionPath, 'utf8')
+      expect(selection).toContain('cli-mock-fork')
+      expect(selection).toContain(effortValue)
+      const selectionMtime = statSync(selectionPath).mtimeMs
+      const shared = await send(43, 'session/set_config_option', {
+        sessionId: created.sessionId,
+        configId: 'permission_mode',
+        value: 'dontAsk',
+      })
+      expect(shared.configOptions.find(option => option.id === 'permission_mode').currentValue).toBe('dontAsk')
+      const modeFile = readFileSync(join(isolated, 'dsh', 'session-owners', `${created.sessionId}.mode`), 'utf8')
+      expect(modeFile.trim()).toBe('dontAsk')
+      expect(statSync(selectionPath).mtimeMs).toBe(selectionMtime)
+      const result = await send(5, 'session/prompt', {
+        sessionId: created.sessionId,
+        prompt: [{ type: 'text', text: 'edit the note' }],
+      })
+      expect(result.stopReason).toBe('end_turn')
+      expect(permissions).toEqual([])
+      expect(readFileSync(join(cwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+      const blockedEdit = updates.find(update => update.update.sessionUpdate === 'tool_call_update' && update.update.toolCallId === 'rust-acp-edit')
+      expect(blockedEdit.update.status).toBe('failed')
+      expect(JSON.stringify(blockedEdit)).toMatch(/dontAsk/)
+      const kinds = updates.map(update => update.update.sessionUpdate)
+      const userAt = kinds.indexOf('user_message_chunk')
+      const toolAt = kinds.indexOf('tool_call')
+      const answerAt = kinds.lastIndexOf('agent_message_chunk')
+      expect(userAt).toBeGreaterThanOrEqual(0)
+      expect(toolAt).toBeGreaterThan(userAt)
+      expect(answerAt).toBeGreaterThan(toolAt)
+      expect(updates[userAt].update.content.text).toContain('edit the note')
+      expect(updates[userAt].sessionId).toBe(created.sessionId)
+      await send(6, 'session/close', { sessionId: created.sessionId })
+
+      const loaded = await send(7, 'session/load', {
+        sessionId: created.sessionId,
+        cwd,
+        mcpServers: [],
+      })
+      expect(loaded.configOptions.find(option => option.id === 'model').currentValue).toBe(fork.value)
+      expect(loaded.configOptions.find(option => option.id === 'reasoning_effort').currentValue).toBe(effortValue)
+      expect(loaded.configOptions.find(option => option.id === 'permission_mode').currentValue).toBe('dontAsk')
+      const selectionAfterLoad = readFileSync(selectionPath, 'utf8')
+      expect(selectionAfterLoad).toContain('cli-mock-fork')
+      expect(selectionAfterLoad).toContain(effortValue)
+      expect(selectionAfterLoad).toMatch(/acp\s*=/)
+      const changed = await send(71, 'session/set_config_option', {
+        sessionId: created.sessionId,
+        configId: 'permission_mode',
+        value: 'acceptEdits',
+      })
+      expect(changed.configOptions.find(option => option.id === 'permission_mode').currentValue).toBe('acceptEdits')
+      const replay = updates.filter(update => update.sessionId === created.sessionId && (
+        String(update.update.messageId ?? '').startsWith('restored-')
+        || (update.update.sessionUpdate === 'tool_call' && updates.indexOf(update) > answerAt)
+      ))
+      expect(replay.some(update => update.update.sessionUpdate === 'user_message_chunk' && update.update.content.text.includes('edit the note'))).toBe(true)
+      const replayTools = replay.filter(update => update.update.sessionUpdate === 'tool_call').map(update => ({ id: update.update.toolCallId, status: update.update.status }))
+      expect(replayTools.some(tool => tool.id === 'rust-acp-edit' && tool.status === 'failed'), JSON.stringify(replayTools)).toBe(true)
+      expect(replayTools.some(tool => tool.id === 'rust-acp-edit' && tool.status === 'completed')).toBe(false)
+
+      const deniedCwd = join(rootDir, 'denied-workspace')
+      mkdirSync(deniedCwd)
+      writeFileSync(join(deniedCwd, 'note.txt'), 'alpha\n')
+      const deniedReplay = spawn(binary, ['agent', 'stdio'], {
+        cwd: deniedCwd,
+        env: {
+          PATH: process.env.PATH,
+          HOME: isolated,
+          USERPROFILE: isolated,
+          DSH_HOME: join(isolated, 'dsh'),
+          DSH_BIN: dshPath(),
+          CODSH_NODE: process.execPath,
+          CODSH_ACP_PATCH: overlay,
+          DSH_CODE_CLI_MOCK_TOOL: 'file-edit',
+          DSH_TELEMETRY_DISABLED: '1',
+          DEEPSEEK_API_KEY: '',
+          CODSH_SESSION_READ: resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const deniedPending = new Map()
+      const deniedUpdates = []
+      createInterface({ input: deniedReplay.stdout }).on('line', line => {
+        let msg
+        try { msg = JSON.parse(line) } catch { return }
+        if (msg.method === 'session/update') deniedUpdates.push(msg.params)
+        if (msg.method === 'session/request_permission') {
+          deniedReplay.stdin.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id: msg.id,
+            result: { outcome: { outcome: 'selected', optionId: 'reject-once' } },
+          })}\n`)
+        }
+        if (msg.id != null && deniedPending.has(String(msg.id))) {
+          const waiter = deniedPending.get(String(msg.id))
+          deniedPending.delete(String(msg.id))
+          if (msg.error) waiter.reject(new Error(msg.error.message))
+          else waiter.resolve(msg.result)
+        }
+      })
+      function sendDenied(id, method, params) {
+        return new Promise((resolve, reject) => {
+          deniedPending.set(String(id), { resolve, reject })
+          deniedReplay.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+          setTimeout(() => reject(new Error(`denied timeout ${method}`)), 25000)
+        })
+      }
+      let deniedSession = ''
+      try {
+        await sendDenied(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+        const deniedCreated = await sendDenied(2, 'session/new', { cwd: deniedCwd, mcpServers: [] })
+        deniedSession = deniedCreated.sessionId
+        await sendDenied(3, 'session/set_config_option', {
+          sessionId: deniedSession,
+          configId: 'permission_mode',
+          value: 'ask',
+        })
+        const deniedPrompt = await sendDenied(4, 'session/prompt', {
+          sessionId: deniedSession,
+          prompt: [{ type: 'text', text: 'edit the note' }],
+        })
+        expect(deniedPrompt.stopReason).toBe('end_turn')
+        expect(readFileSync(join(deniedCwd, 'note.txt'), 'utf8')).toBe('alpha\n')
+        await sendDenied(5, 'session/close', { sessionId: deniedSession })
+        deniedUpdates.length = 0
+        await sendDenied(6, 'session/load', { sessionId: deniedSession, cwd: deniedCwd, mcpServers: [] })
+        const deniedTool = deniedUpdates.find(update => update.update.sessionUpdate === 'tool_call' && update.update.toolCallId === 'rust-acp-edit')
+        expect(deniedTool, JSON.stringify(deniedUpdates.map(update => update.update))).toBeTruthy()
+        expect(deniedTool.update.status).toBe('failed')
+        await sendDenied(7, 'session/close', { sessionId: deniedSession })
+      } finally {
+        deniedReplay.stdin.end()
+        deniedReplay.kill('SIGTERM')
+        await new Promise(resolve => deniedReplay.once('exit', resolve))
+      }
+
+      const blocked = spawn(binary, ['agent', 'stdio'], {
+        cwd,
+        env: {
+          PATH: process.env.PATH,
+          HOME: isolated,
+          USERPROFILE: isolated,
+          DSH_HOME: join(isolated, 'dsh'),
+          DSH_BIN: dshPath(),
+          CODSH_NODE: process.execPath,
+          CODSH_ACP_PATCH: overlay,
+          DSH_CODE_CLI_MOCK_TOOL: 'echo',
+          DSH_TELEMETRY_DISABLED: '1',
+          DEEPSEEK_API_KEY: '',
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const blockedPending = new Map()
+      createInterface({ input: blocked.stdout }).on('line', line => {
+        let msg
+        try { msg = JSON.parse(line) } catch { return }
+        if (msg.id != null && blockedPending.has(String(msg.id))) {
+          const waiter = blockedPending.get(String(msg.id))
+          blockedPending.delete(String(msg.id))
+          if (msg.error) waiter.reject(new Error(msg.error.message))
+          else waiter.resolve(msg.result)
+        }
+      })
+      function sendBlocked(id, method, params) {
+        return new Promise((resolve, reject) => {
+          blockedPending.set(String(id), { resolve, reject })
+          blocked.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+          setTimeout(() => reject(new Error('blocked timeout')), 20000)
+        })
+      }
+      await sendBlocked(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+      await expect(sendBlocked(2, 'session/load', {
+        sessionId: created.sessionId,
+        cwd,
+        mcpServers: [],
+      })).rejects.toThrow(/already running|Write owner refused|already active/)
+      blocked.stdin.end()
+      blocked.kill('SIGTERM')
+      await new Promise(resolve => blocked.once('exit', resolve))
+      await send(9, 'session/close', { sessionId: created.sessionId })
+    } finally {
+      child.stdin.end()
+      child.kill('SIGTERM')
+      await new Promise(resolve => child.once('exit', resolve))
+    }
+
+    const echo = spawn(binary, ['agent', 'stdio'], {
+      cwd,
+      env: {
+        PATH: process.env.PATH,
+        HOME: isolated,
+        USERPROFILE: isolated,
+        DSH_HOME: join(isolated, 'dsh'),
+        DSH_BIN: dshPath(),
+        CODSH_NODE: process.execPath,
+        CODSH_ACP_PATCH: overlay,
+        DSH_CODE_CLI_MOCK_TOOL: 'echo',
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: '',
+        CODSH_SESSION_READ: resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const echoPending = new Map()
+    const echoUpdates = []
+    createInterface({ input: echo.stdout }).on('line', line => {
+      let msg
+      try { msg = JSON.parse(line) } catch { return }
+      if (msg.method === 'session/update') echoUpdates.push(msg.params)
+      if (msg.id != null && echoPending.has(String(msg.id))) {
+        const waiter = echoPending.get(String(msg.id))
+        echoPending.delete(String(msg.id))
+        if (msg.error) waiter.reject(new Error(msg.error.message))
+        else waiter.resolve(msg.result)
+      }
+    })
+    function sendEcho(id, method, params) {
+      return new Promise((resolve, reject) => {
+        echoPending.set(String(id), { resolve, reject })
+        echo.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+        setTimeout(() => reject(new Error(`echo timeout ${method}`)), 20000)
+      })
+    }
+    try {
+      await sendEcho(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+      const resumed = await sendEcho(2, 'session/load', { sessionId: createdSession, cwd, mcpServers: [] })
+      expect(resumed.configOptions.find(option => option.id === 'permission_mode').currentValue).toBe('acceptEdits')
+      const echoed = await sendEcho(3, 'session/prompt', {
+        sessionId: createdSession,
+        prompt: [{ type: 'text', text: 'TOKEN_EDITOR_AGAIN' }],
+      })
+      expect(echoed.stopReason).toBe('end_turn')
+      expect(echoUpdates.some(update => update.update.sessionUpdate === 'agent_message_chunk' && update.update.content.text.includes('TOKEN_EDITOR_AGAIN'))).toBe(true)
+      mkdirSync(join(rootDir, 'slow-home'), { recursive: true })
+      mkdirSync(join(rootDir, 'slow-dsh'), { recursive: true })
+      const slow = spawn(binary, ['agent', 'stdio'], {
+        cwd,
+        env: {
+          PATH: process.env.PATH,
+          HOME: join(rootDir, 'slow-home'),
+          USERPROFILE: join(rootDir, 'slow-home'),
+          DSH_HOME: join(rootDir, 'slow-dsh'),
+          DSH_BIN: dshPath(),
+          CODSH_NODE: process.execPath,
+          CODSH_ACP_PATCH: overlay,
+          DSH_CODE_CLI_MOCK_TOOL: 'echo',
+          DSH_CODE_CLI_MOCK_DELAY_MS: '4000',
+          DSH_TELEMETRY_DISABLED: '1',
+          DEEPSEEK_API_KEY: '',
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const slowPending = new Map()
+      createInterface({ input: slow.stdout }).on('line', line => {
+        let msg
+        try { msg = JSON.parse(line) } catch { return }
+        if (msg.id != null && slowPending.has(String(msg.id))) {
+          const waiter = slowPending.get(String(msg.id))
+          slowPending.delete(String(msg.id))
+          if (msg.error) waiter.reject(new Error(msg.error.message))
+          else waiter.resolve(msg.result)
+        }
+      })
+      function sendSlow(id, method, params) {
+        return new Promise((resolve, reject) => {
+          slowPending.set(String(id), { resolve, reject })
+          slow.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+          setTimeout(() => reject(new Error(`slow timeout ${method}`)), 20000)
+        })
+      }
+      try {
+        await sendSlow(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+        const slowSession = await sendSlow(2, 'session/new', { cwd, mcpServers: [] })
+        const running = sendSlow(3, 'session/prompt', {
+          sessionId: slowSession.sessionId,
+          prompt: [{ type: 'text', text: 'TOKEN_SLOW' }],
+        })
+        await new Promise(resolve => setTimeout(resolve, 200))
+        slow.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId: slowSession.sessionId } })}\n`)
+        const cancelled = await running
+        expect(cancelled.stopReason).toBe('cancelled')
+        const after = await sendSlow(4, 'session/prompt', {
+          sessionId: slowSession.sessionId,
+          prompt: [{ type: 'text', text: 'TOKEN_AFTER_EDITOR_CANCEL' }],
+        })
+        expect(after.stopReason).toBe('end_turn')
+      } finally {
+        slow.stdin.end()
+        slow.kill('SIGTERM')
+        await new Promise(resolve => slow.once('exit', resolve))
+      }
+    } finally {
+      echo.stdin.end()
+      echo.kill('SIGTERM')
+      await new Promise(resolve => echo.once('exit', resolve))
+    }
+  }, 120000)
+
+  it('restores a saved advertised model that is not a catalog id and refuses an unknown one', async () => {
+    const binary = join(resolve(fileURLToPath(new URL('.', import.meta.url)), '..'), 'rust/target/debug/codsh-rust')
+    expect(existsSync(binary), 'cargo build -p codsh-rust first').toBe(true)
+    const rootDir = mkdtempSync(join('/tmp', 'codsh-editor-advertised-'))
+    homes.push(rootDir)
+    const isolated = join(rootDir, 'isolated')
+    const cwd = join(rootDir, 'workspace')
+    mkdirSync(join(isolated, '.grok'), { recursive: true })
+    mkdirSync(join(isolated, 'dsh'), { recursive: true })
+    mkdirSync(cwd)
+    writeFileSync(join(isolated, '.grok', 'config.toml'), `
+[model.cli-mock]
+name = "CLI Mock"
+provider = "cli-mock"
+model = "cli-mock"
+base_url = "http://127.0.0.1:9"
+env_key = "DEEPSEEK_API_KEY"
+api_backend = "openai"
+
+[models]
+default = "cli-mock"
+`)
+    writeFileSync(
+      join(isolated, '.grok', 'model-selection.toml'),
+      'default = "cli-mock-fork"\neffort = "high"\nacp = "[\\"cli-mock\\",\\"cli-mock-fork\\"]"\n',
+    )
+    const overlay = join(rootDir, 'overlay.yml')
+    writeFileSync(overlay, rustAcpOverlay())
+    function speak(label) {
+      const child = spawn(binary, ['agent', 'stdio'], {
+        cwd,
+        env: {
+          PATH: process.env.PATH,
+          HOME: isolated,
+          USERPROFILE: isolated,
+          GROK_HOME: join(isolated, '.grok'),
+          DSH_HOME: join(isolated, 'dsh'),
+          DSH_BIN: dshPath(),
+          CODSH_NODE: process.execPath,
+          CODSH_ACP_PATCH: overlay,
+          DSH_CODE_CLI_MOCK_TOOL: 'echo',
+          DSH_TELEMETRY_DISABLED: '1',
+          DEEPSEEK_API_KEY: 'test-not-a-secret',
+          CODSH_UPDATE_CHECK: 'off',
+          CODSH_SESSION_READ: resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-session-read.mjs', import.meta.url))),
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      })
+      const pending = new Map()
+      const updates = []
+      createInterface({ input: child.stdout }).on('line', line => {
+        let msg
+        try { msg = JSON.parse(line) } catch { return }
+        if (msg.method === 'session/update') updates.push(msg.params)
+        if (msg.id != null && pending.has(String(msg.id))) {
+          const waiter = pending.get(String(msg.id))
+          pending.delete(String(msg.id))
+          if (msg.error) waiter.reject(Object.assign(new Error(msg.error.message), { code: msg.error.code }))
+          else waiter.resolve(msg.result)
+        }
+      })
+      function send(id, method, params) {
+        return new Promise((resolve, reject) => {
+          pending.set(String(id), { resolve, reject })
+          child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+          setTimeout(() => {
+            if (pending.has(String(id))) {
+              pending.delete(String(id))
+              reject(new Error(`${label} timeout ${method}`))
+            }
+          }, 25000)
+        })
+      }
+      return {
+        child,
+        send,
+        updates,
+        stop: async () => {
+          child.stdin.end()
+          child.kill('SIGTERM')
+          await new Promise(resolve => child.once('exit', resolve))
+        },
+      }
+    }
+    const first = speak('save')
+    let sessionId = ''
+    try {
+      await first.send(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+      const created = await first.send(2, 'session/new', { cwd, mcpServers: [] })
+      sessionId = created.sessionId
+      expect(created.configOptions.find(option => option.id === 'model').currentValue).toBe('["cli-mock","cli-mock-fork"]')
+      const prompt = await first.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_ADVERTISED_SAVE' }],
+      })
+      expect(prompt.stopReason).toBe('end_turn')
+      const savedEcho = first.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(savedEcho.update.content.text).toContain('model=cli-mock-fork')
+      await first.send(4, 'session/close', { sessionId })
+    } finally {
+      await first.stop()
+    }
+    const reloaded = speak('reload')
+    try {
+      await reloaded.send(1, 'initialize', { protocolVersion: 1, clientCapabilities: {} })
+      const loaded = await reloaded.send(2, 'session/load', { sessionId, cwd, mcpServers: [] })
+      expect(loaded.configOptions.find(option => option.id === 'model').currentValue).toBe('["cli-mock","cli-mock-fork"]')
+      expect(loaded.configOptions.find(option => option.id === 'reasoning_effort').currentValue).toBe('high')
+      const again = await reloaded.send(3, 'session/prompt', {
+        sessionId,
+        prompt: [{ type: 'text', text: 'TOKEN_ADVERTISED_RELOAD' }],
+      })
+      expect(again.stopReason).toBe('end_turn')
+      const echo = reloaded.updates.filter(update => update.update.sessionUpdate === 'agent_message_chunk').at(-1)
+      expect(echo.update.content.text).toContain('model=cli-mock-fork')
+      expect(echo.update.content.text).toContain('effort=high')
+      writeFileSync(
+        join(isolated, '.grok', 'model-selection.toml'),
+        'default = "not-a-real-model"\n',
+      )
+      await reloaded.send(4, 'session/close', { sessionId })
+      await expect(reloaded.send(5, 'session/load', { sessionId, cwd, mcpServers: [] })).rejects.toThrow(/not in the catalog|not advertised|no silent/)
+    } finally {
+      await reloaded.stop()
+    }
+  }, 90000)
 })

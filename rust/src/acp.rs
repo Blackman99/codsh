@@ -792,6 +792,24 @@ impl AcpClient {
         Ok(self.config_options.clone())
     }
 
+    /// Forward a client reply (permission outcome or error) to dsh unchanged.
+    pub fn write_message(&mut self, value: Value) -> Result<(), AcpError> {
+        self.write_raw(value)
+    }
+
+    /// The editor answered this permission. A later duplicate from this
+    /// process is rejected instead of being sent again.
+    pub fn note_permission_answered(&mut self, request_id: &Value) {
+        self.answered_permissions.insert(json_id_key(request_id));
+        if self
+            .pending_permission
+            .as_ref()
+            .is_some_and(|pending| json_id_key(&pending.request_id) == json_id_key(request_id))
+        {
+            self.pending_permission = None;
+        }
+    }
+
     pub fn config_option(&self, id: &str) -> Option<&SessionConfigOption> {
         self.config_options.iter().find(|option| option.id == id)
     }

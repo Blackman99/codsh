@@ -37,6 +37,36 @@ function textBlocks(content) {
     .join('')
 }
 
+// A rejected editor edit is stored as a session event whose tool-result,
+// isError, and call id sit inside the message rather than a top-level tool/result.
+function nestedToolResults(event) {
+  const data = event?.data ?? {}
+  const message = data.message ?? {}
+  const content = Array.isArray(message.content) ? message.content : []
+  const source = message.source ?? data.source ?? {}
+  const sourceId = String(source.callId ?? source.toolCallId ?? '')
+  const fallbackId = sourceId || String(message.toolCallId ?? message.callId ?? data.callId ?? '')
+  return content
+    .filter(block => block && block.type === 'tool-result')
+    .map(block => {
+      const ownId = String(block.toolCallId ?? block.callId ?? '')
+      const id = ownId || fallbackId
+      // A denied editor edit stores the call id on message.source and omits
+      // isError. An explicit false stays success. A block that names itself
+      // without isError is not a denial.
+      const deniedBySource = ownId === ''
+        && sourceId !== ''
+        && block.isError !== false
+        && message.isError !== false
+      return {
+        id,
+        content: textBlocks(Array.isArray(block.content) ? block.content : []),
+        isError: block.isError === true || message.isError === true || deniedBySource,
+      }
+    })
+    .filter(block => block.id !== '')
+}
+
 // A text-only model gets each pasted image as a `<pasted-image … path=…>`
 // element appended after everything the user typed (the client escapes the
 // path attribute), and dsh joins adjacent text blocks into one. The live row
@@ -444,8 +474,16 @@ export function projectTurns(events, options = {}) {
       current.tools.push(tool)
     } else if (type === 'tool/result') {
       const message = data.message ?? {}
-      const id = String(message.toolCallId ?? message.callId ?? data.callId ?? '')
-      const content = textBlocks(message.content)
+      const nested = nestedToolResults(event)
+      const nestedError = nested.some(block => block.isError)
+      const id = String(
+        message.toolCallId
+        ?? message.callId
+        ?? data.callId
+        ?? nested.find(block => block.id)?.id
+        ?? '',
+      )
+      const content = textBlocks(message.content) || nested.map(block => block.content).join('')
       const code = String(data.error?.code ?? '')
       const unknown = code === 'TOOL_OUTCOME_UNKNOWN' || code === 'TOOL_NOT_STARTED'
         || /outcome is unknown|interrupted before/i.test(content)
@@ -459,11 +497,33 @@ export function projectTurns(events, options = {}) {
       if (unknown) {
         tool.status = 'unknown'
         current.interrupted = true
-      } else if (message.isError === true || data.error) {
+      } else if (message.isError === true || data.error || nestedError) {
         tool.status = 'failed'
         current.error ??= `tool ${id} failed`
       } else {
         tool.status = 'completed'
+      }
+    } else if (nestedToolResults(event).length > 0) {
+      for (const nested of nestedToolResults(event)) {
+        let tool = tools.get(nested.id)
+        if (tool === undefined) {
+          tool = { id: nested.id, title: 'tool', status: 'pending', diff: '', result: '' }
+          current.tools.push(tool)
+          tools.set(nested.id, tool)
+        }
+        tool.result = nested.content
+        const unknown = /outcome is unknown|interrupted before/i.test(nested.content)
+        if (unknown) {
+          tool.status = 'unknown'
+          current.interrupted = true
+        } else if (nested.isError) {
+          tool.status = 'failed'
+          current.error ??= `tool ${nested.id} failed`
+        } else if (tool.status !== 'failed' && tool.status !== 'unknown') {
+          // A tool/result already recorded this id. A later nested scan of
+          // the same event must not turn a denial back into completed.
+          tool.status = 'completed'
+        }
       }
     } else if (type === 'turn/end') {
       const reason = data.reason ?? {}

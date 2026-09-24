@@ -15,7 +15,14 @@ lives under `docs/rewrite/reference/`; declarations are not parity evidence.
 `codsh --rust` is the explicit parallel Rust client. Its locally packed native
 client reuses licensed upstream Rust input, welcome layout, and the official
 fullscreen/minimal renderers, and submits prompts to released dsh over
-ACP/JSON-RPC (`dsh --profile acp`) in the isolated Home. dsh remains the only
+ACP/JSON-RPC (`dsh --profile acp`) in the isolated Home. `codsh --rust agent stdio`
+exposes that same session to an editor: standard new/load/prompt/config/approval/cancel
+are real, `session/load` is dsh resume plus read-only replay (a denied nested
+tool result stays failed), model and reasoning changes persist before the next
+prompt and are restored on resume even when the advertised model is not a
+catalog id, and unadvertised
+`x.ai/*` methods return method-not-found. Closing the editor releases the write
+owner. dsh remains the only
 executing agent core and durable session owner; the Rust process does not link
 the official agent runtime or own tools. Protocol mismatch, empty answers,
 mid-stream failure, disconnect, and cancellation are reported truthfully.

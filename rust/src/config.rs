@@ -81,6 +81,14 @@ pub struct EffectiveConfig {
     pub settings: Vec<Setting>,
     pub default_model: Option<String>,
     pub default_effort: Option<String>,
+    /// Saved advertised ACP model value. Used when the saved id is not a
+    /// catalog id, so a terminal resume applies the same route the editor saved.
+    pub saved_acp_value: Option<String>,
+    /// Saved selection id that is not in the catalog. Presence means the
+    /// catalog default must not be used as a silent substitute.
+    pub unmatched_saved_model: Option<String>,
+    /// Catalog id from `config.toml` before a saved selection replaced it.
+    catalog_default_model: Option<String>,
     pub models: BTreeMap<String, ModelSpec>,
     pub telemetry: bool,
     pub feedback: bool,
@@ -192,6 +200,35 @@ impl EffectiveConfig {
                 unavailable: model.unusable_reason.clone(),
             })
             .collect()
+    }
+
+    /// Re-read `$GROK_HOME/model-selection.toml` onto this config.
+    /// A terminal or a later editor write can change the file after connect.
+    /// CLI and requirements pins stay; an unmatched saved id is not replaced
+    /// by the catalog default.
+    pub fn refresh_saved_selection(&mut self) {
+        let pinned = self.settings.iter().any(|setting| {
+            setting.key == "models.default"
+                && matches!(setting.source.as_str(), "cli" | "requirements")
+        });
+        let Some(saved) = crate::models::load_saved_selection(&self.grok_home) else {
+            return;
+        };
+        self.saved_acp_value = saved.acp_value.filter(|value| !value.is_empty());
+        if self.models.contains_key(&saved.model_id) {
+            self.unmatched_saved_model = None;
+            if !pinned {
+                self.default_model = Some(saved.model_id);
+            }
+        } else {
+            self.unmatched_saved_model = Some(saved.model_id);
+            if !pinned && let Some(catalog_id) = self.catalog_default_model.clone() {
+                self.default_model = Some(catalog_id);
+            }
+        }
+        if let Some(effort) = saved.effort {
+            self.default_effort = Some(effort);
+        }
     }
 
     pub fn routing(&self) -> Option<Routing> {
@@ -344,6 +381,8 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     let mut models = BTreeMap::new();
     let mut default_model = None;
     let mut default_effort = None;
+    let mut saved_acp_value = None;
+    let mut unmatched_saved_model = None;
     let mut sources: BTreeMap<String, String> = BTreeMap::new();
 
     let grok_home_source = if input
@@ -633,6 +672,25 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         sources
             .entry("models.default_reasoning_effort".into())
             .or_insert_with(|| "config.toml".into());
+    }
+    // A saved advertised pair that is not a catalog id stays unmatched. The
+    // catalog default remains for pins, but the ACP value is applied later
+    // and is not silently swapped for that catalog model.
+    let catalog_default_model = default_model.clone();
+    if let Some(saved) = load_saved_selection(&grok_home) {
+        saved_acp_value = saved.acp_value.filter(|value| !value.is_empty());
+        if models.contains_key(&saved.model_id) {
+            // The early merge above already applied a catalog id, and a later
+            // trusted workspace layer may replace that model and effort.
+        } else {
+            unmatched_saved_model = Some(saved.model_id);
+            // Not a catalog id, so the early merge did not apply its effort.
+            // A trusted workspace default still wins for the catalog model.
+            if let Some(effort) = saved.effort {
+                default_effort = Some(effort);
+                sources.insert("models.default_reasoning_effort".into(), "saved".into());
+            }
+        }
     }
     let mut remote_fetch = bool_from_toml(
         table
@@ -1846,6 +1904,9 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         settings,
         default_model,
         default_effort,
+        saved_acp_value,
+        unmatched_saved_model,
+        catalog_default_model,
         models,
         telemetry,
         feedback,
@@ -2518,11 +2579,15 @@ pub fn apply_to_dsh(
     // Mock/PTY overlays already declare acp + llm adapters. Prepend only the
     // mapped compaction/pruner so the installed mock still loads dsh auto-compact.
     // Untrusted workspaces still append the instruction/skill gate.
+    // A saved advertised pair that is not the catalog id is appended. dsh
+    // applies later rows with the same id over earlier ones, so this wins
+    // without a second YAML file and without dropping compaction or the gate.
+    let saved_route = saved_advertised_route(config);
     let combined = if is_test_execution_seam_env(env) {
-        format!("{compact_yaml}{pruner}{existing}{gate}")
+        format!("{compact_yaml}{pruner}{existing}{gate}{saved_route}")
     } else {
         format!(
-            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}{gate}",
+            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}{gate}{saved_route}",
             yaml_plain(&model.provider),
             yaml_plain(&model.model),
             yaml_plain(&model.provider),
@@ -2552,6 +2617,34 @@ fn write_test_seam_patch(
     }
     fs::write(&patch_path, existing)?;
     Ok(Some(patch_path))
+}
+
+/// ACP route rows for a saved advertised pair whose id is not in the catalog.
+/// Empty when that id was applied as the catalog default, or when CLI or
+/// requirements replaced it, so a pin is not rewritten by a stale `acp` value.
+fn saved_advertised_route(config: &EffectiveConfig) -> String {
+    if config.unmatched_saved_model.is_none() {
+        return String::new();
+    }
+    let overridden = config.settings.iter().any(|setting| {
+        setting.key == "models.default" && matches!(setting.source.as_str(), "cli" | "requirements")
+    });
+    if overridden {
+        return String::new();
+    }
+    let Some(value) = config.saved_acp_value.as_deref() else {
+        return String::new();
+    };
+    let Some((provider, model)) = crate::models::parse_acp_model_value(value) else {
+        return String::new();
+    };
+    format!(
+        "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n",
+        yaml_plain(&provider),
+        yaml_plain(&model),
+        yaml_plain(&provider),
+        yaml_plain(&model),
+    )
 }
 
 pub fn credential_env(
@@ -4757,9 +4850,37 @@ reasoning_efforts = ["low", "high"]
         assert_eq!(config.default_model.as_deref(), Some("think"));
         assert_eq!(config.default_effort.as_deref(), Some("low"));
         crate::models::save_selection(&config.grok_home, "plain", None).unwrap();
-        let restored = load_from(keyed);
+        let restored = load_from(keyed.clone());
         assert_eq!(restored.default_model.as_deref(), Some("plain"));
         assert_eq!(restored.default_effort.as_deref(), None);
+        crate::models::save_selection_route(
+            &config.grok_home,
+            "not-a-catalog-id",
+            Some("high"),
+            Some(r#"["cli-mock","cli-mock-fork"]"#),
+        )
+        .unwrap();
+        let advertised = load_from(keyed.clone());
+        assert_eq!(advertised.default_model.as_deref(), Some("plain"));
+        assert_eq!(
+            advertised.unmatched_saved_model.as_deref(),
+            Some("not-a-catalog-id")
+        );
+        assert_eq!(
+            advertised.saved_acp_value.as_deref(),
+            Some(r#"["cli-mock","cli-mock-fork"]"#)
+        );
+        apply_to_dsh(&advertised, &keyed.env).unwrap();
+        let patch = fs::read_to_string(advertised.dsh_home.join("rust-effective.yml")).unwrap();
+        assert!(patch.contains("model: cli-mock-fork"));
+        assert!(patch.contains("id: compaction-basic") || patch.contains("cli-mock"));
+        crate::models::save_selection(&config.grok_home, "think", Some("low")).unwrap();
+        let pinned = load_from(keyed.clone());
+        assert_eq!(pinned.default_model.as_deref(), Some("think"));
+        apply_to_dsh(&pinned, &keyed.env).unwrap();
+        let pinned_patch = fs::read_to_string(pinned.dsh_home.join("rust-effective.yml")).unwrap();
+        assert!(pinned_patch.contains("model: think-model"));
+        assert!(!pinned_patch.contains("cli-mock-fork"));
         assert!(restored.ready);
         assert_eq!(
             config

@@ -253,6 +253,32 @@ pub fn write_last_session(dsh_home: &Path, session_id: &str, cwd: &Path) -> io::
     fs::rename(tmp, last_session_path(dsh_home))
 }
 
+pub fn session_mode_path(dsh_home: &Path, session_id: &str) -> PathBuf {
+    owner_dir(dsh_home).join(format!("{session_id}.mode"))
+}
+
+pub fn write_session_mode(dsh_home: &Path, session_id: &str, mode: &str) -> io::Result<()> {
+    if session_id.is_empty()
+        || session_id.contains('/')
+        || session_id.contains('\\')
+        || session_id.contains("..")
+    {
+        return Err(io::Error::other("invalid session id"));
+    }
+    fs::create_dir_all(owner_dir(dsh_home))?;
+    fs::write(session_mode_path(dsh_home, session_id), format!("{mode}\n"))
+}
+
+pub fn read_session_mode(dsh_home: &Path, session_id: &str) -> Option<String> {
+    let body = fs::read_to_string(session_mode_path(dsh_home, session_id)).ok()?;
+    let mode = body.trim();
+    if mode.is_empty() {
+        None
+    } else {
+        Some(mode.to_string())
+    }
+}
+
 pub fn read_last_session(dsh_home: &Path) -> Option<(String, PathBuf)> {
     let body = fs::read_to_string(last_session_path(dsh_home)).ok()?;
     let value: Value = serde_json::from_str(&body).ok()?;
@@ -313,6 +339,8 @@ mod tests {
         let (id, cwd) = read_last_session(&home).expect("pointer");
         assert_eq!(id, "abc");
         assert_eq!(cwd, PathBuf::from("/tmp/ws"));
+        write_session_mode(&home, "abc", "dontAsk").unwrap();
+        assert_eq!(read_session_mode(&home, "abc").as_deref(), Some("dontAsk"));
         let _ = fs::remove_dir_all(home);
     }
 }

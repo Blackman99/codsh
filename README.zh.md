@@ -47,6 +47,17 @@ codsh
 
 `codsh --rust` 显式选择并行开发的 Rust 客户端；直接运行 `codsh` 仍使用旧版。
 Rust 界面通过 ACP/JSON-RPC 把提示提交给隔离 Home 中真实的 `dsh --profile acp`。
+`codsh --rust agent stdio` 是编辑器入口，使用同一 dsh 会话：ACP 版本 1，
+`session/new`、`session/load`（dsh 恢复并只读回放历史）、`session/prompt`、
+`session/cancel`、`session/set_config_option`（模型、推理力度和
+`permission_mode`）以及审批请求。模型和推理力度在下一次 prompt 之前写入
+`$GROK_HOME/model-selection.toml`，并在 `session/load` 和终端恢复时恢复，
+包括不是 `config.toml` 目录 id 的已公布模型。两者都不是的模型会被拒绝。终端
+`/dontAsk` 与 `/acceptEdits` 设置同一会话权限模式，并且在 dsh 启动前写入策略文件。专有 `x.ai/*` 方法、`session/delete`、
+`session/fork` 和 `session/set_mode` 返回 JSON-RPC method-not-found，而不是成功桩。
+关闭编辑器会释放写入者；持有期间第二个客户端会被拒绝。在 Zed 中把自定义 Agent
+服务器的命令设为已安装的 `codsh`，参数为 `--rust`、`agent`、`stdio`。本次没有启动
+Zed 或其他图形编辑器；可重复检查是外部 ACP 客户端通过标准输入输出驱动协议。
 流式回答、提供商给出的思考、空回答和失败都按 dsh 的实际结果显示；协议不匹配
 或找不到 dsh 会明确拒绝，不会伪造成功。它复用具有合法许可证的 Grok Rust
 界面组件，无需官方账号，不启动旧版 Bundle、官方 Agent 核心、更新检查、遥测

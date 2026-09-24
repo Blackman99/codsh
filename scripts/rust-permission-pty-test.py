@@ -195,6 +195,71 @@ allow = ["Bash(git *)"]
         assert 'successfully.' not in denied['screen']
         results['deny'] = {'exit': denied['exit']}
 
+        slash_modes = exercise('slash-shared-modes', launcher, cwd,
+                               {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'},
+                               output, typed='/dontAsk',
+                               wait_for=['Permission mode dontAsk'],
+                               action='none')
+        slash_modes = exercise('slash-shared-accept', launcher, cwd,
+                               {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'},
+                               output, typed='/acceptEdits',
+                               wait_for=['Permission mode acceptEdits'],
+                               action='none')
+        assert slash_modes['exit'] == 0
+        mode_files = sorted(
+            (home / '.codsh-rust' / 'dsh' / 'session-owners').glob('*.mode'),
+            key=lambda path: path.stat().st_mtime,
+        )
+        assert mode_files, slash_modes['screen']
+        assert mode_files[-1].read_text().strip() == 'acceptEdits', [
+            (path.name, path.read_text().strip()) for path in mode_files
+        ]
+        results['slash_modes'] = {'exit': slash_modes['exit'], 'session': mode_files[-1].stem}
+
+        advertised_home = work / 'advertised-home'
+        advertised_home.mkdir()
+        advertised_grok = advertised_home / '.codsh-rust' / '.grok'
+        advertised_grok.mkdir(parents=True)
+        (advertised_grok / 'config.toml').write_text("""
+[model.cli-mock]
+name = "CLI Mock"
+provider = "cli-mock"
+model = "cli-mock"
+base_url = "http://127.0.0.1:9"
+env_key = "DEEPSEEK_API_KEY"
+api_backend = "openai"
+
+[models]
+default = "cli-mock"
+""")
+        (advertised_grok / 'model-selection.toml').write_text(
+            'default = "cli-mock-fork"\neffort = "high"\nacp = "[\\"cli-mock\\",\\"cli-mock-fork\\"]"\n'
+        )
+        advertised_env = {
+            **base_env,
+            'HOME': str(advertised_home),
+            'DEEPSEEK_API_KEY': 'test-not-a-secret',
+            'DSH_CODE_CLI_MOCK_TOOL': 'echo',
+        }
+        seeded = exercise(
+            'seed-advertised-session', launcher, cwd, advertised_env, output,
+            typed='/dontAsk',
+            wait_for=['Permission mode dontAsk'],
+            action='none',
+        )
+        assert seeded['exit'] == 0
+        resumed_model = exercise(
+            'resume-advertised-model', launcher, cwd, advertised_env, output,
+            typed='TOKEN_ADVERTISED_RESUME',
+            wait_for=['model=cli-mock-fork', 'effort=high', 'TOKEN_ADVERTISED_RESUME'],
+            extra=['--continue'],
+        )
+        assert resumed_model['exit'] == 0
+        policy = advertised_home / '.codsh-rust' / 'dsh' / 'permission-policy.json'
+        compact = policy.read_text().replace(' ', '')
+        assert '"mode":"dontAsk"' in compact, compact
+        results['advertised_resume'] = {'exit': resumed_model['exit']}
+
         wrapped = exercise('deny-timeout-wrapper', launcher, cwd,
                            {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'bash-timeout-rm'},
                            output, typed='TOKEN_PERM_TIMEOUT', wait_for=['Denied by permission policy', 'RUST_ACP_BASH_DENIED'],

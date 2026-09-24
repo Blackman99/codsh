@@ -526,7 +526,18 @@ and `ui.fork_secondary_model` live in `$GROK_HOME/config.toml` (default
 `ui.fork_secondary_model` applies to `/fork` and `--fork-session`, not rewind.
 A second client is refused when it cannot take write ownership. Interrupted
 tools are displayed as unknown and are not replayed. `session/load` remains
-unsupported by dsh ACP. `--restore-code` is refused.
+unsupported by dsh ACP. The editor entry `codsh --rust agent stdio` accepts
+editor `session/load` by resuming through dsh and replaying the read-only
+projection; it does not make dsh itself implement `session/load`. A nested
+tool-result whose call id is only on `message.source` replays as failed.
+`session/set_config_option` writes `$GROK_HOME/model-selection.toml` before
+the next prompt. Terminal resume and editor `session/load` apply that file,
+including an advertised ACP value that is not a catalog id. An unknown model
+is refused. Terminal `/dontAsk` and `/acceptEdits` write the same
+session mode file, and resume writes that mode into the policy before dsh starts. Proprietary
+`x.ai/*` methods return method-not-found. The repeatable check is the
+`serves an editor` case in `scripts/rust-acp-protocol.spec.mjs`. A GUI editor
+was not launched. `--restore-code` is refused.
 Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
 into native history through the official inline renderer. `/rewind` and `/fork`
 in minimal reset that native buffer the same way compact does, so discarded
