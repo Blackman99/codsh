@@ -1387,7 +1387,7 @@ fn parse_web(flags: &[&str]) -> io::Result<LaunchMode> {
 }
 
 fn web_help() -> &'static str {
-    "Search or fetch through the configured substitute\n\nUsage: codsh --rust web search <query> [--json]\n       codsh --rust web fetch <url> [--json]\n\nSearch uses [models] web_search and that model's base_url. Fetch uses features.web_fetch.\nBoth default off. Official hosts are refused. Domain policy loads at startup and a model argument cannot widen it.\nDisabled, blocked, authentication, rate-limit, redirect, and network failures return an error and no page text.\nSearch cost is one Responses request. Fetch has no account charge."
+    "Search or fetch through the configured substitute\n\nUsage: codsh --rust web search <query> [--json]\n       codsh --rust web fetch <url> [--json]\n\nSearch uses [models] web_search and that model's base_url. protocol = \"responses\" (default) sends one Responses request and needs a credential. protocol = \"searxng\" is a keyless GET of {base}/search?q=...&format=json. Fetch uses features.web_fetch.\nBoth default off. Official hosts are refused. Domain policy loads at startup and a model argument cannot widen it. SearXNG result URLs are filtered by that same policy.\nDisabled, blocked, authentication, rate-limit, redirect, and network failures return an error and no page text.\nResponses search cost is one model request. SearXNG and fetch have no account charge."
 }
 
 fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> io::Result<()> {

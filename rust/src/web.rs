@@ -1,9 +1,11 @@
 //! Explicit web search and fetch substitutes.
 //!
-//! Search calls a configured Responses-compatible endpoint. Fetch calls the
-//! configured public HTTP target, optionally through one egress proxy. Official
-//! hosts are refused. Disabled tools are not callable. Domain policy is loaded
-//! at session start and cannot be widened by a model argument or a redirect.
+//! Search calls a configured substitute. `responses` posts one OpenAI Responses
+//! body. `searxng` is a keyless GET of `{base}/search?q=...&format=json`.
+//! Fetch calls the configured public HTTP target, optionally through one
+//! egress proxy. Official hosts are refused. Disabled tools are not callable.
+//! Domain policy is loaded at session start and cannot be widened by a model
+//! argument, a SearXNG result URL, or a redirect.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -23,6 +25,33 @@ pub const MAX_SEARCH_DOMAINS: usize = 5;
 pub const MAX_CONTENT_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_MARKDOWN_CHARS: usize = 100_000;
 const USER_AGENT: &str = "codsh-rust-web/0.1";
+/// SearXNG returns a page of hits. The model-facing result stays bounded.
+const MAX_SEARXNG_RESULTS: usize = 8;
+
+/// How the configured search substitute is spoken to.
+/// `responses` is the OpenAI Responses body. `searxng` is the keyless JSON API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchProtocol {
+    Responses,
+    Searxng,
+}
+
+impl SearchProtocol {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Responses => "responses",
+            Self::Searxng => "searxng",
+        }
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "responses" | "openai-responses" | "openai_responses" => Some(Self::Responses),
+            "searxng" | "searx" => Some(Self::Searxng),
+            _ => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchService {
@@ -38,6 +67,7 @@ pub struct SearchService {
     pub api_key: String,
     pub api_key_set: bool,
     pub backend_search: bool,
+    pub protocol: SearchProtocol,
     pub allowed_domains: Vec<String>,
     pub allowed_source: String,
     pub excluded_domains: Vec<String>,
@@ -83,6 +113,7 @@ impl WebServices {
                 api_key: String::new(),
                 api_key_set: false,
                 backend_search: false,
+                protocol: SearchProtocol::Responses,
                 allowed_domains: Vec::new(),
                 allowed_source: "default".into(),
                 excluded_domains: Vec::new(),
@@ -288,6 +319,14 @@ fn load_search(
             search.env_key = key;
         }
         search.backend_search = bool_at_value(spec, &["supports_backend_search"]).unwrap_or(false);
+        if let Some(raw) = string_at(spec, &["protocol"]) {
+            match SearchProtocol::parse(&raw) {
+                Some(protocol) => search.protocol = protocol,
+                None => services.errors.push(format!(
+                    "web search protocol {raw:?} is not supported. Use responses or searxng."
+                )),
+            }
+        }
     }
     // env_key wins when it is set. An inline api_key is the credential only when
     // that env var is empty. Neither an absent key nor a blank inline value counts.
@@ -344,8 +383,10 @@ fn load_search(
     }
     // A named model is not a search service until it says the substitute
     // performs retrieval. Otherwise a chat model would be advertised as search.
+    // SearXNG has no account: an API key is not part of being configured.
+    let credential_ready = search.protocol == SearchProtocol::Searxng || search.api_key_set;
     search.enabled = search.base_url.is_some()
-        && search.api_key_set
+        && credential_ready
         && search.backend_search
         && services.errors.is_empty();
     search.enabled_source = if search.enabled {
@@ -354,11 +395,17 @@ fn load_search(
         "unconfigured".into()
     };
     search.cost = if search.enabled {
-        format!(
-            "one Responses request to {} using {}; citations come from that response",
-            search.base_url.as_deref().unwrap_or("(unset)"),
-            model_id
-        )
+        match search.protocol {
+            SearchProtocol::Responses => format!(
+                "one Responses request to {} using {}; citations come from that response",
+                search.base_url.as_deref().unwrap_or("(unset)"),
+                model_id
+            ),
+            SearchProtocol::Searxng => format!(
+                "one keyless SearXNG request to {}; citations are results[].url from that response",
+                search.base_url.as_deref().unwrap_or("(unset)")
+            ),
+        }
     } else {
         "unconfigured; no search request is made".into()
     };
@@ -546,18 +593,15 @@ pub fn disclosure(services: &WebServices) -> String {
 }
 
 pub fn search_request_body(services: &WebServices, query: &str) -> Result<Value, WebError> {
+    if services.search.protocol == SearchProtocol::Searxng {
+        return Err(WebError::InvalidConfiguration(
+            "searxng search is a GET, not a Responses body".into(),
+        ));
+    }
     if !services.search.enabled {
         return Err(WebError::Disabled("web_search"));
     }
-    let base = services
-        .search
-        .base_url
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .ok_or(WebError::Unconfigured("web_search"))?;
-    if crate::privacy::is_official_endpoint(base) {
-        return Err(WebError::OfficialDestination);
-    }
+    configured_search_base(services)?;
     // dsh web_search sends query and maxResults only. Filters come from the
     // configured allowlist or denylist, never from a model argument.
     let (allowed, excluded) = resolve_search_filters(&services.search);
@@ -586,6 +630,43 @@ pub fn search_request_body(services: &WebServices, query: &str) -> Result<Value,
     }))
 }
 
+fn configured_search_base(services: &WebServices) -> Result<&str, WebError> {
+    let base = services
+        .search
+        .base_url
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or(WebError::Unconfigured("web_search"))?;
+    if crate::privacy::is_official_endpoint(base) {
+        return Err(WebError::OfficialDestination);
+    }
+    Ok(base)
+}
+
+/// Keyless SearXNG JSON search. Domain filters stay local: the request is
+/// `{base}/search?q=...&format=json` and never carries an allowlist the
+/// instance could treat as permission to widen.
+pub fn searxng_search_url(services: &WebServices, query: &str) -> Result<Url, WebError> {
+    if !services.search.enabled {
+        return Err(WebError::Disabled("web_search"));
+    }
+    if services.search.protocol != SearchProtocol::Searxng {
+        return Err(WebError::InvalidConfiguration(
+            "search protocol is not searxng".into(),
+        ));
+    }
+    let base = configured_search_base(services)?;
+    let mut url = Url::parse(base)
+        .map_err(|error| WebError::InvalidConfiguration(format!("search base_url: {error}")))?;
+    let path = url.path().trim_end_matches('/');
+    url.set_path(&format!("{path}/search"));
+    url.query_pairs_mut()
+        .clear()
+        .append_pair("q", query)
+        .append_pair("format", "json");
+    Ok(url)
+}
+
 fn resolve_search_filters(search: &SearchService) -> (Option<Vec<String>>, Option<Vec<String>>) {
     if !search.allowed_domains.is_empty() {
         return (Some(search.allowed_domains.clone()), None);
@@ -597,6 +678,107 @@ fn resolve_search_filters(search: &SearchService) -> (Option<Vec<String>>, Optio
 }
 
 pub fn parse_search_response(body: &str) -> Result<(String, Vec<Citation>), WebError> {
+    parse_responses_search(body)
+}
+
+/// SearXNG `results[]` become citations. Allow and deny are applied here, not
+/// sent to the instance, so a result URL cannot widen the configured list.
+pub fn parse_searxng_response(
+    body: &str,
+    search: &SearchService,
+) -> Result<(String, Vec<Citation>), WebError> {
+    let value: Value = serde_json::from_str(body)
+        .map_err(|error| WebError::Network(format!("search response was not JSON: {error}")))?;
+    let Some(results) = value.get("results").and_then(Value::as_array) else {
+        return Err(WebError::Network(
+            "SearXNG response had no results array. No page text was returned.".into(),
+        ));
+    };
+    let mut citations: Vec<Citation> = Vec::new();
+    let mut lines = Vec::new();
+    for item in results {
+        if citations.len() >= MAX_SEARXNG_RESULTS {
+            break;
+        }
+        let Some(raw_url) = item.get("url").and_then(Value::as_str) else {
+            continue;
+        };
+        if raw_url.is_empty() || !citation_allowed(raw_url, search) {
+            continue;
+        }
+        if citations.iter().any(|citation| citation.url == raw_url) {
+            continue;
+        }
+        let title = item
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let snippet = item
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let heading = if title.is_empty() {
+            raw_url.to_string()
+        } else {
+            title.clone()
+        };
+        if snippet.is_empty() {
+            lines.push(format!("- {heading}"));
+        } else {
+            lines.push(format!("- {heading}: {snippet}"));
+        }
+        citations.push(Citation {
+            url: raw_url.to_string(),
+            title,
+        });
+    }
+    let content = if lines.is_empty() {
+        "No search results found.".into()
+    } else {
+        lines.join("\n")
+    };
+    Ok((content, citations))
+}
+
+/// A result URL is kept only when it is http(s), not an official host, and
+/// inside the configured allowlist or outside the denylist. A model argument
+/// never reaches this check.
+fn citation_allowed(raw_url: &str, search: &SearchService) -> bool {
+    let Ok(url) = Url::parse(raw_url) else {
+        return false;
+    };
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return false;
+    }
+    if crate::privacy::is_official_endpoint(raw_url) {
+        return false;
+    }
+    if !search.allowed_domains.is_empty() {
+        return search
+            .allowed_domains
+            .iter()
+            .any(|domain| domain_allows(domain, &url));
+    }
+    if !search.excluded_domains.is_empty() {
+        let host = url.host_str().unwrap_or("");
+        return !search
+            .excluded_domains
+            .iter()
+            .any(|domain| host_matches_domain(host, domain));
+    }
+    true
+}
+
+fn host_matches_domain(host: &str, domain: &str) -> bool {
+    let host = normalize_domain(host);
+    let domain = normalize_domain(domain);
+    !domain.is_empty() && (host == domain || host.ends_with(&format!(".{domain}")))
+}
+
+fn parse_responses_search(body: &str) -> Result<(String, Vec<Citation>), WebError> {
     let value: Value = serde_json::from_str(body)
         .map_err(|error| WebError::Network(format!("search response was not JSON: {error}")))?;
     let mut texts = Vec::new();
@@ -658,6 +840,9 @@ pub fn search(
     if cancelled.load(Ordering::Relaxed) {
         return Err(WebError::Cancelled);
     }
+    if services.search.protocol == SearchProtocol::Searxng {
+        return search_searxng(services, query, cancelled);
+    }
     let body = search_request_body(services, query)?;
     let base = services.search.base_url.clone().unwrap_or_default();
     let url = format!("{}/responses", base.trim_end_matches('/'));
@@ -713,15 +898,76 @@ pub fn search(
         });
     }
     let (content, citations) = parse_search_response(&response.body)?;
-    Ok(SearchOutcome {
+    Ok(search_outcome(services, query, content, citations))
+}
+
+fn search_searxng(
+    services: &WebServices,
+    query: &str,
+    cancelled: &AtomicBool,
+) -> Result<SearchOutcome, WebError> {
+    let url = searxng_search_url(services, query)?;
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(WebError::Cancelled);
+    }
+    let host = url.host_str().unwrap_or("");
+    let port = url.port_or_known_default().unwrap_or(80);
+    // The instance itself is the configured substitute. A loopback host is
+    // that service, not a page the model named. Private answers still fail.
+    let addresses = approved_addresses(host, port, is_explicit_local_host(host))?;
+    let response = call_cancellable(
+        url.as_str(),
+        CallKind::SearchGet,
+        CallTarget {
+            proxy: None,
+            addresses: &addresses,
+        },
+        cancelled,
+        SEARCH_TIMEOUT,
+    )?;
+    if response.status == 401 || response.status == 403 {
+        return Err(WebError::Http {
+            status: response.status,
+            message: "SearXNG refused the request. No page text was returned.".into(),
+        });
+    }
+    if response.status == 429 {
+        return Err(WebError::Http {
+            status: 429,
+            message: "SearXNG rate limited the query. No page text was returned.".into(),
+        });
+    }
+    if !(200..300).contains(&response.status) {
+        return Err(WebError::Http {
+            status: response.status,
+            message: format!(
+                "SearXNG returned HTTP {}. No page text was returned.",
+                response.status
+            ),
+        });
+    }
+    let (content, citations) = parse_searxng_response(&response.body, &services.search)?;
+    Ok(search_outcome(services, query, content, citations))
+}
+
+fn search_outcome(
+    services: &WebServices,
+    query: &str,
+    content: String,
+    citations: Vec<Citation>,
+) -> SearchOutcome {
+    SearchOutcome {
         query: query.to_string(),
         content,
         citations,
-        service: base,
-        model: services.search.model.clone().unwrap_or_default(),
+        service: services.search.base_url.clone().unwrap_or_default(),
+        model: match services.search.protocol {
+            SearchProtocol::Searxng => "searxng".into(),
+            SearchProtocol::Responses => services.search.model.clone().unwrap_or_default(),
+        },
         allowed_domains: services.search.allowed_domains.clone(),
         excluded_domains: services.search.excluded_domains.clone(),
-    })
+    }
 }
 
 pub fn format_search(outcome: &SearchOutcome) -> String {
@@ -1308,7 +1554,12 @@ const TLS_HANDSHAKE: Duration = Duration::from_secs(5);
 
 enum CallKind {
     Get,
-    PostJson { body: String, api_key: String },
+    /// Search GET. Same framing as fetch, but the substitute answers JSON.
+    SearchGet,
+    PostJson {
+        body: String,
+        api_key: String,
+    },
 }
 
 struct CallTarget<'a> {
@@ -1605,7 +1856,7 @@ fn http_request(url: &Url, host: &str, kind: &CallKind) -> Result<String, WebErr
         (path, None) => path.to_string(),
     };
     let body = match kind {
-        CallKind::Get => String::new(),
+        CallKind::Get | CallKind::SearchGet => String::new(),
         CallKind::PostJson { body, .. } => body.clone(),
     };
     let mut headers = match kind {
@@ -1616,6 +1867,13 @@ fn http_request(url: &Url, host: &str, kind: &CallKind) -> Result<String, WebErr
             "Accept: text/markdown,text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8"
                 .into(),
             "Accept-Language: en-US,en;q=0.9".into(),
+            "Connection: close".into(),
+        ],
+        CallKind::SearchGet => vec![
+            format!("GET {path} HTTP/1.1"),
+            format!("Host: {host_header}"),
+            format!("User-Agent: {USER_AGENT}"),
+            "Accept: application/json".into(),
             "Connection: close".into(),
         ],
         CallKind::PostJson { api_key, .. } => vec![
@@ -2440,6 +2698,59 @@ supports_backend_search = true
         let services = load_services(&search, &env, None, None);
         let body = search_request_body(&services, "rust").unwrap();
         assert!(body["tools"][0].get("filters").is_none());
+    }
+
+    #[test]
+    fn searxng_is_keyless_and_filters_result_urls_locally() {
+        let table = r#"
+[models]
+web_search = "searx"
+[model.searx]
+model = "ignored"
+base_url = "http://127.0.0.1:9"
+protocol = "searxng"
+supports_backend_search = true
+[toolset.web_search]
+allowed_domains = ["docs.example"]
+"#;
+        let parsed: TomlValue = toml::from_str(table).unwrap();
+        let services = load_services(&parsed, &BTreeMap::new(), None, None);
+        assert!(services.search.enabled, "{:?}", services.errors);
+        assert!(services.search.api_key.is_empty());
+        assert!(search_request_body(&services, "rust").is_err());
+        let url = searxng_search_url(&services, "rust web").unwrap();
+        assert_eq!(url.path(), "/search");
+        assert_eq!(
+            url.query(),
+            Some("q=rust+web&format=json"),
+            "domain filters must not be sent to the instance"
+        );
+        let body = r#"{"results":[
+            {"url":"https://docs.example/guide","title":"Guide","content":"kept"},
+            {"url":"https://evil.example/widen","title":"Widen","content":"dropped"},
+            {"url":"https://docs.example/guide","title":"Guide again","content":"dup"},
+            {"url":"not a url","title":"Bad","content":"dropped"},
+            {"url":"ftp://docs.example/file","title":"Ftp","content":"dropped"}
+        ]}"#;
+        let (content, citations) = parse_searxng_response(body, &services.search).unwrap();
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].url, "https://docs.example/guide");
+        assert!(content.contains("kept"));
+        assert!(!content.contains("evil.example"));
+        assert!(!content.contains("Widen"));
+
+        let official = r#"
+[models]
+web_search = "official"
+[model.official]
+base_url = "https://api.x.ai/v1"
+protocol = "searxng"
+supports_backend_search = true
+"#;
+        let official: TomlValue = toml::from_str(official).unwrap();
+        let refused = load_services(&official, &BTreeMap::new(), None, None);
+        assert!(!refused.search.enabled);
+        assert!(refused.search.base_url.is_none());
     }
 
     #[test]

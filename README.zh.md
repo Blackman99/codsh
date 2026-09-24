@@ -139,12 +139,19 @@ F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快�
 `codsh --rust web search <query>` 与 `codsh --rust web fetch <url>`（`--json`）
 调用已配置的替代服务。会话里 dsh 的 `web_search` 与 `web_fetch` 调用同一命令。
 搜索和获取分别启用。未启用的一侧不会注册，模型看不到它。搜索使用
-`[models] web_search` 或 `GROK_WEB_SEARCH_MODEL`，以及该模型的 `base_url` /
-`env_key`，只发一次 Responses 请求。`supports_backend_search` 表示检索由该替代
-服务完成。凭据优先使用非空的环境变量，否则使用模型里的 `api_key`。空的内联
-密钥不算已配置。`[toolset.web_search] allowed_domains` 与 `excluded_domains` 互斥；
-两者同时设置时允许名单生效，阻止名单被丢弃并给出警告。搜索名单为空或未设置时
-不限域名。随附的 dsh `web_search` 工具没有域名参数；替代服务收到的是已配置名单。
+`[models] web_search` 或 `GROK_WEB_SEARCH_MODEL`，以及该模型的 `base_url`。
+`[model.<id>] protocol` 选择线路格式。`responses`（默认）发送一次 OpenAI
+Responses 请求，并且需要凭据。`searxng` 不带密钥，向
+`{base_url}/search?q=...&format=json` 发 GET，并读取 `results[].url`、
+`results[].title` 与 `results[].content`。不会发送 API 密钥。
+`supports_backend_search` 表示检索由该替代服务完成。`responses` 的凭据优先
+使用非空的环境变量，否则使用模型里的 `api_key`。空的内联密钥不算已配置。
+`searxng` 不需要这两项也算已配置。`[toolset.web_search] allowed_domains` 与
+`excluded_domains` 互斥；两者同时设置时允许名单生效，阻止名单被丢弃并给出
+警告。搜索名单为空或未设置时不限域名。随附的 dsh `web_search` 工具没有域名
+参数；`responses` 替代服务在工具过滤器里收到的是已配置名单。`searxng` 请求
+不带这份名单。结果 URL 只有符合同一允许或拒绝规则时才保留，因此模型参数不能
+扩大允许名单。官方主机对实例地址和结果 URL 都拒绝。
 获取由 `[features] web_fetch` 或 `GROK_WEB_FETCH=1` 打开。`GROK_DISABLE_WEB_FETCH` 与
 `disable_web_search` 分别关闭对应工具。指南 26 将 `features.web_fetch` 与
 `models.web_search` 标为 requirements `pin`：requirements 的值优先于用户文件、
@@ -165,7 +172,10 @@ F8 才按 `[ui] voice_capture_mode`（`hold` 或 `toggle`）工作；关闭快�
 报文到此为止。取消会关闭套接字，不会返回迟到的正文。
 `codsh --rust inspect` 标出设置该值的文件：只来自托管配置的名单是 `managed`，
 不是 `config.toml`。策略在启动时读取，会话中途修改不会生效。官方主机会被拒绝。
-搜索费用是这一次模型请求；获取不产生账号费用。真实公共搜索厂商不在本次检查内。
+`responses` 搜索的费用是这一次模型请求。`searxng` 与获取不产生账号费用。
+Responses 形态的替代服务用本地夹具检查。SearXNG 协议同样用本地夹具检查，
+并在本机 localhost 上的一个真实 SearXNG 进程上验证过。公共 SearXNG 主机不在
+本次检查内。
 
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、

@@ -315,14 +315,23 @@ call the configured substitutes. In a session, dsh's `web_search` and
 `web_fetch` call that same command. Search and fetch are enabled separately.
 A side that is off is not registered, so the model is not offered it. Search
 uses `[models] web_search` or `GROK_WEB_SEARCH_MODEL`, and that model's
-`base_url` / `env_key`, for one Responses request. `supports_backend_search`
-records that the substitute does the retrieval. The credential is that env
-var when it is non-empty, otherwise the model's inline `api_key`. An empty
-inline key is not configured. `[toolset.web_search] allowed_domains` and
+`base_url`. `[model.<id>] protocol` selects the wire format. `responses`
+(the default) sends one OpenAI Responses request and needs a credential.
+`searxng` sends a keyless GET to `{base_url}/search?q=...&format=json` and
+reads `results[].url`, `results[].title`, and `results[].content`. No API
+key is sent. `supports_backend_search` records that the substitute does the
+retrieval. For `responses`, the credential is that model's `env_key` when
+the env var is non-empty, otherwise the model's inline `api_key`. An empty
+inline key is not configured. `searxng` is configured without either.
+`[toolset.web_search] allowed_domains` and
 `excluded_domains` are mutually exclusive; if both are set, the allowlist wins
 and the blocklist is dropped with a warning. An empty or absent search list is
 unbounded. The shipped dsh `web_search` tool has no domain argument; a
-configured list is what the substitute receives. Fetch turns on with
+configured list is what a `responses` substitute receives in its tool filters.
+A `searxng` request does not include that list. Result URLs are kept only
+when they match the same allow or deny rules, so a model argument cannot
+widen the allowlist. Official hosts stay refused for the instance and for
+result URLs. Fetch turns on with
 `[features] web_fetch` or `GROK_WEB_FETCH=1`. `GROK_DISABLE_WEB_FETCH` and
 `disable_web_search` turn the matching tool off. Guide 26 marks
 `features.web_fetch` and `models.web_search` as requirements pins: a
@@ -353,8 +362,11 @@ closes the socket and does not return a late body.
 `codsh --rust inspect` names the file that set a web value: a managed-only
 list is `managed`, not `config.toml`. Policy is read at startup and does not
 change mid-session. Official
-hosts are refused. Search cost is that one model request; fetch has no account
-charge. A real public search vendor is not part of this check.
+hosts are refused. A `responses` search costs that one model request.
+`searxng` and fetch have no account charge. The Responses-shaped substitute
+is checked with a local fixture. The SearXNG protocol is checked the same
+way, and also against one real SearXNG process bound to localhost on this
+machine. A public SearXNG host is not part of this check.
 
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,

@@ -2158,6 +2158,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             json!({
                 "webSearchEnabled": config.web.search.enabled,
                 "searchModel": config.web.search.model,
+                "searchProtocol": config.web.search.protocol.label(),
                 "searchBase": public_endpoint(config.web.search.base_url.as_deref()),
                 "searchAllowedDomains": config.web.search.allowed_domains,
                 "searchExcludedDomains": config.web.search.excluded_domains,

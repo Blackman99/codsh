@@ -28,12 +28,60 @@ def run(argv, **kwargs):
 class Handler(BaseHTTPRequestHandler):
     pages = {}
     searches = []
+    searxng = []
     malformed = False
 
     def log_message(self, fmt, *args):
         return
 
     def do_GET(self):
+        path = self.path.split('?', 1)[0]
+        if path == '/search':
+            query = ''
+            if '?' in self.path:
+                from urllib.parse import parse_qs, urlsplit
+                query = parse_qs(urlsplit(self.path).query).get('q', [''])[0]
+            record = {
+                'path': self.path,
+                'query': query,
+                'authorization': self.headers.get('authorization', ''),
+            }
+            self.searxng.append(record)
+            if '/hang' in self.path:
+                record['hung'] = True
+                record['closed'] = False
+                try:
+                    self.rfile.read(1)
+                except Exception:
+                    pass
+                record['closed'] = True
+                return
+            body = json.dumps({
+                'query': query,
+                'results': [
+                    {
+                        'url': 'https://docs.example/searx',
+                        'title': 'Searx Guide',
+                        'content': 'SEARXNG_RESULT_BODY',
+                    },
+                    {
+                        'url': 'https://evil.example/widen',
+                        'title': 'Must Not Widen',
+                        'content': 'SEARXNG_DROPPED_BODY',
+                    },
+                    {
+                        'url': 'https://docs.example/searx',
+                        'title': 'Searx Guide again',
+                        'content': 'SEARXNG_DUP',
+                    },
+                ],
+            }).encode()
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path.startswith('/redirect-path'):
             self.send_response(302)
             self.send_header('location', '/secret-path')
@@ -525,6 +573,85 @@ web_fetch = true
             assert 'cancelled' in dsh['failed'].lower(), dsh
             assert 'SEARCH_RESULT_BODY' not in dsh_cancel.stdout
             assert any(item.get('closed') for item in Handler.searches), Handler.searches
+
+            # SearXNG JSON is a second configured substitute. No API key.
+            # Domain policy is applied to result URLs, not sent as a request filter.
+            config_path.write_text(saved_config.replace(
+                'supports_backend_search = true',
+                'protocol = "searxng"\nsupports_backend_search = true',
+                1,
+            ).replace(
+                f'base_url = "http://{host}/v1"',
+                f'base_url = "http://{host}"',
+                1,
+            ))
+            before_searx = len(Handler.searxng)
+            before_posts = len(Handler.searches)
+            searx = run([str(binary), 'web', 'search', 'rust searx policy', '--json'], env=env, cwd=home)
+            searx_json = json.loads(searx.stdout)
+            assert searx_json['ok'] is True, searx_json
+            assert 'SEARXNG_RESULT_BODY' in searx_json['text']
+            assert 'SEARXNG_DROPPED_BODY' not in searx.stdout
+            assert 'evil.example' not in searx.stdout
+            assert searx_json['citations'] == [{'url': 'https://docs.example/searx', 'title': 'Searx Guide'}], searx_json
+            assert len(Handler.searxng) == before_searx + 1
+            assert len(Handler.searches) == before_posts, 'searxng must not POST a Responses body'
+            request = Handler.searxng[-1]
+            assert request['query'] == 'rust searx policy', request
+            assert 'format=json' in request['path']
+            assert request['path'].startswith('/search?')
+            assert 'allowed_domains' not in request['path']
+            assert request['authorization'] == ''
+            plain_searx = run([str(binary), 'web', 'search', 'rust searx policy'], env=env, cwd=home)
+            assert 'SEARXNG_RESULT_BODY' in plain_searx.stdout
+            assert 'https://docs.example/searx' in plain_searx.stdout
+
+            searx_probe = run([
+                NODE, '--input-type=module', '-e',
+                "import { pathToFileURL } from 'node:url';"
+                "const plugin = await import(pathToFileURL(process.argv[1]).href);"
+                "const providers = { search: [] };"
+                "plugin.apply({ web: {"
+                "  registerSearchProvider(provider) { providers.search.push(provider) },"
+                "  registerFetchProvider() {},"
+                "} });"
+                "const search = await providers.search[0].search({ query: 'rust searx policy', allowed_domains: ['evil.example'] });"
+                "process.stdout.write(JSON.stringify(search));",
+                str(plugin),
+            ], env={
+                **env,
+                'CODSH_WEB_SEARCH': '1',
+                'CODSH_WEB_FETCH': '0',
+                'CODSH_RUST_BIN': str(binary),
+            }, cwd=home)
+            tool_searx = json.loads(searx_probe.stdout)
+            assert 'SEARXNG_RESULT_BODY' in tool_searx['content'], tool_searx
+            assert tool_searx['sources'] == [{'url': 'https://docs.example/searx', 'title': 'Searx Guide'}], tool_searx
+            assert 'evil.example' not in searx_probe.stdout
+            widened = Handler.searxng[-1]
+            assert widened['query'] == 'rust searx policy', widened
+            assert 'evil.example' not in widened['path']
+            assert 'allowed_domains' not in widened['path']
+
+            # Packed session: the model tool path reaches the SearXNG substitute.
+            (home / 'pty-searx').mkdir(exist_ok=True)
+            searx_session = Session('web-searx', launcher, cwd, {
+                **pty_env,
+                'DSH_CODE_CLI_MOCK_TOOL': 'web-search',
+            }, home / 'pty-searx', extra=['--fullscreen'])
+            try:
+                searx_session.wait_visible('Connected to dsh ACP', 40)
+                searx_session.write('search searx\r')
+                shown = searx_session.wait_visible('SEARXNG_RESULT_BODY', 40)
+                assert 'RUST_ACP_WEB_DONE' in shown, shown
+                assert 'evil.example' not in shown, shown
+                assert 'SEARXNG_DROPPED_BODY' not in shown, shown
+                searx_session.write('\x1b[C')
+                shown = searx_session.wait_visible('https://docs.example/searx', 10)
+                assert 'Searx Guide' in shown, shown
+            finally:
+                searx_session.finish(expect_alt_leave=True)
+                searx_session.close()
 
             # Packed session: Ctrl+C during a hung dsh web_search must not print
             # a late search body. The plugin abort has to run while dsh is live.

@@ -95,8 +95,11 @@ and deletes nothing. Diagnostic previews and
 `GROK_DEBUG_LOG` contain kind/ok/count only. `GROK_LOG_FILE` and
 `GROK_HOOKS_LOG` are unwired: the launcher does not pass them, and no Rust
 path reads them. Web search and fetch stay off until `$GROK_HOME/config.toml`
-names a substitute. Search and fetch are separate. Search is one Responses
-call to `[models] web_search`; fetch is a public HTTP read, optionally through
+names a substitute. Search and fetch are separate. Search calls
+`[models] web_search`. `protocol = "responses"` is one OpenAI Responses
+request and needs a credential. `protocol = "searxng"` is a keyless GET of
+`{base}/search?q=...&format=json`; result URLs are filtered by the configured
+domain policy and a model argument cannot widen it. Fetch is a public HTTP read, optionally through
 an `http` CONNECT `toolset.web_fetch.proxy_endpoint`. Official hosts are refused.
 Domain policy, including an empty fetch allowlist and a path or port on an
 allow entry, loads at startup and is checked again on every redirect. A name
