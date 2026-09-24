@@ -181,7 +181,13 @@ fn classify_tls(error: &ureq::Error) -> HttpError {
     }
 }
 
-fn agent_for(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), HttpError> {
+/// Native-tls agent used by substitute HTTP calls.
+///
+/// ureq is built with `default-features = false` and `native-tls`, so HTTPS
+/// stays unavailable until this connector is installed. Configured extra roots
+/// are added; invalid certificates and hostnames stay rejected. Redirects stay
+/// off and the overall deadline stays 15s.
+pub fn agent(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), HttpError> {
     let mut warnings = Vec::new();
     let mut builder = native_tls::TlsConnector::builder();
     builder.danger_accept_invalid_certs(false);
@@ -202,6 +208,10 @@ fn agent_for(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), 
         .timeout(Duration::from_secs(15))
         .build();
     Ok((agent, warnings))
+}
+
+fn agent_for(extra_bundle: Option<&Path>) -> Result<(ureq::Agent, Vec<String>), HttpError> {
+    agent(extra_bundle)
 }
 
 pub fn http_get(

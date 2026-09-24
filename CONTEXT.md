@@ -84,7 +84,9 @@ stored transcript as Markdown and does not claim redaction; an extra argument
 is rejected before a file is created. A symlink at the sessions root, a
 project directory, a session directory, or the log file is not read, so
 export and share stay inside the real sessions tree. `share` posts that transcript only to
-the explicitly selected substitute and does not follow a redirect. Session
+the explicitly selected substitute over http or https. HTTPS uses the same native-tls
+connector as other substitute calls, plus a configured `GROK_EXTRA_CA_BUNDLE` or
+`SSL_CERT_FILE` root; an untrusted certificate uploads nothing. It does not follow a redirect. Session
 deletion is blocked: released dsh persistence has create, open, flush, stat,
 and list, and no deletion operation, so CLI delete, `/delete`, the resume
 picker, and the dashboard remove nothing. The picker says that asking to

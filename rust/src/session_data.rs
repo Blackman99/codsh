@@ -6,6 +6,7 @@
 //! persistence exposes create, open, flush, stat, and list, and no deletion
 //! operation. Every delete entry refuses and leaves every session in place.
 
+use crate::extra_ca;
 use crate::privacy;
 use crate::session_catalog::{self, Catalog};
 use serde::Serialize;
@@ -218,7 +219,7 @@ Arguments:\n  \
 Options:\n      \
 --url <URL>             Substitute share service. Also endpoints.share_url or CODSH_SHARE_URL.\n  \
 -h, --help              Print help\n\n\
-Sharing is off unless this command is explicit and a substitute service is configured. Official grok.com, api.x.ai, and sentry hosts are refused. A missing service is an error, not a local success URL. The POST is not followed across a redirect, and a response over 64 KiB or a 15s timeout is a failure. The local session is unchanged."
+Sharing is off unless this command is explicit and a substitute service is configured. Official grok.com, api.x.ai, and sentry hosts are refused. http and https both use the native TLS connector; GROK_EXTRA_CA_BUNDLE or SSL_CERT_FILE supplies the only extra root, and an untrusted certificate uploads nothing. A missing service is an error, not a local success URL. The POST is not followed across a redirect, and a response over 64 KiB or a 15s timeout is a failure. The local session is unchanged."
 }
 
 /// Help that names the substitute this process can see. Official hosts stay unnamed.
@@ -716,15 +717,21 @@ fn expand_tilde(path: &Path) -> PathBuf {
 }
 
 fn post_share(url: &str, body: &[u8]) -> Result<String, DataError> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(SHARE_TIMEOUT)
-        .timeout_read(SHARE_TIMEOUT)
-        .timeout_write(SHARE_TIMEOUT)
-        .timeout(SHARE_TIMEOUT)
-        .redirects(0)
-        .build();
+    // ureq's native-tls feature has no default connector. Reuse the extra-CA
+    // agent so HTTPS and a configured root work, and HTTP still refuses redirects.
+    let bundle = extra_ca::select_bundle(
+        std::env::var_os(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE),
+        std::env::var_os(extra_ca::ENV_SSL_CERT_FILE),
+    )
+    .map(|(_, path)| path);
+    let (agent, _) = extra_ca::agent(bundle.as_deref()).map_err(|error| {
+        DataError::new(format!(
+            "share service was not reached ({error}); local session unchanged"
+        ))
+    })?;
     let response = agent
         .post(url)
+        .timeout(SHARE_TIMEOUT)
         .set("content-type", "application/json")
         .set("user-agent", "codsh-rust-share")
         .send_bytes(body)
@@ -1553,6 +1560,293 @@ mod tests {
         assert!(!posted.contains("KEEP_PROMPT"));
         assert!(posted.contains("\"redaction\":\"not claimed\"") || posted.contains("not claimed"));
         let _ = keep;
+    }
+
+    struct HttpsShare {
+        url: String,
+        captured: PathBuf,
+        contacted: PathBuf,
+        _guard: std::thread::JoinHandle<()>,
+    }
+
+    fn openssl_share_material(dir: &Path, cn: &str) -> (PathBuf, PathBuf) {
+        let key = dir.join("key.pem");
+        let cert = dir.join("cert.pem");
+        let p12 = dir.join("server.p12");
+        assert!(
+            std::process::Command::new("openssl")
+                .args([
+                    "req",
+                    "-x509",
+                    "-newkey",
+                    "rsa:2048",
+                    "-keyout",
+                    key.to_str().unwrap(),
+                    "-out",
+                    cert.to_str().unwrap(),
+                    "-days",
+                    "1",
+                    "-nodes",
+                    "-subj",
+                    &format!("/CN={cn}"),
+                    "-addext",
+                    "subjectAltName=DNS:localhost,IP:127.0.0.1",
+                    "-addext",
+                    "extendedKeyUsage=serverAuth",
+                    "-addext",
+                    "keyUsage=digitalSignature,keyEncipherment",
+                ])
+                .status()
+                .unwrap()
+                .success(),
+            "openssl could not mint the isolated share certificate"
+        );
+        assert!(
+            std::process::Command::new("openssl")
+                .args([
+                    "pkcs12",
+                    "-export",
+                    "-out",
+                    p12.to_str().unwrap(),
+                    "-inkey",
+                    key.to_str().unwrap(),
+                    "-in",
+                    cert.to_str().unwrap(),
+                    "-passout",
+                    "pass:test",
+                ])
+                .status()
+                .unwrap()
+                .success(),
+            "openssl could not export the isolated share identity"
+        );
+        (cert, p12)
+    }
+
+    fn spawn_https_share(p12: &Path, captured: PathBuf, redirect: bool) -> HttpsShare {
+        let bytes = fs::read(p12).unwrap();
+        let identity = native_tls::Identity::from_pkcs12(&bytes, "test").unwrap();
+        let acceptor = native_tls::TlsAcceptor::new(identity).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let contacted = captured.with_extension("contacted");
+        let contacted_flag = contacted.clone();
+        let captured_body = captured.clone();
+        let handle = std::thread::spawn(move || {
+            let Ok((stream, _)) = listener.accept() else {
+                return;
+            };
+            let Ok(mut tls) = acceptor.accept(stream) else {
+                return;
+            };
+            use std::io::{Read, Write};
+            let _ = fs::write(&contacted_flag, b"1");
+            let mut request = Vec::new();
+            let mut buf = [0u8; 4096];
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while std::time::Instant::now() < deadline {
+                match tls.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        request.extend_from_slice(&buf[..n]);
+                        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let header_end = request
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .map(|index| index + 4);
+            if let Some(header_end) = header_end {
+                let header = String::from_utf8_lossy(&request[..header_end]);
+                let length = header.lines().find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    if name.eq_ignore_ascii_case("content-length") {
+                        value.trim().parse::<usize>().ok()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(length) = length {
+                    while request.len() < header_end + length
+                        && std::time::Instant::now() < deadline
+                    {
+                        match tls.read(&mut buf) {
+                            Ok(0) | Err(_) => break,
+                            Ok(n) => request.extend_from_slice(&buf[..n]),
+                        }
+                    }
+                    if request.len() >= header_end + length {
+                        let _ =
+                            fs::write(&captured_body, &request[header_end..header_end + length]);
+                    }
+                }
+            }
+            let reply = if redirect {
+                b"HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
+            } else {
+                let payload = br#"{"url":"https://127.0.0.1/shared/selected"}"#;
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    payload.len()
+                )
+                .into_bytes()
+                .into_iter()
+                .chain(payload.iter().copied())
+                .collect()
+            };
+            let _ = tls.write_all(&reply);
+            let _ = tls.flush();
+        });
+        HttpsShare {
+            url: format!("https://127.0.0.1:{port}/share"),
+            captured,
+            contacted,
+            _guard: handle,
+        }
+    }
+
+    fn without_share_ca<T>(run: impl FnOnce() -> T) -> T {
+        let saved_extra = std::env::var_os(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE);
+        let saved_ssl = std::env::var_os(extra_ca::ENV_SSL_CERT_FILE);
+        unsafe {
+            std::env::remove_var(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE);
+            std::env::remove_var(extra_ca::ENV_SSL_CERT_FILE);
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
+        unsafe {
+            match saved_extra {
+                Some(value) => std::env::set_var(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE, value),
+                None => std::env::remove_var(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE),
+            }
+            match saved_ssl {
+                Some(value) => std::env::set_var(extra_ca::ENV_SSL_CERT_FILE, value),
+                None => std::env::remove_var(extra_ca::ENV_SSL_CERT_FILE),
+            }
+        }
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+
+    #[test]
+    fn share_https_accepts_only_the_configured_test_ca_and_does_not_follow_redirects() {
+        let home = temp_home();
+        let cwd = home.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let (_keep, drop_id) = write_pair(&home, &cwd);
+        let material = tempfile::TempDir::new().unwrap();
+        let (cert, p12) = openssl_share_material(material.path(), "localhost");
+        let wrong = material.path().join("wrong.pem");
+        fs::write(
+            &wrong,
+            "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+
+        let trusted = spawn_https_share(&p12, home.join("trusted.json"), false);
+        let outcome = without_share_ca(|| {
+            unsafe {
+                std::env::set_var(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE, &cert);
+            }
+            share_session(
+                &home,
+                &cwd,
+                &ShareRequest {
+                    session_id: drop_id.clone(),
+                    url: Some(trusted.url.clone()),
+                },
+            )
+        });
+        let _ = trusted._guard.join();
+        let outcome = outcome.unwrap();
+        assert_eq!(outcome.url, "https://127.0.0.1/shared/selected");
+        assert!(
+            trusted.contacted.exists(),
+            "trusted HTTPS server was not contacted"
+        );
+        let posted = fs::read_to_string(&trusted.captured).unwrap();
+        let value: Value = serde_json::from_str(&posted).unwrap();
+        assert_eq!(value["session_id"], drop_id);
+        assert!(value["markdown"].as_str().unwrap().contains("DROP_PROMPT"));
+        assert!(!value["markdown"].as_str().unwrap().contains("KEEP_PROMPT"));
+        assert_eq!(value["redaction"], "not claimed");
+
+        let untrusted = spawn_https_share(&p12, home.join("untrusted.json"), false);
+        let missing = without_share_ca(|| {
+            share_session(
+                &home,
+                &cwd,
+                &ShareRequest {
+                    session_id: drop_id.clone(),
+                    url: Some(untrusted.url.clone()),
+                },
+            )
+        })
+        .unwrap_err();
+        let _ = untrusted._guard.join();
+        assert!(
+            missing.message.contains("not reached") || missing.message.contains("certificate"),
+            "{missing}"
+        );
+        assert!(
+            !missing.message.contains("no TLS backend"),
+            "HTTPS still has no native-tls connector: {missing}"
+        );
+        assert!(!untrusted.captured.exists(), "untrusted CA still uploaded");
+        assert!(!missing.message.contains("https://grok.com"));
+
+        let mismatched = spawn_https_share(&p12, home.join("wrong.json"), false);
+        let wrong_ca = without_share_ca(|| {
+            unsafe {
+                std::env::set_var(extra_ca::ENV_GROK_EXTRA_CA_BUNDLE, &wrong);
+            }
+            share_session(
+                &home,
+                &cwd,
+                &ShareRequest {
+                    session_id: drop_id.clone(),
+                    url: Some(mismatched.url.clone()),
+                },
+            )
+        })
+        .unwrap_err();
+        let _ = mismatched._guard.join();
+        assert!(
+            wrong_ca.message.contains("not reached") || wrong_ca.message.contains("certificate"),
+            "{wrong_ca}"
+        );
+        assert!(
+            !wrong_ca.message.contains("no TLS backend"),
+            "HTTPS still has no native-tls connector: {wrong_ca}"
+        );
+        assert!(!mismatched.captured.exists(), "wrong CA still uploaded");
+
+        let redirected = spawn_https_share(&p12, home.join("redirect.json"), true);
+        let redirect = without_share_ca(|| {
+            unsafe {
+                std::env::set_var(extra_ca::ENV_SSL_CERT_FILE, &cert);
+            }
+            share_session(
+                &home,
+                &cwd,
+                &ShareRequest {
+                    session_id: drop_id,
+                    url: Some(redirected.url.clone()),
+                },
+            )
+        })
+        .unwrap_err();
+        let _ = redirected._guard.join();
+        assert!(redirect.message.contains("redirect"), "{redirect}");
+        assert!(redirect.message.contains("not followed"), "{redirect}");
+        assert!(
+            redirected.contacted.exists(),
+            "redirect response was not an HTTPS handshake"
+        );
     }
 
     #[test]

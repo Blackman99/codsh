@@ -369,7 +369,9 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-voice-pty-test.py`, `scripts/rust-assets-pty-test.py`, and
 `scripts/rust-session-data-pty-test.py` against
 the packed native candidate. The session-data PTY checks Markdown export,
-explicit share to a loopback substitute, and `du`. `sessions delete`,
+explicit share to a loopback substitute, and `du`. Rust unit tests also post that
+share over localhost HTTPS: the configured test CA is accepted, a missing or wrong
+CA fails without uploading, and an HTTPS redirect is not followed. `sessions delete`,
 `/delete` cancel, the resume picker, and dashboard delete must report the
 dsh persistence blocker and leave every session, including the other workspace,
 in place. A redirect from the selected share URL must not be followed. Voice PTY uses a local substitute speech-to-text
