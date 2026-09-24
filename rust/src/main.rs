@@ -8442,18 +8442,13 @@ fn blocks_with_model_prompt(
     memory_session_on: Option<bool>,
     first_turn: bool,
 ) -> Vec<serde_json::Value> {
-    let mut wrapped_user = false;
-    blocks
-        .into_iter()
-        .map(|mut block| {
-            if wrapped_user {
-                return block;
-            }
-            let Some(text) = block.get("text").and_then(|value| value.as_str()) else {
-                return block;
-            };
-            if block.get("type").and_then(|value| value.as_str()) != Some("text") {
-                return block;
+    let mut first_text = true;
+    let mut lead = String::new();
+    let mut out = Vec::with_capacity(blocks.len() + 1);
+    for mut block in blocks {
+        let text = match block.get("text").and_then(|value| value.as_str()) {
+            Some(text) if block.get("type").and_then(|value| value.as_str()) == Some("text") => {
+                text.to_string()
             }
             _ => {
                 out.push(block);
