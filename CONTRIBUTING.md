@@ -366,8 +366,13 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-import-pty-test.py`, `scripts/rust-plugin-pty-test.py`,
 `scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`,
 `scripts/rust-prompt-pty-test.py`, `scripts/rust-content-pty-test.py`,
-`scripts/rust-voice-pty-test.py`, and `scripts/rust-assets-pty-test.py` against
-the packed native candidate. Voice PTY uses a local substitute speech-to-text
+`scripts/rust-voice-pty-test.py`, `scripts/rust-assets-pty-test.py`, and
+`scripts/rust-session-data-pty-test.py` against
+the packed native candidate. The session-data PTY checks Markdown export,
+explicit share to a loopback substitute, and `du`. `sessions delete`,
+`/delete` cancel, the resume picker, and dashboard delete must report the
+dsh persistence blocker and leave every session, including the other workspace,
+in place. A redirect from the selected share URL must not be followed. Voice PTY uses a local substitute speech-to-text
 server and `CODSH_VOICE_FIXTURE`; it does not open the microphone. `/voice doctor`
 must not record. A slash command typed while recording parks the draft and
 restores it; it must not leave `/` or drop that text. A changed draft drops a

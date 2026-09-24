@@ -1,19 +1,24 @@
 //! Session export, share, deletion, and isolated-home disk usage.
 //!
 //! Export writes a readable Markdown transcript of one selected session.
-//! Share posts only after an explicit command and only to a configured
-//! substitute. Delete removes one idle session directory outside the dsh
-//! persistence seam, which has no deletion API. A live write lock is refused
-//! instead of breaking the store.
+//! Share posts only after an explicit command and only to the selected
+//! substitute, without following a redirect. Delete is blocked: released dsh
+//! persistence exposes create, open, flush, stat, and list, and no deletion
+//! operation. Every delete entry refuses and leaves every session in place.
 
 use crate::privacy;
 use crate::session_catalog::{self, Catalog};
-use crate::session_owner;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+const SHARE_TIMEOUT: Duration = Duration::from_secs(15);
+const SHARE_RESPONSE_LIMIT: u64 = 64 * 1024;
+
+const DELETE_BLOCKED: &str = "blocked: released dsh session persistence has no deletion operation (create, open, flush, stat, and list only). Session deletion is not supported. Nothing was removed.";
 
 const REDACTION_NOTE: &str = "Export is a readable copy of the stored conversation. It is not a claim that secrets were removed.";
 
@@ -76,12 +81,6 @@ pub struct DeleteRequest {
     pub confirmed: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeleteOutcome {
-    pub removed: PathBuf,
-    pub message: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DirUsage {
     pub name: String,
@@ -138,12 +137,12 @@ pub fn parse_export(flags: &[&str]) -> io::Result<ExportRequest> {
             ));
         }
         ExportTarget::Clipboard
-    } else if let Some(path) = positional.get(1) {
-        ExportTarget::File(PathBuf::from(path))
     } else if positional.len() > 2 {
         return Err(io::Error::other(
             "export accepts one session id and an optional output path",
         ));
+    } else if let Some(path) = positional.get(1) {
+        ExportTarget::File(PathBuf::from(path))
     } else {
         ExportTarget::Stdout
     };
@@ -219,7 +218,7 @@ Arguments:\n  \
 Options:\n      \
 --url <URL>             Substitute share service. Also endpoints.share_url or CODSH_SHARE_URL.\n  \
 -h, --help              Print help\n\n\
-Sharing is off unless this command is explicit and a substitute service is configured. Official grok.com, api.x.ai, and sentry hosts are refused. A missing service is an error, not a local success URL."
+Sharing is off unless this command is explicit and a substitute service is configured. Official grok.com, api.x.ai, and sentry hosts are refused. A missing service is an error, not a local success URL. The POST is not followed across a redirect, and a response over 64 KiB or a 15s timeout is a failure. The local session is unchanged."
 }
 
 /// Help that names the substitute this process can see. Official hosts stay unnamed.
@@ -264,14 +263,14 @@ pub fn parse_delete(flags: &[&str]) -> io::Result<DeleteRequest> {
 }
 
 pub fn delete_help() -> &'static str {
-    "Permanently delete a session from history\n\n\
+    "Session deletion is not supported\n\n\
 Usage: codsh --rust sessions delete [OPTIONS] <ID>\n\n\
 Arguments:\n  \
-<ID>  Session id to delete\n\n\
+<ID>  Session id that would be deleted\n\n\
 Options:\n      \
---yes, -y               Confirm deletion. Without it, nothing is removed.\n  \
+--yes, -y               Confirmation is accepted and still removes nothing.\n  \
 -h, --help              Print help\n\n\
-Deletes only that session directory and its codsh sidecars. Other sessions stay. A live write lock is refused. dsh persistence has no deletion API, so this removes the session directory only after the lock probe succeeds. It does not truncate a live log."
+Released dsh session persistence exposes create, open, flush, stat, and list. It has no deletion operation. CLI delete, /delete, the resume picker, and the dashboard all refuse. No session directory, attachment, log, or sidecar is removed."
 }
 
 pub fn disk_help() -> &'static str {
@@ -384,25 +383,8 @@ pub fn share_session(
         "redaction": "not claimed",
     }))
     .map_err(|error| DataError::new(error.to_string()))?;
-    let response = ureq::post(url)
-        .set("content-type", "application/json")
-        .set("user-agent", "codsh-rust-share")
-        .send_bytes(body.as_bytes())
-        .map_err(|error| match error {
-            ureq::Error::Status(code, _) => DataError::new(format!(
-                "share service returned HTTP {code}; local session unchanged"
-            )),
-            other => DataError::new(format!(
-                "share service was not reached ({other}); local session unchanged"
-            )),
-        })?;
-    let status = response.status();
-    if !(200..300).contains(&status) {
-        return Err(DataError::new(format!(
-            "share service returned HTTP {status}; local session unchanged"
-        )));
-    }
-    let returned = response.into_string().unwrap_or_default();
+    let response = post_share(url, body.as_bytes())?;
+    let returned = response;
     let share_url = serde_json::from_str::<Value>(&returned)
         .ok()
         .and_then(|value| {
@@ -433,59 +415,11 @@ pub fn delete_session(
     dsh_home: &Path,
     cwd: &Path,
     request: &DeleteRequest,
-) -> Result<DeleteOutcome, DataError> {
-    if !request.confirmed {
-        return Err(DataError::new(format!(
-            "delete cancelled: confirm with --yes to remove {}",
-            request.session_id
-        )));
-    }
-    let catalog = session_catalog::load_catalog(dsh_home, cwd);
-    let session = find_session(&catalog, &request.session_id)?;
-    if session.foreign.is_some() {
-        return Err(DataError::new(
-            "refusing to delete a foreign vendor session from this command",
-        ));
-    }
-    if let Some(pid) = session_owner::occupied_holder(dsh_home, &session.id) {
-        return Err(DataError::new(format!(
-            "refusing to delete session {}: write owner pid {pid} still holds it",
-            session.id
-        )));
-    }
-    let dir = session_directory(dsh_home, session)?;
-    if !dir.is_dir() {
-        return Err(DataError::new(format!(
-            "session directory is missing: {}",
-            dir.display()
-        )));
-    }
-    let canonical = dir.canonicalize().unwrap_or(dir.clone());
-    let sessions_root = dsh_home.join("sessions");
-    let root_canonical = sessions_root
-        .canonicalize()
-        .unwrap_or(sessions_root.clone());
-    if !canonical.starts_with(&root_canonical) {
-        return Err(DataError::new(format!(
-            "refusing to delete {} because it is outside {}",
-            canonical.display(),
-            root_canonical.display()
-        )));
-    }
-    fs::remove_dir_all(&canonical).map_err(|error| {
-        DataError::new(format!(
-            "cannot remove {}: {error}. dsh has no deletion API; the log was left in place",
-            canonical.display()
-        ))
-    })?;
-    forget_sidecar(dsh_home, &session.id)?;
-    Ok(DeleteOutcome {
-        removed: canonical,
-        message: format!(
-            "deleted session {} and its session directory; other sessions were not changed",
-            session.id
-        ),
-    })
+) -> Result<(), DataError> {
+    // Confirm, cancel, a live writer, and a missing id all stop here.
+    // There is no filesystem deletion to gate.
+    let _ = (dsh_home, cwd, request);
+    Err(DataError::new(DELETE_BLOCKED))
 }
 
 pub fn collect_disk(grok_home: &Path, dsh_home: &Path) -> Result<DiskReport, DataError> {
@@ -602,85 +536,22 @@ fn find_session<'a>(
         .ok_or_else(|| DataError::new(format!("Session '{id}' not found.")))
 }
 
-fn session_directory(
-    dsh_home: &Path,
-    session: &session_catalog::SessionRecord,
-) -> Result<PathBuf, DataError> {
-    // dsh percent-encodes the session directory (hyphens become ~002D) and
-    // the catalog only stores the raw id. Walk the log headers instead of
-    // reconstructing that path.
-    let root = dsh_home.join("sessions");
-    if let Some(dir) = find_session_dir(&root, &session.id) {
-        return Ok(dir);
-    }
-    Err(DataError::new(format!(
-        "session directory for {} was not found under {}",
-        session.id,
-        root.display()
-    )))
-}
-
-fn find_session_dir(dir: &Path, session_id: &str) -> Option<PathBuf> {
-    let log = newest_log(dir);
-    if let Some(log) = log.as_ref()
-        && log_session_id(log).as_deref() == Some(session_id)
-    {
-        return Some(dir.to_path_buf());
-    }
-    if log.is_some() {
-        return None;
-    }
-    let entries = fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir()
-            && let Some(found) = find_session_dir(&path, session_id)
-        {
-            return Some(found);
-        }
-    }
-    None
-}
-
-fn log_session_id(log: &Path) -> Option<String> {
-    let text = read_log_text(log).ok()?;
-    let header = text.lines().find(|line| !line.trim().is_empty())?;
-    let value: Value = serde_json::from_str(header).ok()?;
-    if value.get("type").and_then(Value::as_str) != Some("session") {
-        return None;
-    }
-    value.get("id").and_then(Value::as_str).map(str::to_string)
-}
-
-fn read_log_text(log: &Path) -> Result<String, DataError> {
-    let bytes = fs::read(log).map_err(|error| {
-        DataError::new(format!("unreadable session log {}: {error}", log.display()))
-    })?;
-    let plain = if log.extension().and_then(|ext| ext.to_str()) == Some("zstd") {
-        zstd::decode_all(bytes.as_slice()).map_err(|error| {
-            DataError::new(format!("unreadable session log {}: {error}", log.display()))
-        })?
-    } else {
-        bytes
-    };
-    String::from_utf8(plain).map_err(|error| {
-        DataError::new(format!("unreadable session log {}: {error}", log.display()))
-    })
-}
-
 fn render_markdown(
-    dsh_home: &Path,
+    _dsh_home: &Path,
     session: &session_catalog::SessionRecord,
 ) -> Result<String, DataError> {
-    let dir = session_directory(dsh_home, session)?;
-    let log = newest_log(&dir).ok_or_else(|| {
+    if session.log_path.as_os_str().is_empty() {
+        return Err(DataError::new(format!(
+            "Session '{}' log was not resolved by the catalog",
+            session.id
+        )));
+    }
+    let text = session_catalog::read_session_log(&session.log_path).map_err(|error| {
         DataError::new(format!(
-            "Session '{}' log missing in {}",
-            session.id,
-            dir.display()
+            "unreadable session log {}: {error}",
+            session.log_path.display()
         ))
     })?;
-    let text = read_log_text(&log)?;
     let mut sections = Vec::new();
     sections.push(format!("# {}", session.display_title()));
     sections.push(format!(
@@ -697,7 +568,7 @@ fn render_markdown(
         let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
         match kind {
             "user/message" => {
-                if is_plugin_snapshot(&event) {
+                if session_catalog::plugin_user_snapshot(&event) {
                     continue;
                 }
                 let body = message_text(&event);
@@ -760,15 +631,6 @@ fn render_markdown(
         return Ok(String::new());
     }
     Ok(sections.join("\n\n"))
-}
-
-fn is_plugin_snapshot(event: &Value) -> bool {
-    event
-        .get("data")
-        .and_then(|data| data.get("source"))
-        .and_then(|source| source.get("kind"))
-        .and_then(Value::as_str)
-        == Some("plugin")
 }
 
 fn message_text(event: &Value) -> String {
@@ -843,56 +705,6 @@ fn attachment_lines(event: &Value) -> String {
     lines.join("\n")
 }
 
-fn newest_log(dir: &Path) -> Option<PathBuf> {
-    let mut best: Option<(u64, PathBuf)> = None;
-    let entries = fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let Some(stem) = name
-            .strip_suffix(".jsonl")
-            .or_else(|| name.strip_suffix(".jsonl.zstd"))
-        else {
-            continue;
-        };
-        let version = if stem == "session" {
-            0
-        } else if let Some(raw) = stem.strip_prefix("session.v") {
-            if raw.starts_with('0') || raw.is_empty() {
-                continue;
-            }
-            let Ok(parsed) = raw.parse() else {
-                continue;
-            };
-            parsed
-        } else {
-            continue;
-        };
-        if best.as_ref().is_none_or(|(current, _)| version >= *current) {
-            best = Some((version, entry.path()));
-        }
-    }
-    best.map(|(_, path)| path)
-}
-
-fn forget_sidecar(dsh_home: &Path, session_id: &str) -> Result<(), DataError> {
-    for path in [
-        session_catalog::titles_path(dsh_home),
-        session_catalog::activity_path(dsh_home),
-    ] {
-        if !path.is_file() {
-            continue;
-        }
-        let text = fs::read_to_string(&path).map_err(|error| DataError::new(error.to_string()))?;
-        let mut map: serde_json::Map<String, Value> =
-            serde_json::from_str(&text).unwrap_or_default();
-        map.remove(session_id);
-        let body = serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".into());
-        fs::write(&path, format!("{body}\n")).map_err(|error| DataError::new(error.to_string()))?;
-    }
-    Ok(())
-}
-
 fn expand_tilde(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
     if let Some(rest) = raw.strip_prefix("~/")
@@ -901,6 +713,67 @@ fn expand_tilde(path: &Path) -> PathBuf {
         return PathBuf::from(home).join(rest);
     }
     path.to_path_buf()
+}
+
+fn post_share(url: &str, body: &[u8]) -> Result<String, DataError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(SHARE_TIMEOUT)
+        .timeout_read(SHARE_TIMEOUT)
+        .timeout_write(SHARE_TIMEOUT)
+        .timeout(SHARE_TIMEOUT)
+        .redirects(0)
+        .build();
+    let response = agent
+        .post(url)
+        .set("content-type", "application/json")
+        .set("user-agent", "codsh-rust-share")
+        .send_bytes(body)
+        .map_err(|error| match error {
+            ureq::Error::Status(code, response) => {
+                // redirects(0) surfaces a 3xx as a status error instead of a body.
+                let redirected = (300..400).contains(&code)
+                    || response.header("location").is_some();
+                if redirected {
+                    DataError::new(format!(
+                        "share service redirected with HTTP {code}; redirects are not followed and nothing else was uploaded"
+                    ))
+                } else {
+                    DataError::new(format!(
+                        "share service returned HTTP {code}; local session unchanged"
+                    ))
+                }
+            }
+            other => DataError::new(format!(
+                "share service was not reached ({other}); local session unchanged"
+            )),
+        })?;
+    let status = response.status();
+    if (300..400).contains(&status) || response.header("location").is_some() {
+        return Err(DataError::new(format!(
+            "share service redirected with HTTP {status}; redirects are not followed and nothing else was uploaded"
+        )));
+    }
+    if !(200..300).contains(&status) {
+        return Err(DataError::new(format!(
+            "share service returned HTTP {status}; local session unchanged"
+        )));
+    }
+    let mut limited = response
+        .into_reader()
+        .take(SHARE_RESPONSE_LIMIT.saturating_add(1));
+    let mut bytes = Vec::new();
+    limited.read_to_end(&mut bytes).map_err(|error| {
+        DataError::new(format!(
+            "share response could not be read ({error}); no success is claimed"
+        ))
+    })?;
+    if bytes.len() as u64 > SHARE_RESPONSE_LIMIT {
+        return Err(DataError::new(
+            "share response exceeded 64 KiB; no success is claimed",
+        ));
+    }
+    String::from_utf8(bytes)
+        .map_err(|_| DataError::new("share response was not UTF-8; no success is claimed"))
 }
 
 fn copy_text(text: &str) -> Result<(), DataError> {
@@ -986,6 +859,7 @@ pub fn touch_for_size(path: &Path, bytes: usize) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_owner;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1256,72 +1130,178 @@ mod tests {
     }
 
     #[test]
-    fn unconfirmed_delete_leaves_both_sessions() {
-        let home = temp_home();
-        let cwd = home.join("workspace");
-        fs::create_dir_all(&cwd).unwrap();
-        let (keep, drop_id) = write_pair(&home, &cwd);
-        let error = delete_session(
-            &home,
-            &cwd,
-            &DeleteRequest {
-                session_id: drop_id.clone(),
-                confirmed: false,
-            },
-        )
-        .unwrap_err();
-        assert!(error.message.contains("cancelled"));
-        let catalog = session_catalog::load_catalog(&home, &cwd);
-        assert!(catalog.sessions.iter().any(|session| session.id == keep));
-        assert!(catalog.sessions.iter().any(|session| session.id == drop_id));
-    }
-
-    #[test]
-    fn confirmed_delete_removes_only_the_selected_directory() {
-        let home = temp_home();
-        let cwd = home.join("workspace");
-        fs::create_dir_all(&cwd).unwrap();
-        let (keep, drop_id) = write_pair(&home, &cwd);
-        let outcome = delete_session(
-            &home,
-            &cwd,
-            &DeleteRequest {
-                session_id: drop_id.clone(),
-                confirmed: true,
-            },
-        )
-        .unwrap();
-        assert!(!outcome.removed.exists());
-        let catalog = session_catalog::load_catalog(&home, &cwd);
-        assert!(catalog.sessions.iter().any(|session| session.id == keep));
-        assert!(!catalog.sessions.iter().any(|session| session.id == drop_id));
-        let keep_prompt = catalog
-            .sessions
-            .iter()
-            .find(|session| session.id == keep)
-            .unwrap();
-        assert_eq!(keep_prompt.prompts, vec!["KEEP_PROMPT".to_string()]);
-    }
-
-    #[test]
-    fn delete_refuses_a_live_write_lock() {
+    fn share_does_not_follow_a_redirect() {
         let home = temp_home();
         let cwd = home.join("workspace");
         fs::create_dir_all(&cwd).unwrap();
         let (_keep, drop_id) = write_pair(&home, &cwd);
-        let _owner = session_owner::SessionOwner::acquire(&home, &drop_id).unwrap();
-        let error = delete_session(
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let uploaded = home.join("redirected.txt");
+        let marker = uploaded.clone();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = stream.read(&mut buf);
+            let body = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let _ = stream.write_all(body.as_bytes());
+            let _ = stream.flush();
+            drop(stream);
+            // A followed redirect comes back to this listener.
+            listener.set_nonblocking(true).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            if listener.accept().is_ok() {
+                fs::write(&marker, b"followed").unwrap();
+            }
+        });
+        let error = share_session(
             &home,
             &cwd,
-            &DeleteRequest {
-                session_id: drop_id.clone(),
-                confirmed: true,
+            &ShareRequest {
+                session_id: drop_id,
+                url: Some(format!("http://127.0.0.1:{port}/share")),
             },
         )
         .unwrap_err();
-        assert!(error.message.contains("write owner"));
+        let _ = server.join();
+        assert!(error.message.contains("redirect"), "{error}");
+        assert!(error.message.contains("not followed"), "{error}");
+        assert!(!uploaded.exists(), "a redirected upload was sent");
+    }
+
+    fn snapshot_tree(root: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut files = Vec::new();
+        let mut pending = vec![root.to_path_buf()];
+        while let Some(current) = pending.pop() {
+            let Ok(meta) = fs::symlink_metadata(&current) else {
+                continue;
+            };
+            if meta.file_type().is_symlink() {
+                let target = fs::read_link(&current).unwrap_or_default();
+                files.push((
+                    format!("link:{}", current.display()),
+                    target.to_string_lossy().as_bytes().to_vec(),
+                ));
+                continue;
+            }
+            if meta.is_dir() {
+                if let Ok(entries) = fs::read_dir(&current) {
+                    for entry in entries.flatten() {
+                        pending.push(entry.path());
+                    }
+                }
+                continue;
+            }
+            if meta.is_file()
+                && let Ok(bytes) = fs::read(&current)
+            {
+                files.push((current.display().to_string(), bytes));
+            }
+        }
+        files.sort();
+        files
+    }
+
+    fn assert_delete_preserves(home: &Path, cwd: &Path, session_id: &str, confirmed: bool) {
+        let before = snapshot_tree(home);
+        let error = delete_session(
+            home,
+            cwd,
+            &DeleteRequest {
+                session_id: session_id.to_string(),
+                confirmed,
+            },
+        )
+        .unwrap_err();
+        assert!(error.message.contains("blocked"), "{error}");
+        assert!(error.message.contains("Nothing was removed"), "{error}");
+        assert!(!error.message.contains("deleted session"), "{error}");
+        assert_eq!(snapshot_tree(home), before);
+    }
+
+    #[test]
+    fn export_rejects_extra_arguments_before_writing() {
+        let home = temp_home();
+        let cwd = home.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let (_keep, drop_id) = write_pair(&home, &cwd);
+        let error = parse_export(&[drop_id.as_str(), "one.md", "EXTRA"]).unwrap_err();
+        assert!(error.to_string().contains("optional output path"));
+        assert!(!home.join("one.md").exists());
+        assert!(!Path::new("one.md").exists());
+        assert!(!Path::new("EXTRA").exists());
+    }
+
+    #[test]
+    fn delete_is_blocked_and_preserves_every_session() {
+        let home = temp_home();
+        let cwd = home.join("workspace");
+        fs::create_dir_all(&cwd).unwrap();
+        let (keep, drop_id) = write_pair(&home, &cwd);
+        let titles = session_catalog::titles_path(&home);
+        let activity = session_catalog::activity_path(&home);
+        fs::create_dir_all(titles.parent().unwrap()).unwrap();
+        fs::write(
+            &titles,
+            format!("{{\"{keep}\":{{\"title\":\"keep-title\",\"manual\":true}}}}\n"),
+        )
+        .unwrap();
+        fs::write(&activity, "{not-json").unwrap();
+        let selected = "33333333-3333-4333-8333-333333333333";
+        let project = session_catalog::project_key_for_test(cwd.to_str().unwrap());
+        let nested = home.join("sessions").join(&project).join("selected");
+        fs::create_dir_all(&nested).unwrap();
+        let header = json!({
+            "type": "session",
+            "version": 1,
+            "id": selected,
+            "createdAt": 10,
+            "isSeeded": false,
+            "delegationDepth": 0,
+            "cwd": cwd.to_str().unwrap(),
+        });
+        let nested_body = format!(
+            "{header}\n{}\n",
+            json!({"type":"user/message","seq":1,"data":{"message":{"content":[{"type":"text","text":"NESTED"}]}}})
+        );
+        fs::write(nested.join("session.jsonl"), &nested_body).unwrap();
+        fs::write(home.join("sessions").join("session.jsonl"), &nested_body).unwrap();
+        let outside = home.join("outside-keep");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep.txt"), b"other-work").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, home.join("sessions").join("linked-other"))
+                .unwrap();
+        }
+        let readonly = home.join("sessions").join("readonly.json");
+        fs::write(&readonly, b"preserve").unwrap();
+        let mut permissions = fs::metadata(&readonly).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&readonly, permissions).unwrap();
+        let _owner = session_owner::SessionOwner::acquire(&home, &drop_id).unwrap();
+        for (id, confirmed) in [
+            (&drop_id, false),
+            (&drop_id, true),
+            (&selected.to_string(), true),
+        ] {
+            assert_delete_preserves(&home, &cwd, id, confirmed);
+        }
         let catalog = session_catalog::load_catalog(&home, &cwd);
+        assert!(catalog.sessions.iter().any(|session| session.id == keep));
         assert!(catalog.sessions.iter().any(|session| session.id == drop_id));
+        assert!(
+            catalog
+                .sessions
+                .iter()
+                .any(|session| session.id == selected)
+        );
+        assert_eq!(fs::read(&activity).unwrap(), b"{not-json");
+        assert!(fs::read_to_string(&titles).unwrap().contains("keep-title"));
+        assert_eq!(fs::read(outside.join("keep.txt")).unwrap(), b"other-work");
+        let _ = keep;
     }
 
     #[test]

@@ -79,7 +79,14 @@ refused by parsed hostname. `/feedback` opens the same Write/Drafts form in
 every screen mode; Enter sends, `/feedback <text>` sends immediately, and a
 failed submit keeps the draft for edit or delete. Draft text is included only
 when `privacy.share_content` is on. `privacy.share_session` attaches the session
-id to an enabled trace upload and nothing else. Diagnostic previews and
+id to an enabled trace upload and nothing else. `export` writes one session's
+stored transcript as Markdown and does not claim redaction; an extra argument
+is rejected before a file is created. `share` posts that transcript only to
+the explicitly selected substitute and does not follow a redirect. Session
+deletion is blocked: released dsh persistence has create, open, flush, stat,
+and list, and no deletion operation, so CLI delete, `/delete`, the resume
+picker, and the dashboard remove nothing. `du` reports isolated-home sizes
+and deletes nothing. Diagnostic previews and
 `GROK_DEBUG_LOG` contain kind/ok/count only. `GROK_LOG_FILE` and
 `GROK_HOOKS_LOG` are unwired: the launcher does not pass them, and no Rust
 path reads them. Model provider traffic is not

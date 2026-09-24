@@ -153,24 +153,32 @@ def main():
             live.wait_visible('Delete session', 15)
             live.write('n')
             shown = live.wait_visible('delete cancelled', 15)
-            assert drop_id in shown or 'delete cancelled' in shown
+            assert 'delete cancelled' in shown
             listed = cli(launcher, cwd, base_env, 'sessions', 'list')
             assert listed.returncode == 0, listed.stderr
             assert drop_id in listed.stdout
             assert keep_id in listed.stdout
-            refused = cli(launcher, cwd, base_env, 'sessions', 'delete', drop_id, '--yes')
-            assert refused.returncode != 0
-            assert 'write owner' in (refused.stderr + refused.stdout)
-            assert drop_id in cli(launcher, cwd, base_env, 'sessions', 'list').stdout
+            blocked = cli(launcher, cwd, base_env, 'sessions', 'delete', drop_id, '--yes')
+            assert blocked.returncode != 0
+            detail = blocked.stderr + blocked.stdout
+            assert 'blocked' in detail
+            assert 'Nothing was removed' in detail
+            assert 'deleted session' not in detail
+            still = cli(launcher, cwd, base_env, 'sessions', 'list')
+            assert drop_id in still.stdout
+            assert keep_id in still.stdout
             live.finish()
         finally:
             live.close()
 
-        deleted = cli(launcher, cwd, base_env, 'sessions', 'delete', drop_id, '--yes')
-        assert deleted.returncode == 0, deleted.stderr
-        assert 'deleted session' in deleted.stdout
+        blocked = cli(launcher, cwd, base_env, 'sessions', 'delete', drop_id, '--yes')
+        assert blocked.returncode != 0, blocked.stdout
+        detail = blocked.stderr + blocked.stdout
+        assert 'blocked' in detail
+        assert 'Nothing was removed' in detail
+        assert 'deleted session' not in detail
         after = cli(launcher, cwd, base_env, 'sessions', 'list')
-        assert drop_id not in after.stdout
+        assert drop_id in after.stdout
         assert keep_id in after.stdout
         disk = cli(launcher, home, base_env, 'du', '--json')
         assert disk.returncode == 0, disk.stderr

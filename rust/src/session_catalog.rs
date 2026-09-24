@@ -131,6 +131,10 @@ pub struct SessionRecord {
     pub owner_pid: Option<u32>,
     pub foreign: Option<String>,
     pub damaged: bool,
+    /// Directory the catalog already resolved, and the newest log inside it.
+    /// Empty when the record came from a projection or a foreign index.
+    pub log_dir: PathBuf,
+    pub log_path: PathBuf,
 }
 
 impl SessionRecord {
@@ -287,10 +291,22 @@ pub fn load_catalog(dsh_home: &Path, cwd: &Path) -> Catalog {
     let activity = load_map(&activity_path(dsh_home));
     let prefs = read_dashboard_prefs(dsh_home);
     let mut sessions = match read_dsh_catalog(dsh_home) {
-        Ok(projected) => projected
-            .into_iter()
-            .filter_map(|row| session_from_projection(&row, &titles, &activity))
-            .collect(),
+        Ok(projected) => {
+            let mut projected = projected
+                .into_iter()
+                .filter_map(|row| session_from_projection(&row, &titles, &activity))
+                .collect::<Vec<_>>();
+            // The Node list has no directory. Attach only logs this walk
+            // already resolved; a projection id it cannot see stays unresolved.
+            let located = read_plaintext_sessions(dsh_home, &titles, &activity, &mut Vec::new());
+            for session in &mut projected {
+                if let Some(found) = located.iter().find(|item| item.id == session.id) {
+                    session.log_dir.clone_from(&found.log_dir);
+                    session.log_path.clone_from(&found.log_path);
+                }
+            }
+            projected
+        }
         Err(message) => {
             if !message.is_empty() {
                 warnings.push(message);
@@ -410,6 +426,8 @@ fn session_from_projection(
         owner_pid,
         foreign: None,
         damaged: row.get("damaged").and_then(Value::as_bool).unwrap_or(false),
+        log_dir: PathBuf::new(),
+        log_path: PathBuf::new(),
     })
 }
 
@@ -535,6 +553,8 @@ fn read_session_dir(
         owner_pid,
         foreign: None,
         damaged,
+        log_dir: dir.to_path_buf(),
+        log_path: log,
     }))
 }
 
@@ -601,7 +621,7 @@ fn encode_segment(raw: &str) -> String {
     out
 }
 
-fn newest_session_log(dir: &Path) -> Option<PathBuf> {
+pub(crate) fn newest_session_log(dir: &Path) -> Option<PathBuf> {
     let mut best: Option<(u64, PathBuf)> = None;
     let entries = fs::read_dir(dir).ok()?;
     for entry in entries.flatten() {
@@ -617,7 +637,7 @@ fn newest_session_log(dir: &Path) -> Option<PathBuf> {
     best.map(|(_, path)| path)
 }
 
-fn generation_version(name: &str) -> Option<u64> {
+pub(crate) fn generation_version(name: &str) -> Option<u64> {
     let stem = name.strip_suffix(".zstd").unwrap_or(name);
     let stem = stem.strip_suffix(".jsonl")?;
     if stem == "session" {
@@ -630,7 +650,7 @@ fn generation_version(name: &str) -> Option<u64> {
     version.parse().ok()
 }
 
-fn read_session_log(path: &Path) -> io::Result<String> {
+pub(crate) fn read_session_log(path: &Path) -> io::Result<String> {
     let bytes = fs::read(path)?;
     let plain = if path.extension().and_then(|ext| ext.to_str()) == Some("zstd") {
         zstd::decode_all(bytes.as_slice()).map_err(|error| io::Error::other(error.to_string()))?
@@ -640,7 +660,7 @@ fn read_session_log(path: &Path) -> io::Result<String> {
     String::from_utf8(plain).map_err(io::Error::other)
 }
 
-fn plugin_user_snapshot(event: &Value) -> bool {
+pub(crate) fn plugin_user_snapshot(event: &Value) -> bool {
     let source = event
         .get("data")
         .and_then(|data| data.get("source"))
@@ -1876,6 +1896,8 @@ fn read_foreign(dsh_home: &Path, warnings: &mut Vec<String>) -> Vec<SessionRecor
                 owner_pid: None,
                 foreign: Some(vendor.to_string()),
                 damaged: false,
+                log_dir: PathBuf::new(),
+                log_path: PathBuf::new(),
             });
         }
     }
@@ -2024,7 +2046,7 @@ pub fn run_sessions(
         }
         SessionsCommand::Delete(request) => {
             crate::session_data::delete_session(dsh_home, cwd, request)
-                .map(|outcome| outcome.message)
+                .map(|()| "blocked: session deletion reported success; nothing was removed".into())
                 .map_err(|error| CatalogError {
                     message: error.message,
                 })
@@ -2037,7 +2059,7 @@ pub fn minimal_dashboard_refusal() -> &'static str {
 }
 
 pub fn help_text() -> &'static str {
-    "codsh --rust sessions list [--limit N]\ncodsh --rust sessions search <query> [--limit N]\ncodsh --rust sessions delete <ID> --yes\n\nList and search dsh sessions in the isolated Home. Titles prefer a manual /rename. Content matches are labeled content. A missing or empty result does not invent a session. delete removes one confirmed idle session directory and leaves every other session in place.\n"
+    "codsh --rust sessions list [--limit N]\ncodsh --rust sessions search <query> [--limit N]\ncodsh --rust sessions delete <ID> --yes\n\nList and search dsh sessions in the isolated Home. Titles prefer a manual /rename. Content matches are labeled content. A missing or empty result does not invent a session. delete is blocked: released dsh persistence has no deletion operation, so nothing is removed.\n"
 }
 
 #[cfg(test)]
