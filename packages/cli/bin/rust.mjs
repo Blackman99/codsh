@@ -277,6 +277,11 @@ export async function launchRust(args) {
       const plain = fileURLToPath(new URL('./rust-acp-plain.mjs', import.meta.url))
       const hooks = fileURLToPath(new URL('./rust-acp-hooks.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
+      const lsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
+      const toolLsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
+      const lspInsert = existsSync(lsp) && existsSync(toolLsp)
+        ? ['    - id: lsp', `      name: '${pathToFileURL(lsp).href}'`, '    - id: tool-lsp', `      name: '${pathToFileURL(toolLsp).href}'`]
+        : []
       writeFileSync(overlay, [
         '- id: web-search-deepseek',
         '  disabled: true',
@@ -291,6 +296,7 @@ export async function launchRust(args) {
         `    search: ${webFlag('CODSH_WEB_SEARCH', env) ? 'true' : 'false'}`,
         `    fetch: ${webFlag('CODSH_WEB_FETCH', env) ? 'true' : 'false'}`,
         '- insert:',
+        ...lspInsert,
         `    - id: rust-acp-plain`,
         `      name: '${pathToFileURL(plain).href}'`,
         `    - id: rust-acp-hooks`,

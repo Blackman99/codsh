@@ -77,7 +77,7 @@ function stringField(args, keys) {
   return ''
 }
 
-function accessFromTool(name, args = {}) {
+export function accessFromTool(name, args = {}) {
   const path = stringField(args, ['file_path', 'filePath', 'path', 'target_directory'])
   if (name === 'read' || name === 'read_file' || name === 'list_dir' || name === 'read_image') {
     return { kind: 'read', path }
@@ -92,7 +92,7 @@ function accessFromTool(name, args = {}) {
     const query = stringField(args, ['query']) || (Array.isArray(args.queries) ? String(args.queries[0] ?? '') : '')
     return { kind: 'websearch', query }
   }
-  if (name === 'todo_write' || name === 'skill') return { kind: 'read', path: '' }
+  if (name === 'todo_write' || name === 'skill' || name === 'lsp') return { kind: 'read', path: '' }
   if (name.includes('__')) return { kind: 'mcp', name }
   if (path && (args.old_string || args.new_string || args.content)) return { kind: 'edit', path }
   if (args.command) return { kind: 'bash', command: String(args.command) }
@@ -1136,6 +1136,43 @@ function readonlyAccess(access) {
   return access.kind === 'read' || access.kind === 'grep' || access.kind === 'websearch'
 }
 
+function patternCoversInside(pattern, root) {
+  if (!root || root === '.' || root === '/') return false
+  if (pattern === root || pattern.startsWith(`${root}/`)) return true
+  const literal = pattern.split('*')[0].replace(/\/+$/u, '')
+  if (!literal || literal === '.') return false
+  return literal === root || literal.startsWith(`${root}/`) || root.startsWith(`${literal}/`)
+}
+
+function pathContainsRestricted(policy, path, cwd) {
+  const prefix = path.replace(/\/+$/u, '')
+  if (!prefix || prefix === '.' || prefix === '/') return false
+  const absolute = normalizePath(prefix, cwd)
+  let directory = false
+  try {
+    directory = lstatSync(absolute).isDirectory()
+  } catch {
+    directory = false
+  }
+  for (const rule of policy.rules ?? []) {
+    if (rule.action !== 'deny' && rule.action !== 'ask') continue
+    if (rule.tool !== 'read' && rule.tool !== 'edit' && rule.tool !== 'grep' && rule.tool !== 'any') continue
+    if (!rule.pattern || rule.pattern === '*') return true
+    const forms = pathForms(prefix, cwd).map(form => form.replace(/\/+$/u, ''))
+    if (forms.some(form => patternCoversInside(rule.pattern, form))) return true
+    if (directory && forms.some(form => globMatch(rule.pattern, `${form}/x.pem`, true))) return true
+  }
+  return false
+}
+
+/** True when a Read/Edit deny or ask would block this path or something inside it. */
+export function pathIsRestricted(policy, path) {
+  const cwd = policy.cwd || process.cwd()
+  const decision = pathRuleDecision(policy, path, cwd)
+  if (decision?.kind === 'deny' || decision?.kind === 'ask') return true
+  return pathContainsRestricted(policy, path, cwd)
+}
+
 function pathRuleDecision(policy, path, cwd) {
   const inspected = inspectPath(path, cwd)
   const read = evaluateRulesFor(policy, { kind: 'read', path }, cwd)
@@ -1417,6 +1454,41 @@ export function apply(ctx) {
     }
     if (asked === 'cancelled') return { kind: 'deny', reason: `approval for tool "${exec.name}" was cancelled` }
     return { kind: 'deny', reason: persistable ? decision.reason : `Couldn't save a permanent rule; this allow is once. ${decision.reason}` }
+  })
+  // A directory grep/glob is allowed as a search. This listener is registered
+  // before the search tools, so it is the outer post-execute hook: replacing
+  // the canonical value makes dsh re-render the model text, the search card,
+  // and any spill from the filtered list. A restricted root never returns hits.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (!process.env.CODSH_PERMISSION_POLICY) return decision
+    if (exec.name !== 'grep' && exec.name !== 'glob') return decision
+    if (decision.kind !== 'accept' || result.isError) return decision
+    if (Object.hasOwn(decision, 'value') || Object.hasOwn(decision, 'content')) return decision
+    const policy = loadPolicy()
+    const root = stringField(exec.arguments, ['path'])
+    if (root && pathIsRestricted(policy, root)) {
+      return {
+        kind: 'block',
+        feedback: [{
+          type: 'text',
+          text: 'Error: search root is denied by permission policy; no results were returned',
+        }],
+      }
+    }
+    const value = result.value
+    if (!value || typeof value !== 'object') return decision
+    if (exec.name === 'grep' && Array.isArray(value.matches)) {
+      const matches = value.matches.filter(match => !pathIsRestricted(policy, String(match?.path ?? '')))
+      if (matches.length === value.matches.length) return decision
+      return { kind: 'accept', value: { matches } }
+    }
+    if (exec.name === 'glob' && Array.isArray(value.paths)) {
+      const paths = value.paths.filter(path => !pathIsRestricted(policy, String(path ?? '')))
+      if (paths.length === value.paths.length) return decision
+      return { kind: 'accept', value: { ...value, paths } }
+    }
+    return decision
   })
   ctx.on('tools/execute', async (exec, next) => {
     const delay = Number(process.env.DSH_CODE_CLI_TOOL_DELAY_MS ?? '0')

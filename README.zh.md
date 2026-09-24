@@ -79,7 +79,7 @@ shell（`$(...)`、参数展开如 `$x`、`${x}`、`$1`、`"$1"`、`$@` 或 `$*`
 策略文件缺失或损坏时拒绝变更类工具，而不是丢掉 deny。记住的文件授权按路径生效，`a` 不是永久允许所有编辑。界面显示将执行的操作及
 dsh 给出的差异，`y` 允许该次调用，`a` 只记住当前项目，`n` 拒绝且不写入。
 `/revoke-approvals` 撤销当前项目已记住的授权。记住的授权不会被说成永久全局规则；
-保存失败时仍只允许这一次。文件不存在、工具错误、
+保存失败时仍只允许这一次。文件搜索走 dsh 的 `grep` 和 `glob`（随附的 ripgrep，不是 shell）。结果有上限（`glob` 100 条路径，`grep` 250 条匹配），并说明如何继续读取；更大的 `grep` 在挂载了 spill 时把完整列表存进去。`read` 用 `offset` 和 `limit` 续读，并给出下一次的 offset。空搜索只说 `No matches found` 或 `No files found`，不编造内容。二进制文件报 `binary file` / `FS_NOT_TEXT`，不会被当成文本。读过之后又被改过的文件，编辑会以 `FS_STALE_VERSION` 失败且不写入。代码导航是 dsh 的 `lsp`（`goToDefinition`、`findReferences`、`goToImplementation`、`hover`）。没有配置语言服务时，调用失败（`no LSP provider handles` 该文件；dsh 错误码 `LSP_UNAVAILABLE`），不返回位置。Read/Edit 的 deny 覆盖指定的搜索根、每一条 grep/glob 命中，以及 `rg` 这类 shell 搜索参数；被拒绝的文件不会出现在模型结果或工具卡片里，换一个工具也读不到它。文件不存在、工具错误、
 取消或重复的审批回复都显示为失败，不会伪造成功。`Ctrl+C` 在有草稿时只清空草稿、
 不取消正在执行的回合；草稿为空时通过 dsh `session/cancel` 取消当前回合。Esc
 从不取消回合或待审批请求，只取消选中并提示改用 `Ctrl+C`。被取消的工具不会因迟到的

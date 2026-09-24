@@ -216,7 +216,7 @@ path-scoped; `a` is not all-edits-forever. The UI shows the pending operation
 and the dsh-supplied diff, then `y` allows that call once, `a` remembers it for
 this project only, and `n` rejects it with no write. `/revoke-approvals` forgets
 this project's remembered grants. Remembered grants are never described as a
-permanent global rule; a failed save still allows once. Missing files, tool
+permanent global rule; a failed save still allows once. File search uses dsh `grep` and `glob` (packaged ripgrep, not a shell). A result is capped (`glob` 100 paths, `grep` 250 matches) and says how to read the rest; a larger `grep` keeps the complete list in the spill store when one is mounted. `read` pages with `offset` and `limit` and says the next offset. An empty search says `No matches found` or `No files found` and invents nothing. A binary file is `binary file` / `FS_NOT_TEXT`, not decoded text. A file that changes after it was read fails the edit with `FS_STALE_VERSION` and is left unchanged. Code navigation is dsh `lsp` (`goToDefinition`, `findReferences`, `goToImplementation`, `hover`). With no language server configured the call fails (`no LSP provider handles` the file; dsh code `LSP_UNAVAILABLE`) and returns no location. A Read/Edit deny covers a named search root, every grep/glob hit, and a shell search operand such as `rg`; a denied file is omitted from both the model result and the tool card, and switching to another tool does not reveal it. Missing files, tool
 errors, cancelled or duplicate approval replies are shown as failures, never as
 success. `Ctrl+C` clears a non-empty draft without cancelling work; an empty
 draft cancels the running turn through dsh `session/cancel`. Esc never cancels a

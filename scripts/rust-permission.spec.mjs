@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { evaluatePermission } from '../packages/cli/bin/rust-acp-file-approval.mjs'
+import { accessFromTool, evaluatePermission, pathIsRestricted } from '../packages/cli/bin/rust-acp-file-approval.mjs'
 
 function policy(overrides = {}) {
   return {
@@ -114,6 +114,28 @@ describe('rust permission evaluator', () => {
       rules: [{ action: 'deny', tool: 'read', pattern: 'secret/**', patternMode: 'glob' }],
     }), { kind: 'bash', command: 'cat secret/key' })
     expect(decision.kind).toBe('deny')
+    const searched = evaluatePermission(policy({
+      rules: [{ action: 'deny', tool: 'read', pattern: 'secret/**', patternMode: 'glob' }],
+    }), { kind: 'bash', command: 'rg -n SECRET_LINE secret/key.txt' })
+    expect(searched.kind).toBe('deny')
+  })
+
+  it('marks a denied search hit restricted and leaves a sibling readable', () => {
+    const denied = policy({
+      rules: [{ action: 'deny', tool: 'read', pattern: 'secret/**', patternMode: 'glob' }],
+    })
+    expect(pathIsRestricted(denied, 'secret/key.txt')).toBe(true)
+    expect(pathIsRestricted(denied, 'secret')).toBe(true)
+    expect(pathIsRestricted(denied, './secret')).toBe(true)
+    expect(pathIsRestricted(denied, 'visible.txt')).toBe(false)
+    expect(pathIsRestricted(denied, 'readme.md')).toBe(false)
+    expect(pathIsRestricted(denied, '')).toBe(false)
+  })
+
+  it('treats code navigation as read-only so a missing language server can fail', () => {
+    const access = accessFromTool('lsp', { operation: 'goToDefinition', file_path: 'nav.ts', line: 1, character: 1 })
+    expect(access.kind).toBe('read')
+    expect(evaluatePermission(policy(), access).kind).toBe('allow')
   })
 
   it('skips non-shell ask and remembered grants under always-approve', () => {

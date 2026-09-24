@@ -12,7 +12,7 @@
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, writeFileSync } from 'node:fs'
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
@@ -302,6 +302,88 @@ function* fileToolTurn(options) {
     yield* mockText(`RUST_ACP_FILE_DONE ${resultText(last)}`)
     return
   }
+  if (MODE === 'search-needle' || MODE === 'search-empty' || MODE === 'search-denied' || MODE === 'search-continue' || MODE === 'search-binary' || MODE === 'search-stale' || MODE === 'search-lsp') {
+    const last = done.at(-1)
+    if (last?.isError === true) {
+      yield* mockText(`RUST_ACP_SEARCH_ERROR ${resultText(last)}`)
+      return
+    }
+    if (MODE === 'search-needle' && done.length === 0) {
+      yield* mockToolCall('rust-acp-grep', 'grep', { pattern: 'NEEDLE', path: '.' })
+      return
+    }
+    if (MODE === 'search-needle' && done.length === 1) {
+      yield* mockToolCall('rust-acp-glob', 'glob', { pattern: '**/*.txt', path: '.' })
+      return
+    }
+    if (MODE === 'search-empty' && done.length === 0) {
+      yield* mockToolCall('rust-acp-grep-empty', 'grep', { pattern: 'NO_SUCH_TOKEN_ZZZ', path: '.' })
+      return
+    }
+    if (MODE === 'search-denied' && done.length === 0) {
+      yield* mockToolCall('rust-acp-grep-denied', 'grep', { pattern: 'SECRET_LINE', path: '.' })
+      return
+    }
+    if (MODE === 'search-denied' && done.length === 1) {
+      yield* mockToolCall('rust-acp-glob-denied', 'glob', { pattern: '**/*', path: '.' })
+      return
+    }
+    if (MODE === 'search-denied' && done.length === 2) {
+      yield* mockToolCall('rust-acp-grep-root', 'grep', { pattern: 'SECRET_LINE', path: 'secret' })
+      return
+    }
+    if (MODE === 'search-denied' && done.length === 3) {
+      yield* mockToolCall('rust-acp-bash-denied', 'bash', { command: 'rg -n SECRET_LINE secret/key.txt', description: 'search bypass probe' })
+      return
+    }
+    if (MODE === 'search-continue' && done.length === 0) {
+      yield* mockToolCall('rust-acp-grep-page', 'grep', { pattern: 'PAGE', path: 'paged.txt' })
+      return
+    }
+    if (MODE === 'search-continue' && done.length === 1) {
+      yield* mockToolCall('rust-acp-read-page', 'read', { file_path: 'paged.txt', offset: 1, limit: 2 })
+      return
+    }
+    if (MODE === 'search-continue' && done.length === 2) {
+      const text = resultText(done[1])
+      const marker = text.match(/offset=(\d+)/)
+      const offset = marker ? Number(marker[1]) : 3
+      yield* mockToolCall('rust-acp-read-rest', 'read', { file_path: 'paged.txt', offset, limit: 50 })
+      return
+    }
+    if (MODE === 'search-binary' && done.length === 0) {
+      yield* mockToolCall('rust-acp-read-bin', 'read', { file_path: 'blob.bin' })
+      return
+    }
+    if (MODE === 'search-stale' && done.length === 0) {
+      yield* mockToolCall('rust-acp-read-stale', 'read', { file_path: 'moving.txt' })
+      return
+    }
+    if (MODE === 'search-stale' && done.length === 1) {
+      // The read already observed "before". Change the file before edit so
+      // dsh reports a stale version instead of applying the patch.
+      writeFileSync('moving.txt', 'changed-underfoot\n')
+      yield* mockToolCall('rust-acp-edit-stale', 'edit', {
+        file_path: 'moving.txt',
+        old_string: 'before',
+        new_string: 'after',
+      })
+      return
+    }
+    if (MODE === 'search-lsp' && done.length === 0) {
+      yield* mockToolCall('rust-acp-lsp', 'lsp', {
+        operation: 'goToDefinition',
+        file_path: 'nav.ts',
+        line: 1,
+        character: 1,
+      })
+      return
+    }
+    if (last) {
+      yield* mockText(`RUST_ACP_SEARCH_DONE ${resultText(last)}`)
+      return
+    }
+  }
   if (MODE === 'file-write') {
     if (done.length === 0) {
       yield* mockToolCall('rust-acp-write', 'write', {
@@ -494,12 +576,18 @@ class RustAcpMockAdapter extends LlmAdapter {
       const user = options.messages
         .filter(message => message.role === 'user')
         .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+      const results = options.messages.flatMap(message => message.content.filter(block => block.type === 'tool-result').map(block => ({
+        name: block.toolName ?? block.name ?? '',
+        error: block.isError === true,
+        text: (block.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, 500),
+      })))
       appendFileSync(trace, `${JSON.stringify({
         purpose: options.purpose ?? 'turn',
         provider: options.provider,
         model: options.model?.id ?? options.model ?? '',
         tools: names,
         user,
+        results,
       })}\n`)
     }
     if (DELAY_MS > 0) {
@@ -544,7 +632,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny' || MODE === 'shell-env' || MODE === 'file-secret') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret' || MODE === 'search-needle' || MODE === 'search-empty' || MODE === 'search-denied' || MODE === 'search-continue' || MODE === 'search-binary' || MODE === 'search-stale' || MODE === 'search-lsp' || MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny' || MODE === 'shell-env') {
       yield* fileToolTurn(options)
       return
     }

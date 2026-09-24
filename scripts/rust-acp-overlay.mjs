@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { enabled } from '../packages/cli/bin/rust-acp-web.mjs'
@@ -54,6 +55,14 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `    search: ${enabled('CODSH_WEB_SEARCH') ? 'true' : 'false'}`,
     `    fetch: ${enabled('CODSH_WEB_FETCH') ? 'true' : 'false'}`,
   ]
+  // dsh owns code navigation. No language server is configured, so a call
+  // reports LSP_UNAVAILABLE instead of inventing a location. The profile does
+  // not depend on these packages, so the patch inserts the files directly.
+  const lsp = fileURLToPath(new URL('../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
+  const toolLsp = fileURLToPath(new URL('../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
+  const lspInsert = existsSync(lsp) && existsSync(toolLsp)
+    ? ['    - id: lsp', `      name: '${pathToFileURL(lsp).href}'`, '    - id: tool-lsp', `      name: '${pathToFileURL(toolLsp).href}'`]
+    : []
   if (threshold) {
     const ratio = Number(threshold)
     if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -76,6 +85,7 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
   }
   lines.push(
     '- insert:',
+    ...lspInsert,
     '    - id: rust-acp-mock-llm',
     `      name: '${mockUrl}'`,
     '    - id: rust-acp-plain',
