@@ -82,12 +82,19 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         "Sign out and clear cached identity credentials",
         true,
     ),
+    SlashCommand::new("memory", &["mem"], "Browse local memory notes", true),
     SlashCommand::new("minimal", &[], "Switch to minimal native history", true),
     SlashCommand::new("model", &["m"], "Select a model", false),
     SlashCommand::new("multiline", &["ml"], "Toggle multiline input", true),
     SlashCommand::new("new", &[], "Start a new dsh session", true),
     SlashCommand::new("rename", &["title"], "Rename the current session", false),
     SlashCommand::new("resume", &[], "Resume a previous session", true),
+    SlashCommand::new(
+        "remember",
+        &[],
+        "Save a memory note after confirmation",
+        true,
+    ),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("onboarding", &[], "Open onboarding", true),
     SlashCommand::new(
@@ -1322,7 +1329,14 @@ impl PromptComposer {
             if item == "/voice" {
                 return Action::Slash("/voice".into());
             }
-            if item == "/compact" || item == "/login" || item == "/logout" || item == "/feedback" {
+            if item == "/compact"
+                || item == "/login"
+                || item == "/logout"
+                || item == "/feedback"
+                || item == "/remember"
+                || item == "/memory"
+                || item == "/mem"
+            {
                 return Action::Slash(if typed.trim().starts_with(&item) {
                     typed
                 } else {

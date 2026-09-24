@@ -367,7 +367,7 @@ tool results display as cancelled. After cancel, a new prompt still works.
 `scripts/rust-auth-pty-test.py`, `scripts/rust-permission-pty-test.py`,
 `scripts/rust-prompt-pty-test.py`, `scripts/rust-content-pty-test.py`,
 `scripts/rust-voice-pty-test.py`, `scripts/rust-assets-pty-test.py`, and
-`scripts/rust-session-data-pty-test.py` against
+`scripts/rust-session-data-pty-test.py` and `scripts/rust-memory-pty-test.py` against
 the packed native candidate. The session-data PTY checks Markdown export,
 explicit share to a loopback substitute, and `du`. Rust unit tests also post that
 share over localhost HTTPS: the configured test CA is accepted, a missing or wrong
@@ -383,7 +383,18 @@ trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
 command change the dsh request, rescans an added skill, requires the deleted
 skill to be absent from the next dsh reply, checks `--rules`, and checks an
 empty directory. Untrusted inspect must omit project files. A non-user-invocable
-skill must stay out of the menu. A skill or command named `login`, `logout`, or
+skill must stay out of the menu. The memory PTY uses a synthetic isolated home:
+`/remember` writes the confirmed note into `MEMORY.md` only after `y`, `/memory`
+opens a modal that keeps the selected row highlighted, a width under 80 columns
+hides the preview until Enter, `x` cannot delete `MEMORY.md`, `[memory] enabled = false`
+stays off for the next prompt until `t`, `/new` drops that session toggle,
+`GROK_MEMORY=0` hides the browser
+without deleting the file, `x` deletes only a session file, and `memory clear --workspace --yes` removes that
+scope's `MEMORY.md`, `sessions/`, and `index.sqlite`. `index.sqlite` is a
+SQLite FTS5 database rebuilt from the notes. A damaged file is reported and
+replaced only after the new database is complete. A foreign SQLite file is
+left unchanged. The bundled SQLite amalgamation comes from `rusqlite` 0.37 /
+`libsqlite3-sys` 0.35 (SQLite 3.50.2, public domain) and is compiled with FTS5. A skill or command named `login`, `logout`, or
 `feedback` must keep the built-in on the bare slash and appear only as
 `/local:name`. Nested `SKILL.md` files stop when the walk depth is greater than
 five, and a child of a directory that already has `SKILL.md` is still recorded.

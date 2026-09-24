@@ -8,6 +8,8 @@ mod content;
 mod extra_ca;
 mod feedback_ui;
 mod import;
+mod memory;
+mod memory_ui;
 mod models;
 mod navigation;
 mod permission;
@@ -335,6 +337,7 @@ enum LaunchMode {
     DiskUsage {
         json: bool,
     },
+    Memory(Vec<String>),
 }
 
 struct Connection {
@@ -382,6 +385,11 @@ enum Overlay {
         draft: String,
         previous: PathBuf,
     },
+    Memory(memory_ui::Browser),
+    Remember {
+        draft: String,
+        scope: memory::Scope,
+    },
 }
 
 #[derive(Debug)]
@@ -404,6 +412,8 @@ struct Launch {
     session_rules: Option<String>,
     /// `--system-prompt-override` / `--system-prompt` replaces the prompt.
     system_prompt_override: Option<String>,
+    /// `--no-memory` hides memory for this process. It does not delete files.
+    no_memory: bool,
 }
 
 fn is_subcommand(arg: &str) -> bool {
@@ -423,6 +433,7 @@ fn is_subcommand(arg: &str) -> bool {
             | "share"
             | "du"
             | "disk-usage"
+            | "memory"
     )
 }
 
@@ -470,6 +481,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
     let mut deny = Vec::new();
     let mut session_rules = None;
     let mut system_prompt_override = None;
+    let mut no_memory = false;
     let mut index = 0;
     while index < args.len() {
         if let Some(value) = take_flag_value(
@@ -576,6 +588,8 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
                 screen = Some(ScreenMode::Fullscreen);
             } else if arg == "--fork-session" {
                 fork_session = true;
+            } else if arg == "--no-memory" {
+                no_memory = true;
             } else if arg == "--always-approve"
                 || arg == "--yolo"
                 || arg == "--dangerously-skip-permissions"
@@ -741,6 +755,10 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
             json: parse_disk_flags(flags)?,
         },
         ["dashboard"] | ["dashboard", "--help" | "-h"] => LaunchMode::Dashboard,
+        ["memory"] => LaunchMode::Memory(vec!["help".into()]),
+        ["memory", flags @ ..] => {
+            LaunchMode::Memory(flags.iter().map(|flag| (*flag).to_string()).collect())
+        }
         _ => {
             return Err(io::Error::other(
                 "unsupported preview arguments; use codsh --rust --help",
@@ -785,6 +803,7 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         deny,
         session_rules,
         system_prompt_override,
+        no_memory,
     })
 }
 
@@ -1561,6 +1580,8 @@ fn commit_rewind(
     point: &RewindPoint,
     resumed: &mut bool,
     previous_session: &mut Option<String>,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> Result<String, String> {
     let source = client
         .session_id
@@ -1572,6 +1593,8 @@ fn commit_rewind(
         return Err("rewind restored files; conversation-only rewind required".into());
     }
     *turns = switch_session(client, owner, dsh_home, cwd, &forked.session_id)?;
+    reset_memory_session(memory_session_on);
+    *memory_injected = !turns.is_empty();
     *resumed = true;
     *previous_session = Some(forked.session_id.clone());
     Ok(format!(
@@ -1589,8 +1612,12 @@ fn commit_fork(
     cwd: &Path,
     prefs: &UiPrefs,
     directive: Option<&str>,
+    launch: &Launch,
+    effective: &config::EffectiveConfig,
     resumed: &mut bool,
     previous_session: &mut Option<String>,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> Result<String, String> {
     let source = client
         .session_id
@@ -1602,6 +1629,8 @@ fn commit_fork(
         return Err("fork restored files; conversation-only fork required".into());
     }
     *turns = switch_session(client, owner, dsh_home, cwd, &forked.session_id)?;
+    reset_memory_session(memory_session_on);
+    *memory_injected = !turns.is_empty();
     apply_fork_model(client, prefs)?;
     *resumed = true;
     *previous_session = Some(forked.session_id.clone());
@@ -1610,7 +1639,16 @@ fn commit_fork(
         forked.session_id, forked.parent_session
     );
     if let Some(text) = directive.filter(|value| !value.trim().is_empty()) {
-        client.submit_prompt(text).map_err(|error| error.message)?;
+        let prompt = model_prompt(
+            launch,
+            effective,
+            text,
+            *memory_session_on,
+            !*memory_injected && turns.is_empty(),
+        );
+        client
+            .submit_prompt(&prompt)
+            .map_err(|error| error.message)?;
         if let Some(session_id) = client.session_id.clone() {
             let _ = session_catalog::note_turn(dsh_home, &session_id, true);
         }
@@ -1689,7 +1727,11 @@ fn apply_session_catalog_slash(
     overlay: &mut Overlay,
     hint: &mut String,
     last_error: &mut String,
-    effective: &config::EffectiveConfig,
+    effective: &mut config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    selection_ready: &mut bool,
     resumed: &mut bool,
     previous_session: &mut Option<String>,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -1697,6 +1739,9 @@ fn apply_session_catalog_slash(
     committed: &mut usize,
     history: &mut String,
     composer: &mut PromptComposer,
+    launch: &Launch,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> io::Result<()> {
     if *inflight && !matches!(action, CatalogSlash::Info | CatalogSlash::Export(_)) {
         *last_error = "finish or cancel the running turn before switching sessions".into();
@@ -1749,25 +1794,38 @@ fn apply_session_catalog_slash(
         }
         CatalogSlash::New => {
             let previous = client.as_ref().and_then(|active| active.session_id.clone());
+            // Reload the directory first. A settings write error keeps the
+            // live client; the transcript stays until the replacement starts.
+            sync_effective_cwd(effective, launch);
+            if !prepare_retained_apply(effective, extra_env, patch, apply_failed, last_error, hint)
+            {
+                composer.set_text("");
+                return Ok(());
+            }
             drop_connection(client, owner);
             *turns = Vec::new();
             *committed = 0;
             history.clear();
             *resumed = false;
-            match connect(&LaunchMode::New, None, &[], None, false, None) {
-                Ok((connection, _)) => {
-                    *previous_session = connection.client.session_id.clone();
-                    *owner = Some(connection.owner);
-                    *client = Some(connection.client);
-                    *hint = format!(
-                        "new session {}; previous output stayed on {}",
-                        previous_session.as_deref().unwrap_or("unknown"),
-                        previous.as_deref().unwrap_or("none")
-                    );
-                    last_error.clear();
-                    let _ = reset_native_history_after_switch(terminal, screen, committed, history);
-                }
-                Err(error) => *last_error = error,
+            // A new ACP session follows config again. The previous session's
+            // `t` toggle does not carry over, including an explicit false.
+            *memory_session_on = None;
+            *memory_injected = false;
+            connect_retained_session(
+                client,
+                owner,
+                previous_session,
+                selection_ready,
+                last_error,
+                hint,
+                effective,
+                extra_env,
+                patch.as_ref(),
+                "new session",
+                previous.as_deref(),
+            );
+            if last_error.is_empty() {
+                let _ = reset_native_history_after_switch(terminal, screen, committed, history);
             }
             composer.set_text("");
         }
@@ -1925,11 +1983,18 @@ fn handle_catalog_overlay_key(
     history: &mut String,
     resumed: &mut bool,
     previous_session: &mut Option<String>,
-    effective: &config::EffectiveConfig,
+    effective: &mut config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    selection_ready: &mut bool,
     hint: &mut String,
     last_error: &mut String,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     screen: ScreenMode,
+    launch: &Launch,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> io::Result<bool> {
     match overlay {
         Overlay::SessionPick {
@@ -2034,6 +2099,8 @@ fn handle_catalog_overlay_key(
                                 *hint = message;
                                 last_error.clear();
                                 *overlay = Overlay::None;
+                                reset_memory_session(memory_session_on);
+                                *memory_injected = !turns.is_empty();
                                 let _ = reset_native_history_after_switch(
                                     terminal, screen, committed, history,
                                 );
@@ -2076,10 +2143,17 @@ fn handle_catalog_overlay_key(
                     resumed,
                     previous_session,
                     effective,
+                    extra_env,
+                    patch,
+                    apply_failed,
+                    selection_ready,
                     hint,
                     last_error,
                     terminal,
                     screen,
+                    launch,
+                    memory_session_on,
+                    memory_injected,
                 )?;
             }
             Ok(true)
@@ -2117,6 +2191,90 @@ fn handle_catalog_overlay_key(
                         DeleteReturn::Picker => open_session_picker(overlay, effective),
                         DeleteReturn::Welcome => *overlay = Overlay::None,
                     }
+                }
+                _ => {}
+            }
+            Ok(true)
+        }
+        Overlay::Memory(browser) => {
+            let Some(mapped) = memory_key(key) else {
+                return Ok(true);
+            };
+            if mapped == memory_ui::Key::Char('f') && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                memory_ui::toggle_fullscreen(browser);
+                return Ok(true);
+            }
+            let mapped = match (browser.pane, key.code) {
+                (
+                    memory_ui::Pane::List
+                    | memory_ui::Pane::Preview
+                    | memory_ui::Pane::ConfirmDelete,
+                    KeyCode::Char('k'),
+                ) => memory_ui::Key::Up,
+                (
+                    memory_ui::Pane::List
+                    | memory_ui::Pane::Preview
+                    | memory_ui::Pane::ConfirmDelete,
+                    KeyCode::Char('j'),
+                ) => memory_ui::Key::Down,
+                _ => mapped,
+            };
+            let store = memory_store(effective).map_err(io::Error::other)?;
+            if let Some(action) = memory_ui::handle_key(browser, &store, mapped) {
+                if let Some(path) = action.strip_prefix("copy ") {
+                    *hint = match copy_to_clipboard(path) {
+                        Ok(()) => format!("copied {path}"),
+                        Err(error) => error,
+                    };
+                } else if action == "close" {
+                    *memory_session_on = Some(browser.session_enabled);
+                    *hint = if browser.session_enabled {
+                        "memory on for this session".into()
+                    } else {
+                        "memory off for this session; files kept".into()
+                    };
+                    *overlay = Overlay::None;
+                } else if action.starts_with("memory on for this session")
+                    || action.starts_with("memory off for this session")
+                {
+                    // `t` changes this session only. The modal stays open.
+                    *memory_session_on = Some(browser.session_enabled);
+                    *hint = action;
+                } else {
+                    *memory_session_on = Some(browser.session_enabled);
+                    *hint = action;
+                    // Save and cancel return to the prompt. The browser does
+                    // not keep consuming the next slash command.
+                    *overlay = Overlay::None;
+                }
+            }
+            Ok(true)
+        }
+        Overlay::Remember { draft, scope } => {
+            match key.code {
+                KeyCode::Esc => {
+                    *hint = "memory note cancelled; nothing was written".into();
+                    *overlay = Overlay::None;
+                }
+                KeyCode::Char(ch)
+                    if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+                {
+                    draft.push(ch);
+                }
+                KeyCode::Backspace => {
+                    draft.pop();
+                }
+                KeyCode::Enter => {
+                    let store = memory_store(effective).map_err(io::Error::other)?;
+                    let mut browser = memory_ui::Browser::open(
+                        &store,
+                        memory_session_enabled(effective, None),
+                        false,
+                    );
+                    memory_ui::begin_remember(&mut browser, &store, draft, *scope);
+                    *hint = browser.notice.clone();
+                    *overlay = Overlay::Memory(browser);
                 }
                 _ => {}
             }
@@ -2186,11 +2344,18 @@ fn apply_dashboard_action(
     history: &mut String,
     resumed: &mut bool,
     previous_session: &mut Option<String>,
-    effective: &config::EffectiveConfig,
+    effective: &mut config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    selection_ready: &mut bool,
     hint: &mut String,
     last_error: &mut String,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     screen: ScreenMode,
+    launch: &Launch,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> io::Result<()> {
     if let Some(id) = action.strip_prefix("open ") {
         if let Some(active) = client.as_mut() {
@@ -2210,6 +2375,8 @@ fn apply_dashboard_action(
                     *hint = message;
                     last_error.clear();
                     *overlay = Overlay::None;
+                    reset_memory_session(memory_session_on);
+                    *memory_injected = !turns.is_empty();
                     let _ = reset_native_history_after_switch(terminal, screen, committed, history);
                 }
                 Err(error) => {
@@ -2268,27 +2435,36 @@ fn apply_dashboard_action(
     }
     if let Some(text) = action.strip_prefix("dispatch ") {
         *hint = format!("dispatched a new session; current history was not copied: {text}");
-        *overlay = Overlay::None;
         let previous = client.as_ref().and_then(|active| active.session_id.clone());
+        // Same directory and patch as `/new`. A failed settings write leaves
+        // the dashboard and the current session in place.
+        sync_effective_cwd(effective, launch);
+        if !prepare_retained_apply(effective, extra_env, patch, apply_failed, last_error, hint) {
+            return Ok(());
+        }
+        *overlay = Overlay::None;
         drop_connection(client, owner);
+        reset_memory_session(memory_session_on);
+        *memory_injected = false;
         *turns = Vec::new();
         *committed = 0;
         history.clear();
         *resumed = false;
-        match connect(&LaunchMode::New, None, &[], None, false, None) {
-            Ok((connection, _)) => {
-                *previous_session = connection.client.session_id.clone();
-                *owner = Some(connection.owner);
-                *client = Some(connection.client);
-                *hint = format!(
-                    "dispatched {}; previous output stayed on {}",
-                    previous_session.as_deref().unwrap_or("unknown"),
-                    previous.as_deref().unwrap_or("none")
-                );
-                last_error.clear();
-                let _ = reset_native_history_after_switch(terminal, screen, committed, history);
-            }
-            Err(error) => *last_error = error,
+        connect_retained_session(
+            client,
+            owner,
+            previous_session,
+            selection_ready,
+            last_error,
+            hint,
+            effective,
+            extra_env,
+            patch.as_ref(),
+            "dispatched",
+            previous.as_deref(),
+        );
+        if last_error.is_empty() {
+            let _ = reset_native_history_after_switch(terminal, screen, committed, history);
         }
         return Ok(());
     }
@@ -2326,6 +2502,103 @@ fn apply_dashboard_action(
         return Ok(());
     }
     Ok(())
+}
+
+fn sync_effective_cwd(effective: &mut config::EffectiveConfig, launch: &Launch) {
+    // `/cd` changes the process directory. The next ACP session and the memory
+    // store both use that directory, and a trusted workspace config.toml has
+    // to be loaded again before the settings patch is written.
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    if cwd != effective.cwd {
+        *effective = load_runtime_config(launch);
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| effective.grok_home.clone());
+        config::refresh_assets(effective, &home);
+    }
+}
+
+/// Write the same credential env and settings patch startup gives dsh.
+/// False leaves the live client where it is: a settings write error is not
+/// a reason to drop a process that still has the previous patch.
+fn prepare_retained_apply(
+    effective: &config::EffectiveConfig,
+    extra_env: &mut Vec<(String, String)>,
+    patch: &mut Option<PathBuf>,
+    apply_failed: &mut bool,
+    last_error: &mut String,
+    hint: &mut String,
+) -> bool {
+    let applied = runtime_apply(effective);
+    if applied.apply_failed {
+        *apply_failed = true;
+        *last_error = applied.error;
+        *hint = last_error.clone();
+        return false;
+    }
+    *extra_env = applied.extra_env;
+    *patch = applied.patch;
+    *apply_failed = false;
+    true
+}
+
+/// `/new` and dashboard dispatch replace dsh only after `prepare_retained_apply`.
+/// The new process gets that patch, then the same advertised model and effort
+/// as startup. An empty connect would leave dsh on deepseek-official.
+fn connect_retained_session(
+    client: &mut Option<AcpClient>,
+    owner: &mut Option<SessionOwner>,
+    previous_session: &mut Option<String>,
+    selection_ready: &mut bool,
+    last_error: &mut String,
+    hint: &mut String,
+    effective: &config::EffectiveConfig,
+    extra_env: &[(String, String)],
+    patch: Option<&PathBuf>,
+    verb: &str,
+    previous: Option<&str>,
+) {
+    match connect(&LaunchMode::New, None, extra_env, patch, false, None) {
+        Ok((connection, _)) => {
+            *previous_session = connection.client.session_id.clone();
+            *owner = Some(connection.owner);
+            let mut connected = connection.client;
+            match apply_live_selection(&mut connected, effective) {
+                Ok(()) => {
+                    *selection_ready = true;
+                    last_error.clear();
+                }
+                Err(error) => {
+                    *selection_ready = false;
+                    *last_error = error;
+                }
+            }
+            let session_id = connected.session_id.clone();
+            *client = Some(connected);
+            *hint = format!(
+                "{verb} {}; previous output stayed on {}",
+                session_id.as_deref().unwrap_or("unknown"),
+                previous.unwrap_or("none")
+            );
+            if !last_error.is_empty() {
+                *hint = format!("{hint}; {last_error}");
+            }
+        }
+        Err(error) => {
+            *selection_ready = false;
+            *last_error = error;
+        }
+    }
+}
+
+/// A newly started session follows config again. Force-off stays force-off
+/// because the prompt gate checks it before this flag. Resume of the same
+/// ACP session does not call this.
+fn reset_memory_session(session_on: &mut Option<bool>) {
+    *session_on = None;
 }
 
 fn apply_next_cwd(effective: &config::EffectiveConfig, raw: &str) -> Result<String, String> {
@@ -2606,7 +2879,114 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
             "Choose directory for the next new agent\ncurrent: {}\ndraft: {draft}\nEnter applies · Esc keeps the previous location",
             previous.display()
         ),
+        Overlay::Memory(_) | Overlay::Remember { .. } => String::new(),
     }
+}
+
+fn memory_key(key: crossterm::event::KeyEvent) -> Option<memory_ui::Key> {
+    if key.modifiers == KeyModifiers::CONTROL && matches!(key.code, KeyCode::Char('f' | 'F')) {
+        return Some(memory_ui::Key::Char('f'));
+    }
+    if !key.modifiers.is_empty() && key.modifiers != KeyModifiers::SHIFT {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up => Some(memory_ui::Key::Up),
+        KeyCode::Down => Some(memory_ui::Key::Down),
+        KeyCode::PageUp => Some(memory_ui::Key::PageUp),
+        KeyCode::PageDown => Some(memory_ui::Key::PageDown),
+        KeyCode::Home => Some(memory_ui::Key::Home),
+        KeyCode::End => Some(memory_ui::Key::End),
+        KeyCode::Enter => Some(memory_ui::Key::Enter),
+        KeyCode::Esc => Some(memory_ui::Key::Esc),
+        KeyCode::Backspace => Some(memory_ui::Key::Backspace),
+        KeyCode::Tab => Some(memory_ui::Key::Tab),
+        KeyCode::Char(ch) => Some(memory_ui::Key::Char(ch)),
+        _ => None,
+    }
+}
+
+fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    // The path is already on screen. A missing clipboard does not delete the note.
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("clipboard unavailable: {error}"))?;
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write;
+            stdin
+                .write_all(text.as_bytes())
+                .map_err(|error| format!("clipboard unavailable: {error}"))?;
+        }
+        let status = child
+            .wait()
+            .map_err(|error| format!("clipboard unavailable: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("clipboard unavailable: pbcopy {status}"))
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = text;
+        Err("clipboard copy is unverified on this platform; the path stays on screen".into())
+    }
+}
+
+fn memory_slash(text: &str) -> Option<MemorySlash> {
+    let command = text.trim().trim_start_matches('/');
+    let (name, rest) = command
+        .split_once(char::is_whitespace)
+        .unwrap_or((command, ""));
+    let rest = rest.trim();
+    match name {
+        "memory" | "mem" => Some(MemorySlash::Browse),
+        "remember" if rest.is_empty() => Some(MemorySlash::Remember(None)),
+        "remember" => Some(MemorySlash::Remember(Some(rest.to_string()))),
+        _ => None,
+    }
+}
+
+enum MemorySlash {
+    Browse,
+    Remember(Option<String>),
+}
+
+fn memory_store(effective: &config::EffectiveConfig) -> Result<memory::Store, String> {
+    memory::open_store(&effective.grok_home, &effective.cwd).map_err(|error| error.message)
+}
+
+fn memory_session_enabled(effective: &config::EffectiveConfig, session_on: Option<bool>) -> bool {
+    if effective.memory.force_off() {
+        return false;
+    }
+    // Unset or `[memory] enabled = false` starts off. `t` is the only way on
+    // for that session, and it does not rewrite config.toml.
+    session_on.unwrap_or_else(|| effective.memory.enabled())
+}
+
+fn open_memory_browser(
+    overlay: &mut Overlay,
+    effective: &config::EffectiveConfig,
+    session_on: Option<bool>,
+) -> Result<(), String> {
+    if effective.memory.force_off() {
+        return Err(
+            "memory is hidden for this process (--no-memory or GROK_MEMORY=0); notes were not deleted"
+                .into(),
+        );
+    }
+    let store = memory_store(effective)?;
+    let enabled = memory_session_enabled(effective, session_on);
+    *overlay = Overlay::Memory(memory_ui::Browser::open(
+        &store,
+        enabled,
+        effective.memory.force_off(),
+    ));
+    Ok(())
 }
 
 struct Meter {
@@ -2961,6 +3341,36 @@ fn paint(
     feedback_open: bool,
     nav: Option<&NavState>,
 ) -> io::Result<FrameLayout> {
+    paint_memory(
+        terminal,
+        screen,
+        composer,
+        notice,
+        selected,
+        theme,
+        compact,
+        ui_overlay,
+        feedback_open,
+        nav,
+        None,
+        None,
+    )
+}
+
+fn paint_memory(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    screen: ScreenMode,
+    composer: &PromptComposer,
+    notice: &str,
+    selected: Option<usize>,
+    theme: &theme::Theme,
+    compact: bool,
+    ui_overlay: &mut UiOverlay,
+    feedback_open: bool,
+    nav: Option<&NavState>,
+    memory: Option<&mut memory_ui::Browser>,
+    memory_store: Option<&memory::Store>,
+) -> io::Result<FrameLayout> {
     let title = composer.footer();
     let mut layout = FrameLayout {
         prompt: ratatui::layout::Rect::default(),
@@ -2995,6 +3405,10 @@ fn paint(
             layout = welcome::render_session(frame, &composer.draft, notice, nav, theme, &title);
         }
         settings_ui::render(frame, ui_overlay, theme, screen);
+        if let (Some(browser), Some(store)) = (memory, memory_store) {
+            browser.set_columns(frame.area().width);
+            memory_ui::render_modal(frame, browser, store, theme);
+        }
     })?;
     Ok(layout)
 }
@@ -3560,6 +3974,7 @@ fn load_runtime_config(launch: &Launch) -> config::EffectiveConfig {
         cli_auto: launch.auto,
         cli_allow: launch.allow.clone(),
         cli_deny: launch.deny.clone(),
+        cli_no_memory: launch.no_memory,
     };
     if input.dsh_home.as_os_str().is_empty() {
         input.dsh_home = input.home.join("dsh");
@@ -3886,7 +4301,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into the next dsh prompt. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --no-memory, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -4058,6 +4473,48 @@ fn run() -> io::Result<()> {
             }
             return Ok(());
         }
+        LaunchMode::Memory(args) => {
+            if args
+                .first()
+                .is_some_and(|arg| arg == "help" || arg == "--help" || arg == "-h")
+                && args.len() == 1
+            {
+                println!("{}", memory::memory_help());
+                return Ok(());
+            }
+            let command = args.first().map(String::as_str).unwrap_or("help");
+            if command != "clear" {
+                return Err(io::Error::other(format!(
+                    "unsupported memory command {command}; {}",
+                    memory::memory_help()
+                )));
+            }
+            let (scope, yes, help) =
+                memory::parse_clear(&args[1..]).map_err(|error| io::Error::other(error.message))?;
+            if help {
+                println!("{}", memory::clear_help());
+                return Ok(());
+            }
+            if !yes {
+                return Err(io::Error::other(
+                    "memory clear needs confirmation; rerun with --yes. Nothing was deleted.",
+                ));
+            }
+            let loaded = load_runtime_config(&launch);
+            let store = memory::open_store(&loaded.grok_home, &loaded.cwd)
+                .map_err(|error| io::Error::other(error.message))?;
+            let removed = memory::clear_scope(&store, scope)
+                .map_err(|error| io::Error::other(error.message))?;
+            if removed.is_empty() {
+                println!("memory clear: no notes in that scope; other files were kept");
+            } else {
+                println!(
+                    "memory clear removed {} note(s). Other scopes were kept. Nothing was uploaded.",
+                    removed.len()
+                );
+            }
+            return Ok(());
+        }
         LaunchMode::Dashboard => {
             // Interactive dashboard is the TUI. The subcommand only opens it
             // when the marker says so; other values stay a normal session.
@@ -4218,6 +4675,10 @@ fn run() -> io::Result<()> {
         cost: None,
     };
     let mut selection_ready = config::is_test_execution_seam();
+    let mut memory_session_on: Option<bool> = None;
+    // A resumed or forked transcript already had its first turn. `/new`
+    // clears `turns`, so the next prompt is that session's first turn.
+    let mut memory_injected: bool = resumed && !turns.is_empty();
     let mut client = if startup_can_execute {
         match connect(
             &mode,
@@ -4327,6 +4788,8 @@ fn run() -> io::Result<()> {
                     &launch,
                     &mode,
                     &mut composer,
+                    &mut memory_session_on,
+                    &mut memory_injected,
                 );
             }
             if !deferred.is_empty() {
@@ -4393,6 +4856,30 @@ fn run() -> io::Result<()> {
             Overlay::Feedback(form) => {
                 feedback_overlay_text(&effective.dsh_home, client.as_ref(), form)
             }
+            Overlay::Memory(browser) => {
+                if browser.force_off {
+                    memory_store(&effective)
+                        .map(|store| memory_ui::render(browser, &store))
+                        .unwrap_or_else(|error| error)
+                } else {
+                    // The modal owns the file list and preview. The notice is
+                    // one status line so a narrow screen cannot reprint a note.
+                    let status = if browser.notice.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", browser.notice.lines().next().unwrap_or(""))
+                    };
+                    format!(
+                        "Memory modal  session={}{}",
+                        if browser.session_enabled { "on" } else { "off" },
+                        status
+                    )
+                }
+            }
+            Overlay::Remember { draft, scope } => format!(
+                "Remember ({})\nNext line becomes the note. Enter reviews it; nothing is written yet.\n{draft}",
+                scope.as_str()
+            ),
             Overlay::Plugins(plugin_overlay) => {
                 let env = std::env::vars().collect();
                 let snapshot = plugin::inspect(
@@ -4507,19 +4994,47 @@ fn run() -> io::Result<()> {
             }
         }
         let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
-        nav_layout = paint(
-            &mut terminal,
-            screen,
-            &composer,
-            &notice,
-            selected,
-            &live_theme,
-            effective.appearance.compact_mode,
-            &mut ui_overlay,
-            matches!(overlay, Overlay::Feedback(_)),
-            (screen == ScreenMode::Fullscreen && !matches!(overlay, Overlay::Feedback(_)))
-                .then_some(&nav),
-        )?;
+        let memory_store = memory_store(&effective).ok();
+        let feedback_open = matches!(overlay, Overlay::Feedback(_));
+        let session_nav = (screen == ScreenMode::Fullscreen && !feedback_open).then_some(&nav);
+        let mut memory_browser = match &mut overlay {
+            Overlay::Memory(browser) if !browser.force_off => Some(std::mem::take(browser)),
+            _ => None,
+        };
+        nav_layout = if let (Some(browser), Some(store)) =
+            (memory_browser.as_mut(), memory_store.as_ref())
+        {
+            paint_memory(
+                &mut terminal,
+                screen,
+                &composer,
+                &notice,
+                selected,
+                &live_theme,
+                effective.appearance.compact_mode,
+                &mut ui_overlay,
+                feedback_open,
+                session_nav,
+                Some(browser),
+                Some(store),
+            )?
+        } else {
+            paint(
+                &mut terminal,
+                screen,
+                &composer,
+                &notice,
+                selected,
+                &live_theme,
+                effective.appearance.compact_mode,
+                &mut ui_overlay,
+                feedback_open,
+                session_nav,
+            )?
+        };
+        if let (Some(browser), Overlay::Memory(slot)) = (memory_browser, &mut overlay) {
+            *slot = browser;
+        }
         if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
             open_dashboard_at_start = false;
             if screen == ScreenMode::Minimal {
@@ -4716,6 +5231,8 @@ fn run() -> io::Result<()> {
                         | Overlay::Dashboard(_)
                         | Overlay::Location { .. }
                         | Overlay::DeleteConfirm { .. }
+                        | Overlay::Memory(_)
+                        | Overlay::Remember { .. }
                 ) && handle_catalog_overlay_key(
                     key,
                     &mut overlay,
@@ -4726,11 +5243,18 @@ fn run() -> io::Result<()> {
                     &mut history,
                     &mut resumed,
                     &mut previous_session,
-                    &effective,
+                    &mut effective,
+                    &mut extra_env,
+                    &mut patch,
+                    &mut apply_failed,
+                    &mut selection_ready,
                     &mut hint,
                     &mut last_error,
                     &mut terminal,
                     screen,
+                    &launch,
+                    &mut memory_session_on,
+                    &mut memory_injected,
                 )? {
                     continue;
                 }
@@ -4934,6 +5458,8 @@ fn run() -> io::Result<()> {
                                         &point,
                                         &mut resumed,
                                         &mut previous_session,
+                                        &mut memory_session_on,
+                                        &mut memory_injected,
                                     ) {
                                         Ok(message) => {
                                             overlay = Overlay::None;
@@ -4975,6 +5501,8 @@ fn run() -> io::Result<()> {
                                         &point,
                                         &mut resumed,
                                         &mut previous_session,
+                                        &mut memory_session_on,
+                                        &mut memory_injected,
                                     ) {
                                         Ok(message) => {
                                             overlay = Overlay::None;
@@ -5013,6 +5541,8 @@ fn run() -> io::Result<()> {
                                         &point,
                                         &mut resumed,
                                         &mut previous_session,
+                                        &mut memory_session_on,
+                                        &mut memory_injected,
                                     ) {
                                         Ok(message) => {
                                             overlay = Overlay::None;
@@ -5044,7 +5574,9 @@ fn run() -> io::Result<()> {
                         Overlay::SessionPick { .. }
                         | Overlay::Dashboard(_)
                         | Overlay::Location { .. }
-                        | Overlay::DeleteConfirm { .. } => {}
+                        | Overlay::DeleteConfirm { .. }
+                        | Overlay::Memory(_)
+                        | Overlay::Remember { .. } => {}
                     }
                 }
 
@@ -5227,6 +5759,8 @@ fn run() -> io::Result<()> {
                                         &mut status_runtime,
                                         &mut composer,
                                         &mut voice,
+                                        &mut memory_session_on,
+                                        &mut memory_injected,
                                     );
                                     if let Err(error) = dispatch_result {
                                         if let Some(rest) =
@@ -5279,6 +5813,8 @@ fn run() -> io::Result<()> {
                                             &launch,
                                             &mode,
                                             &mut composer,
+                                            &mut memory_session_on,
+                                            &mut memory_injected,
                                         );
                                     }
                                     if inflight {
@@ -5413,6 +5949,8 @@ fn run() -> io::Result<()> {
                                     &mut status_runtime,
                                     &mut composer,
                                     &mut voice,
+                                    &mut memory_session_on,
+                                    &mut memory_injected,
                                 );
                                 if let Err(error) = dispatch_result {
                                     if let Some(rest) =
@@ -5462,6 +6000,8 @@ fn run() -> io::Result<()> {
                                     &launch,
                                     &mode,
                                     &mut composer,
+                                    &mut memory_session_on,
+                                    &mut memory_injected,
                                 );
                                 if inflight {
                                     composer.accept_pending_submit();
@@ -5622,6 +6162,8 @@ fn dispatch_composer_command(
     status_runtime: &mut status_line::StatusLineRuntime,
     composer: &mut PromptComposer,
     voice: &mut voice::VoiceSession,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) -> io::Result<()> {
     let _ = guard;
     if text.trim() == "/voice" || text.trim().starts_with("/voice ") {
@@ -5943,6 +6485,10 @@ fn dispatch_composer_command(
             hint,
             last_error,
             effective,
+            extra_env,
+            patch,
+            apply_failed,
+            selection_ready,
             resumed,
             previous_session,
             terminal,
@@ -5950,7 +6496,64 @@ fn dispatch_composer_command(
             committed,
             history,
             composer,
+            launch,
+            memory_session_on,
+            memory_injected,
         );
+    }
+    if let Some(action) = memory_slash(trimmed) {
+        if effective.memory.force_off() && matches!(action, MemorySlash::Browse) {
+            *last_error =
+                "memory is hidden for this process (--no-memory or GROK_MEMORY=0); notes were not deleted"
+                    .into();
+            composer.clear_slash_line(&parked_draft);
+            return Ok(());
+        }
+        match action {
+            MemorySlash::Browse => {
+                match open_memory_browser(overlay, effective, *memory_session_on) {
+                    Ok(()) => {
+                        hint.clear();
+                        last_error.clear();
+                    }
+                    Err(error) => *last_error = error,
+                }
+            }
+            MemorySlash::Remember(text) => {
+                let scope = memory::Scope::Workspace;
+                match text {
+                    Some(note) => {
+                        let store = match memory_store(effective) {
+                            Ok(store) => store,
+                            Err(error) => {
+                                *last_error = error;
+                                composer.clear_slash_line(&parked_draft);
+                                return Ok(());
+                            }
+                        };
+                        let mut browser = memory_ui::Browser::open(
+                            &store,
+                            memory_session_enabled(effective, *memory_session_on),
+                            false,
+                        );
+                        memory_ui::begin_remember(&mut browser, &store, &note, scope);
+                        *hint = browser.notice.clone();
+                        *overlay = Overlay::Memory(browser);
+                        last_error.clear();
+                    }
+                    None => {
+                        *overlay = Overlay::Remember {
+                            draft: String::new(),
+                            scope,
+                        };
+                        hint.clear();
+                        last_error.clear();
+                    }
+                }
+            }
+        }
+        composer.clear_slash_line(&parked_draft);
+        return Ok(());
     }
     if trimmed == "/plugins" || trimmed == "/marketplace" {
         *overlay = Overlay::Plugins(plugin::new_overlay(if trimmed == "/marketplace" {
@@ -5990,8 +6593,12 @@ fn dispatch_composer_command(
                             &effective.cwd,
                             prefs,
                             fork.directive.as_deref(),
+                            launch,
+                            effective,
                             resumed,
                             previous_session,
+                            memory_session_on,
+                            memory_injected,
                         ) {
                             Ok(message) => {
                                 *hint = message;
@@ -6051,6 +6658,8 @@ fn dispatch_composer_command(
                                 &point,
                                 resumed,
                                 previous_session,
+                                memory_session_on,
+                                memory_injected,
                             ) {
                                 Ok(message) => {
                                     *hint = message;
@@ -6332,7 +6941,13 @@ fn dispatch_composer_command(
         return Ok(());
     }
     if let Some(active) = (*client).as_mut() {
-        match active.submit_prompt(&model_prompt(launch, effective, text)) {
+        match active.submit_prompt(&model_prompt(
+            launch,
+            effective,
+            text,
+            *memory_session_on,
+            !*memory_injected && turns.is_empty(),
+        )) {
             Ok(_) => {
                 turns.push(Turn {
                     user: text.to_string(),
@@ -6352,6 +6967,7 @@ fn dispatch_composer_command(
                 });
                 composer.clear_slash_line(&parked_draft);
                 *inflight = true;
+                *memory_injected = true;
                 last_error.clear();
                 if let Some(session_id) = active.session_id.clone() {
                     let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, true);
@@ -6363,7 +6979,46 @@ fn dispatch_composer_command(
     Ok(())
 }
 
-fn model_prompt(launch: &Launch, effective: &config::EffectiveConfig, text: &str) -> String {
+fn model_prompt(
+    launch: &Launch,
+    effective: &config::EffectiveConfig,
+    text: &str,
+    memory_session_on: Option<bool>,
+    first_turn: bool,
+) -> String {
+    let base = model_prompt_inner(launch, effective, text);
+    if !first_turn {
+        return base;
+    }
+    let enabled = if effective.memory.force_off() {
+        false
+    } else {
+        memory_session_on.unwrap_or_else(|| effective.memory.enabled())
+    };
+    if !enabled {
+        return base;
+    }
+    let Ok(store) = memory::open_store(&effective.grok_home, &effective.cwd) else {
+        return base;
+    };
+    // Curated global and workspace notes are the bounded index. A keyword in
+    // the first prompt also pulls matching session logs.
+    let block = if memory::has_search_terms(text) {
+        memory::injection_block_for(&store, true, text)
+    } else {
+        memory::injection_block(&store, true)
+    };
+    let Ok(block) = block else {
+        return base;
+    };
+    if block.is_empty() {
+        base
+    } else {
+        format!("{block}{base}")
+    }
+}
+
+fn model_prompt_inner(launch: &Launch, effective: &config::EffectiveConfig, text: &str) -> String {
     let override_text = launch.system_prompt_override.as_deref().unwrap_or("");
     let rules = if launch.system_prompt_override.is_some() {
         override_text
@@ -6388,6 +7043,8 @@ fn blocks_with_model_prompt(
     launch: &Launch,
     effective: &config::EffectiveConfig,
     blocks: Vec<serde_json::Value>,
+    memory_session_on: Option<bool>,
+    first_turn: bool,
 ) -> Vec<serde_json::Value> {
     blocks
         .into_iter()
@@ -6398,7 +7055,7 @@ fn blocks_with_model_prompt(
             if block.get("type").and_then(|value| value.as_str()) != Some("text") {
                 return block;
             }
-            let wrapped = model_prompt(launch, effective, text);
+            let wrapped = model_prompt(launch, effective, text, memory_session_on, first_turn);
             if wrapped != text {
                 block["text"] = serde_json::Value::String(wrapped);
             }
@@ -6425,6 +7082,8 @@ fn submit_composer_prompt(
     launch: &Launch,
     mode: &LaunchMode,
     composer: &mut PromptComposer,
+    memory_session_on: &mut Option<bool>,
+    memory_injected: &mut bool,
 ) {
     if *inflight {
         return;
@@ -6492,7 +7151,13 @@ fn submit_composer_prompt(
         let blocks = prepared
             .map(|item| item.blocks)
             .unwrap_or_else(|| vec![serde_json::json!({ "type": "text", "text": text })]);
-        let blocks = blocks_with_model_prompt(launch, effective, blocks);
+        let blocks = blocks_with_model_prompt(
+            launch,
+            effective,
+            blocks,
+            *memory_session_on,
+            !*memory_injected && turns.is_empty(),
+        );
         match active.submit_prompt_blocks(&blocks) {
             Ok(_) => {
                 turns.push(Turn {
@@ -6513,6 +7178,7 @@ fn submit_composer_prompt(
                 });
                 composer.record_history(&transcript);
                 *inflight = true;
+                *memory_injected = true;
                 last_error.clear();
                 if let Some(session_id) = active.session_id.clone() {
                     let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, true);
@@ -6748,6 +7414,98 @@ mod tests {
     }
 
     #[test]
+    fn retained_apply_keeps_the_previous_patch_when_settings_write_fails() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let grok = dir.path().join(".grok");
+        std::fs::create_dir_all(&grok).unwrap();
+        std::fs::write(
+            grok.join("config.toml"),
+            r#"
+[models]
+default = "chat"
+
+[model.chat]
+name = "Local chat"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+"#,
+        )
+        .unwrap();
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("XAI_API_KEY".into(), "ROUTE_TOKEN".into());
+        env.insert("HOME".into(), dir.path().display().to_string());
+        let effective = config::load_from(config::LoadInput {
+            home: dir.path().to_path_buf(),
+            dsh_home: dir.path().join("dsh"),
+            cwd: dir.path().to_path_buf(),
+            grok_home: Some(grok),
+            env: env.clone(),
+            cli_model: None,
+            cli_effort: None,
+            cli_trust: false,
+            cli_revoke_trust: false,
+            cli_trust_path: None,
+            interactive: false,
+            cli_permission_mode: None,
+            cli_always_approve: false,
+            cli_auto: false,
+            cli_allow: Vec::new(),
+            cli_deny: Vec::new(),
+            cli_no_memory: false,
+        });
+        assert!(effective.ready, "{:?}", effective.errors);
+        let previous = dir.path().join("previous.yml");
+        std::fs::write(&previous, "provider: chat\n").unwrap();
+        let mut extra_env = vec![("XAI_API_KEY".into(), "ROUTE_TOKEN".into())];
+        let mut patch = Some(previous.clone());
+        let mut apply_failed = false;
+        let mut last_error = String::new();
+        let mut hint = String::new();
+        assert!(prepare_retained_apply(
+            &effective,
+            &mut extra_env,
+            &mut patch,
+            &mut apply_failed,
+            &mut last_error,
+            &mut hint,
+        ));
+        let written = std::fs::read_to_string(patch.as_ref().unwrap()).unwrap();
+        assert!(written.contains("provider: chat"), "{written}");
+        assert!(written.contains("model: shared-name"), "{written}");
+        assert!(written.contains("llm-deepseek"), "{written}");
+        assert!(
+            written.contains("disabled: true"),
+            "the configured chat provider must disable the default deepseek adapter: {written}"
+        );
+        assert!(
+            extra_env
+                .iter()
+                .any(|(key, _)| key == "CODSH_PERMISSION_POLICY")
+        );
+        std::fs::write(&effective.settings_yaml, "llm-pi-ai:\n  providers: {}\n").unwrap();
+        assert!(
+            !prepare_retained_apply(
+                &effective,
+                &mut extra_env,
+                &mut patch,
+                &mut apply_failed,
+                &mut last_error,
+                &mut hint,
+            ),
+            "a refused settings write must not start a replacement session"
+        );
+        assert!(apply_failed);
+        assert!(
+            std::fs::read_to_string(patch.as_ref().unwrap())
+                .unwrap()
+                .contains("model: shared-name"),
+            "the previous patch stays until a replacement is allowed"
+        );
+        assert!(last_error.contains("refusing to overwrite"));
+    }
+
+    #[test]
     fn slash_reload_keeps_client_on_apply_failure_and_replaces_on_patch_change() {
         let failed = RuntimeApply {
             extra_env: vec![("XAI_API_KEY".into(), "same".into())],
@@ -6808,6 +7566,18 @@ mod tests {
         assert!(matches!(
             folder.mode,
             LaunchMode::Inspect { json: true, .. }
+        ));
+    }
+
+    #[test]
+    fn parse_no_memory_and_memory_clear() {
+        let launch = parse_launch(&args(&["--no-memory", "--continue"])).unwrap();
+        assert!(launch.no_memory);
+        assert!(matches!(launch.mode, LaunchMode::Continue));
+        let memory = parse_launch(&args(&["memory", "clear", "--global", "--yes"])).unwrap();
+        assert!(matches!(
+            memory.mode,
+            LaunchMode::Memory(ref args) if args == &vec!["clear".to_string(), "--global".to_string(), "--yes".to_string()]
         ));
     }
 

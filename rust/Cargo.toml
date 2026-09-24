@@ -58,6 +58,9 @@ name = "codsh-rust"
 version = "0.1.0"
 edition.workspace = true
 license = "MIT AND Apache-2.0"
+# rusqlite 0.37 is MIT. Its bundled libsqlite3-sys 0.35.0 ships SQLite 3.50.2,
+# which is public domain. The `bundled` feature compiles that amalgamation with
+# FTS5 (`SQLITE_ENABLE_FTS5`). vec0 embeddings stay out of this crate.
 publish = false
 
 [lints]
@@ -72,6 +75,7 @@ ignore.workspace = true
 native-tls = "0.2"
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
 regex = "1.12.4"
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
 sha2 = "0.10"

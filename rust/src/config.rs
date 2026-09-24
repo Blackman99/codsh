@@ -117,6 +117,8 @@ pub struct EffectiveConfig {
     pub permission: PermissionPolicy,
     pub voice: crate::voice::VoiceConfig,
     pub assets: crate::assets::AssetCatalog,
+    /// Process and config gate. A `/memory` `t` toggle does not change this.
+    pub memory: crate::memory::Enablement,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -137,6 +139,7 @@ pub struct LoadInput {
     pub cli_auto: bool,
     pub cli_allow: Vec<String>,
     pub cli_deny: Vec<String>,
+    pub cli_no_memory: bool,
 }
 
 impl EffectiveConfig {
@@ -308,6 +311,7 @@ pub fn load() -> EffectiveConfig {
         cli_auto: false,
         cli_allow: Vec::new(),
         cli_deny: Vec::new(),
+        cli_no_memory: false,
     })
 }
 
@@ -513,6 +517,24 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         merge_toml(&mut table, value);
         stamp_model_sources(value, &mut sources, "config.toml");
     }
+    // A runtime `/model` or `/effort` is stored before workspace config is
+    // known. Trusted workspace config for the current directory replaces that
+    // saved model and effort; an unknown saved id still does not.
+    if let Some(saved) = load_saved_selection(&grok_home)
+        && let Some(models_table) = table.get("model").and_then(TomlValue::as_table)
+        && models_table.contains_key(&saved.model_id)
+    {
+        let mut selection = toml::map::Map::new();
+        let mut models_value = toml::map::Map::new();
+        models_value.insert("default".into(), TomlValue::String(saved.model_id.clone()));
+        if let Some(effort) = saved.effort.filter(|value| !value.is_empty()) {
+            models_value.insert("default_reasoning_effort".into(), TomlValue::String(effort));
+        }
+        selection.insert("models".into(), TomlValue::Table(models_value));
+        let selection = TomlValue::Table(selection);
+        merge_toml(&mut table, &selection);
+        stamp_model_sources(&selection, &mut sources, "saved");
+    }
     let mut workspace_ui = None;
     if workspace_trusted {
         if let Some(value) =
@@ -595,17 +617,6 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     sources
         .entry("features.remote_fetch".into())
         .or_insert_with(|| "default".into());
-
-    if let Some(saved) = load_saved_selection(&grok_home) {
-        if models.contains_key(&saved.model_id) {
-            default_model = Some(saved.model_id);
-            sources.insert("models.default".into(), "saved".into());
-        }
-        if let Some(effort) = saved.effort {
-            default_effort = Some(effort);
-            sources.insert("models.default_reasoning_effort".into(), "saved".into());
-        }
-    }
 
     let mut telemetry = bool_from_toml(
         table
@@ -1745,6 +1756,31 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         push_setting(&mut settings, key, &value, &source);
     }
 
+    let memory_configured =
+        bool_from_toml(table.get("memory").and_then(|value| value.get("enabled")));
+    let memory = crate::memory::resolve_enablement(
+        memory_configured,
+        input.env.get("GROK_MEMORY").map(String::as_str),
+        input.cli_no_memory,
+    );
+    push_setting(
+        &mut settings,
+        "memory.enabled",
+        if memory.enabled() { "true" } else { "false" },
+        memory.source(),
+    );
+    push_setting(
+        &mut settings,
+        "memory.force_disable",
+        if memory.force_off() { "true" } else { "false" },
+        if memory.force_off() {
+            memory.source()
+        } else {
+            "default"
+        },
+    );
+    push_setting(&mut settings, "memory.uploads", "false", "default");
+
     EffectiveConfig {
         grok_home,
         config_path,
@@ -1792,6 +1828,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         permission,
         voice,
         assets,
+        memory,
     }
 }
 
@@ -3201,6 +3238,7 @@ mod tests {
             cli_auto: false,
             cli_allow: Vec::new(),
             cli_deny: Vec::new(),
+            cli_no_memory: false,
         }
     }
 
@@ -4196,6 +4234,72 @@ reasoning_efforts = ["low", "high"]
     }
 
     #[test]
+    fn trusted_workspace_replaces_saved_model_and_effort() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "chat"
+default_reasoning_effort = "high"
+
+[model.chat]
+name = "Local chat"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
+
+[model.workspace-chat]
+name = "Workspace chat"
+model = "shared-name"
+base_url = "http://127.0.0.1:9/v1"
+env_key = "XAI_API_KEY"
+supports_reasoning_effort = true
+reasoning_efforts = ["low", "high"]
+"#,
+        );
+        crate::models::save_selection(&load.grok_home.clone().unwrap(), "chat", Some("high"))
+            .unwrap();
+        fs::create_dir_all(load.cwd.join(".git")).unwrap();
+        let workspace = load.cwd.join(".grok");
+        fs::create_dir_all(&workspace).unwrap();
+        fs::write(
+            workspace.join("config.toml"),
+            r#"
+[models]
+default = "workspace-chat"
+default_reasoning_effort = "low"
+"#,
+        )
+        .unwrap();
+        load.cli_trust = true;
+        load.env.insert("XAI_API_KEY".into(), "ROUTE_TOKEN".into());
+        let config = load_from(load);
+        assert!(config.workspace_trusted);
+        assert_eq!(config.default_model.as_deref(), Some("workspace-chat"));
+        assert_eq!(config.default_effort.as_deref(), Some("low"));
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "models.default")
+                .map(|setting| setting.source.as_str()),
+            Some("workspace")
+        );
+        assert_eq!(
+            config
+                .settings
+                .iter()
+                .find(|setting| setting.key == "models.default_reasoning_effort")
+                .map(|setting| setting.source.as_str()),
+            Some("workspace")
+        );
+    }
+
+    #[test]
     fn compact_threshold_and_pruning_map_into_dsh_without_fabricating_invalid_values() {
         let dir = TempDir::new().unwrap();
         let mut load = input(&dir);
@@ -4283,6 +4387,51 @@ hard_clear_age_turns = 9
             fs::read_to_string(disabled.dsh_home.join("rust-effective.yml")).unwrap();
         assert!(disabled_patch.contains("auto: false"));
         assert!(!disabled_patch.contains("thresholdRatio: 0\n"));
+    }
+
+    #[test]
+    fn memory_gate_is_off_until_enabled_and_force_disable_wins() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        let off = load_from(load.clone());
+        assert!(!off.memory.enabled());
+        assert!(!off.memory.force_off());
+        let row = off
+            .settings
+            .iter()
+            .find(|setting| setting.key == "memory.enabled")
+            .unwrap();
+        assert_eq!(row.value, "false");
+        write_config(&load, "[memory]\nenabled = true\n");
+        let mut enabled = load.clone();
+        let on = load_from(enabled.clone());
+        assert!(on.memory.enabled());
+        assert_eq!(on.memory.source(), "config.toml");
+        enabled.env.insert("GROK_MEMORY".into(), "0".into());
+        let forced = load_from(enabled.clone());
+        assert!(forced.memory.force_off());
+        assert!(!forced.memory.enabled());
+        enabled.env.insert("GROK_MEMORY".into(), "1".into());
+        enabled.cli_no_memory = true;
+        let cli = load_from(enabled);
+        assert!(cli.memory.force_off());
+        let store = crate::memory::open_store(&off.grok_home, &off.cwd).unwrap();
+        crate::memory::save_note(&store, crate::memory::Scope::Global, "kept while disabled")
+            .unwrap();
+        let note = store.root.join("MEMORY.md");
+        let before = fs::read_to_string(&note).unwrap();
+        assert!(cli.memory.force_off());
+        assert_eq!(fs::read_to_string(&note).unwrap(), before);
+        write_config(&load, "[memory]\nenabled = false\n");
+        let mut explicit = load.clone();
+        explicit.env.insert("GROK_MEMORY".into(), "1".into());
+        let stopped = load_from(explicit);
+        assert!(!stopped.memory.enabled());
+        assert!(!stopped.memory.force_off());
+        assert_eq!(stopped.memory.source(), "config");
+        let block = crate::memory::injection_block(&store, stopped.memory.enabled()).unwrap();
+        assert!(block.is_empty());
+        assert!(note.is_file());
     }
 
     #[test]
