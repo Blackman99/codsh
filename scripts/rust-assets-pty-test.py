@@ -57,6 +57,30 @@ user-invocable: false
 ---
 HIDDEN_BODY
 """)
+    write(src / '.grok' / 'skills' / 'login' / 'SKILL.md', """---
+name: login
+description: Not the sign-in command.
+---
+LOGIN_SKILL_BODY
+""")
+    deep6 = src / '.grok' / 'skills'
+    for part in ('n', 'a', 'b', 'c', 'd', 'e'):
+        deep6 = deep6 / part
+    write(deep6 / 'SKILL.md', """---
+name: deep6
+description: Sixth directory under the skill root.
+---
+DEEP6_BODY
+""")
+    deep5 = src / '.grok' / 'skills'
+    for part in ('p', 'a', 'b', 'c', 'd'):
+        deep5 = deep5 / part
+    write(deep5 / 'SKILL.md', """---
+name: deep5
+description: Fifth directory under the skill root.
+---
+DEEP5_BODY
+""")
     write(src / '.grok' / 'commands' / 'ship-note.md', """---
 description: Write a ship note
 argument-hint: ticket
@@ -145,11 +169,46 @@ def main():
             assert '/commit' in shown
             assert '/hidden' not in shown.replace('\n', '')
             trusted.write('\x03')
-            trusted.write('/ship-note')
-            shown = trusted.wait_visible('command ·', 10)
+            trusted.write('/log')
+            shown = trusted.wait_visible('> /login ', 10)
+            assert 'Sign in to a configured identity provider' in shown.replace('\n', '')
+            trusted.write('\x1b[B')
+            trusted.write('\x1b[B')
+            shown = trusted.wait_visible('> /local:login', 10)
+            trusted.write('\x1b')
+            trusted.pump(0.3)
+            trusted.write('/login\r')
+            shown = trusted.wait_visible('does not require login', 15)
             flat = shown.replace('\n', '')
-            assert '/ship-note' in flat
-            assert 'command ·' in flat
+            assert 'LOGIN_SKILL_BODY' not in flat.split('does not require login')[-1]
+            assert 'Follow the local:login skill' not in flat.split('does not require login')[-1]
+            trusted.write('\x03')
+            trusted.pump(0.4)
+            trusted.write('/local:login \r')
+            shown = trusted.wait_visible('LOGIN_SKILL_BODY', 30)
+            raw = bytes(trusted.data).decode('utf-8', 'replace')
+            assert 'Follow the local:login skill' in raw
+            trusted.write('\x03')
+            trusted.write('/deep5 now\r')
+            shown = trusted.wait_visible('DEEP5_BODY', 30)
+            trusted.write('\x03')
+            trusted.write('/deep6 gone\r')
+            shown = trusted.wait_visible('/deep6 gone', 30)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline:
+                trusted.pump()
+                shown = trusted.visible()
+                flat = shown.replace('\n', '')
+                if '/deep6 gone' in flat and 'Streaming turn' not in flat:
+                    break
+            flat = shown.replace('\n', '')
+            assert 'DEEP6_BODY' not in flat
+            assert 'Follow the local:deep6 skill' not in flat
+            assert 'Follow the deep6 skill' not in flat
+            trusted.write('\x03')
+            trusted.write('/ship-note')
+            shown = trusted.wait_visible('/ship-note', 10)
+            assert '/ship-note' in shown.replace('\n', '')
             trusted.write('\x03')
             trusted.write('/commit fix the build\r')
             shown = trusted.wait_visible('COMMIT_BODY', 30)
@@ -169,7 +228,9 @@ SKILL_ADDED
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
             rescanned = trusted.wait_visible('Rescanned assets', 10)
-            assert '3 skills' in rescanned.replace('\n', '') or 'skills' in rescanned
+            # commit, hidden, login, deep5, plus the skill added in this session.
+            # deep6 is past the five-directory walk and must not be counted.
+            assert '5 skills' in rescanned.replace('\n', '')
             trusted.write('/added')
             shown = trusted.wait_visible('/added', 10)
             trusted.write('\x03')
@@ -178,7 +239,7 @@ SKILL_ADDED
             added.unlink()
             trusted.write('\x03')
             trusted.write('/reload-assets\r')
-            trusted.wait_visible('2 skills', 10)
+            trusted.wait_visible('4 skills', 10)
             trusted.write('/added gone\r')
             shown = trusted.wait_visible('/added gone', 30)
             deadline = time.monotonic() + 20
@@ -188,11 +249,13 @@ SKILL_ADDED
                 flat = shown.replace('\n', '')
                 if '/added gone' in flat and 'Streaming turn' not in flat:
                     break
-            flat = shown.replace('\n', '')
-            assert 'SKILL_ADDED' not in flat.split('2 skills')[-1], flat
-            assert '/added gone' in flat
-            assert 'Follow the `local:added` skill' not in flat
-            assert 'Follow the `added` skill' not in flat
+            raw = bytes(trusted.data).decode('utf-8', 'replace')
+            submitted = raw.rsplit('/added gone', 1)
+            assert len(submitted) == 2
+            reply = submitted[1]
+            assert 'Follow the local:added skill' not in reply
+            assert 'Follow the added skill' not in reply
+            assert 'SKILL_ADDED' not in reply
         finally:
             results.append(trusted.finish(expect_alt_leave=False))
             trusted.close()
@@ -210,7 +273,7 @@ SKILL_ADDED
             shown = ruled.wait_visible('MOCK_COMPACTION_SUMMARY', 20)
             flat = shown.replace('\n', '')
             assert 'instruction:Additional compaction instruction' in flat or 'keep' in flat
-            assert 'Follow the `local:compact` skill' not in flat
+            assert 'Follow the local:compact skill' not in flat
             assert 'COMMIT_BODY' not in flat.split('MOCK_COMPACTION_SUMMARY')[-1]
         finally:
             results.append(ruled.finish(expect_alt_leave=False))

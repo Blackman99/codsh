@@ -148,17 +148,29 @@ pub fn skill_invocation<'a>(catalog: &'a AssetCatalog, token: &str) -> Option<&'
     let name = token.trim().trim_start_matches('/').trim();
     let (name, _) = name.split_once(char::is_whitespace).unwrap_or((name, ""));
     catalog.skills.iter().find(|skill| {
-        !skill.disabled && skill.user_invocable && (skill.name == name || skill.qualified == name)
+        if skill.disabled || !skill.user_invocable {
+            return false;
+        }
+        // A contested bare name stays the host command. The skill is only
+        // `/local:name`, `/ancestor:name`, `/repo:name`, or `/user:name`.
+        if skill.collides_with.is_some() {
+            skill.qualified == name
+        } else {
+            skill.name == name || skill.qualified == name
+        }
     })
 }
 
 pub fn command_invocation<'a>(catalog: &'a AssetCatalog, token: &str) -> Option<&'a CommandAsset> {
     let name = token.trim().trim_start_matches('/').trim();
     let (name, _) = name.split_once(char::is_whitespace).unwrap_or((name, ""));
-    catalog
-        .commands
-        .iter()
-        .find(|command| command.name == name || command.qualified == name)
+    catalog.commands.iter().find(|command| {
+        if command.collides_with.is_some() {
+            command.qualified == name
+        } else {
+            command.name == name || command.qualified == name
+        }
+    })
 }
 
 pub fn prompt_for_model(catalog: &AssetCatalog, text: &str) -> String {
@@ -947,7 +959,9 @@ fn walk_named_skills(
     diagnostics: &mut Vec<AssetDiagnostic>,
     depth: u8,
 ) {
-    if depth > SKILL_WALK_DEPTH {
+    // Depth 0 is the first directory under the skill root. Five includes
+    // `.grok/skills/a/b/c/d/e/SKILL.md` and excludes the sixth directory.
+    if depth >= SKILL_WALK_DEPTH {
         return;
     }
     let file = directory.join("SKILL.md");
@@ -1819,6 +1833,131 @@ mod tests {
             .unwrap();
         assert!(yes.user_invocable);
         assert!(skill_invocation(&catalog, "/yes-skill").is_some());
+        let mut too_deep = cwd.join(".grok").join("skills");
+        for part in ["n", "a", "b", "c", "d", "e"] {
+            too_deep.push(part);
+        }
+        write(
+            &too_deep.join("SKILL.md"),
+            "---\nname: deep6\ndescription: past five directories\n---\nDEEP6_BODY\n",
+        );
+        let mut at_limit = cwd.join(".grok").join("skills");
+        for part in ["n", "a", "b", "c", "d"] {
+            at_limit.push(part);
+        }
+        write(
+            &at_limit.join("SKILL.md"),
+            "---\nname: deep5\ndescription: fifth directory\n---\nDEEP5_BODY\n",
+        );
+        let bounded = catalog_for(root.path(), true, &[], &[]);
+        assert!(
+            bounded.skills.iter().any(|skill| skill.name == "deep5"),
+            "five directories under the skill root still load"
+        );
+        assert!(
+            !bounded.skills.iter().any(|skill| skill.name == "deep6"),
+            "the walk stops at five directories under the skill root"
+        );
+    }
+
+    #[test]
+    fn host_slash_names_keep_the_bare_command() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let cwd = root.path().join("repo").join("src");
+        for name in ["login", "logout", "feedback"] {
+            write(
+                &cwd.join(".grok").join("skills").join(name).join("SKILL.md"),
+                &format!(
+                    "---\nname: {name}\ndescription: Not the builtin.\n---\n{name}_SKILL_BODY\n"
+                ),
+            );
+        }
+        let catalog = discover(&DiscoverInput {
+            cwd: &cwd,
+            grok_home: &root.path().join("grok"),
+            home: &root.path().join("home"),
+            project_active: true,
+            claude_rules: true,
+            cursor_rules: true,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: true,
+            extra_rule_dirs: &[],
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: &[],
+            builtin_commands: crate::prompt_edit::builtin_command_names(),
+        });
+        let menu = menu_entries(&catalog);
+        for name in ["login", "logout", "feedback"] {
+            let skill = catalog
+                .skills
+                .iter()
+                .find(|skill| skill.name == name)
+                .unwrap();
+            let contested = format!("/{name}");
+            assert_eq!(
+                skill.collides_with.as_deref(),
+                Some(contested.as_str()),
+                "{name} collides with the host slash command, not another asset"
+            );
+            assert!(
+                skill_invocation(&catalog, &format!("/{name}")).is_none(),
+                "bare /{name} stays the built-in"
+            );
+            assert!(skill_invocation(&catalog, &format!("/local:{name}")).is_some());
+            assert!(
+                menu.iter()
+                    .any(|(label, _)| label == &format!("/local:{name}"))
+            );
+            assert!(
+                !menu.iter().any(|(label, _)| label == &format!("/{name}")),
+                "the menu must not offer bare /{name} for the skill"
+            );
+        }
+        for name in ["login", "logout", "feedback"] {
+            fs::remove_dir_all(cwd.join(".grok").join("skills").join(name)).unwrap();
+            write(
+                &cwd.join(".grok")
+                    .join("commands")
+                    .join(format!("{name}.md")),
+                &format!("---\ndescription: Not the builtin.\n---\n{name}_COMMAND_BODY\n"),
+            );
+        }
+        let catalog = discover(&DiscoverInput {
+            cwd: &cwd,
+            grok_home: &root.path().join("grok"),
+            home: &root.path().join("home"),
+            project_active: true,
+            claude_rules: true,
+            cursor_rules: true,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: true,
+            extra_rule_dirs: &[],
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: &[],
+            builtin_commands: crate::prompt_edit::builtin_command_names(),
+        });
+        let menu = menu_entries(&catalog);
+        for name in ["login", "logout", "feedback"] {
+            let command = catalog
+                .commands
+                .iter()
+                .find(|command| command.name == name)
+                .unwrap();
+            let contested = format!("/{name}");
+            assert_eq!(command.collides_with.as_deref(), Some(contested.as_str()));
+            assert!(command_invocation(&catalog, &format!("/{name}")).is_none());
+            assert!(command_invocation(&catalog, &format!("/local:{name}")).is_some());
+            assert!(
+                menu.iter()
+                    .any(|(label, _)| label == &format!("/local:{name}"))
+            );
+            assert!(!menu.iter().any(|(label, _)| label == &format!("/{name}")));
+        }
     }
 
     #[test]

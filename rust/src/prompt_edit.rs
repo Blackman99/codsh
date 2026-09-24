@@ -23,11 +23,14 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "edit-prompt",
         "effort",
         "expand",
+        "feedback",
         "find",
         "fork",
         "fullscreen",
         "history",
         "jump",
+        "login",
+        "logout",
         "minimal",
         "model",
         "multiline",
@@ -61,11 +64,24 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     ),
     SlashCommand::new("effort", &[], "Select reasoning effort", false),
     SlashCommand::new("expand", &[], "Expand a scrollback block", true),
+    SlashCommand::new("feedback", &[], "Open product feedback", true),
     SlashCommand::new("find", &[], "Search the transcript", true),
     SlashCommand::new("fork", &[], "Fork conversation history", false),
     SlashCommand::new("fullscreen", &["full"], "Switch to fullscreen", true),
     SlashCommand::new("history", &[], "Search prompt history", true),
     SlashCommand::new("jump", &[], "Jump to a turn", true),
+    SlashCommand::new(
+        "login",
+        &[],
+        "Sign in to a configured identity provider",
+        true,
+    ),
+    SlashCommand::new(
+        "logout",
+        &[],
+        "Sign out and clear cached identity credentials",
+        true,
+    ),
     SlashCommand::new("minimal", &[], "Switch to minimal native history", true),
     SlashCommand::new("model", &["m"], "Select a model", false),
     SlashCommand::new("multiline", &["ml"], "Toggle multiline input", true),
@@ -468,7 +484,10 @@ impl PromptComposer {
             Overlay::None => self.footer_notice.clone(),
             Overlay::Slash => {
                 let mut lines = vec!["slash completion  Tab/Enter accept  Esc cancel".into()];
-                for (index, item) in self.matches.iter().enumerate() {
+                // The session notice keeps one match row under this header.
+                // Paint the cursor row so Down reveals the next command.
+                let start = self.cursor.min(self.matches.len().saturating_sub(1));
+                for (index, item) in self.matches.iter().enumerate().skip(start).take(1) {
                     let mark = if index == self.cursor { ">" } else { " " };
                     let hint = SLASH_COMMANDS
                         .iter()
@@ -1303,8 +1322,8 @@ impl PromptComposer {
             if item == "/voice" {
                 return Action::Slash("/voice".into());
             }
-            if item == "/compact" {
-                return Action::Slash(if typed.trim().starts_with("/compact") {
+            if item == "/compact" || item == "/login" || item == "/logout" || item == "/feedback" {
+                return Action::Slash(if typed.trim().starts_with(&item) {
                     typed
                 } else {
                     item
@@ -2870,6 +2889,31 @@ mod tests {
         assert_ne!(composer.text(), "/");
         assert!(composer.slash_stash.is_empty());
         assert_eq!(composer.overlay, Overlay::None);
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn slash_menu_keeps_the_cursor_row_visible() {
+        let home = temp_home();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.asset_commands = (0..6)
+            .map(|index| (format!("/item-{index}"), "skill".into()))
+            .collect();
+        for ch in "/item".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        composer.handle_key(key(KeyCode::Down), ctx());
+        composer.handle_key(key(KeyCode::Down), ctx());
+        let shown = composer.overlay_text();
+        assert!(shown.contains("> /item-2"), "{shown}");
+        assert_eq!(
+            shown
+                .lines()
+                .filter(|line| line.starts_with('>') || line.starts_with(' '))
+                .count(),
+            1,
+            "{shown}"
+        );
         let _ = fs::remove_dir_all(home);
     }
 

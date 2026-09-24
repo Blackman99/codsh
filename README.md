@@ -275,7 +275,9 @@ from `.grok/skills/` and `.agents/skills/` at the working directory, then each
 ancestor up to the git root, then the user roots, plus enabled Claude/Cursor
 skill roots and `[skills] paths`. A closer directory outranks a broader one;
 two skills with the same name in one directory both stay invocable under a
-qualified name. Nested `SKILL.md` files are walked up to five directories.
+qualified name. Nested `SKILL.md` files are walked up to five directories
+under the skill root (`.grok/skills/a/b/c/d/e/SKILL.md` loads; a sixth
+directory does not).
 `paths.extra_skill_dirs` is not a discovery root. `[skills] ignore` hides a
 path. `[skills] disabled` keeps the skill listed, including its body, but not
 invocable. `user-invocable` defaults to true; only `false`, `no`, `off`, or
@@ -286,8 +288,10 @@ slash commands, not skills. Skill roots are not filtered by `.gitignore`.
 `GROK_CLAUDE_SKILLS_ENABLED` and `GROK_CURSOR_SKILLS_ENABLED` are forwarded by
 `codsh --rust` and turn those vendor scans off. Vendor default names `shell`, `canvas`, and `statusline` are
 dropped only under `.claude/` and `.cursor/`. A name that collides with a
-built-in keeps the built-in on the bare name (`/compact`, `/login`) and offers
-the asset as `/local:name`, `/ancestor:name`, `/repo:name`, or `/user:name`.
+built-in keeps the built-in on the bare name (`/compact`, `/login`,
+`/logout`, `/feedback`) and offers the asset as `/local:name`,
+`/ancestor:name`, `/repo:name`, or `/user:name`. The menu does not list the
+bare name for that asset, and submitting the bare name runs the built-in.
 `--rules` (alias `--append-system-prompt`) appends a `<human_rules>` block for
 this session. `--system-prompt-override` (alias `--system-prompt`) replaces
 file rules and `--rules` in the text sent to dsh; the typed prompt is still sent. Gitignored project

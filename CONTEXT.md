@@ -110,8 +110,12 @@ Unknown security fields fail closed with diagnostics. Workspace trust is stored
 in `$GROK_HOME/trusted_folders.toml`; untrusted project Hooks/plugins/instructions
 stay inactive until `--trust` or an interactive grant. After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
-frozen order (closer skill directories outrank broader ones; flat
+frozen order (closer skill directories outrank broader ones; nested
+`SKILL.md` files stop at five directories under the skill root; flat
 `commands/*.md` files are slash commands) and included in the dsh prompt.
+A skill or command named `login`, `logout`, or `feedback` does not take the
+bare slash: that name stays the built-in, and the asset is `/local:name` (or
+`/ancestor:name`, `/repo:name`, `/user:name`).
 The launcher forwards `GROK_CLAUDE_SKILLS_ENABLED` and
 `GROK_CURSOR_SKILLS_ENABLED`; either set off stops that vendor scan.
 `--rules` appends a session `<human_rules>` block; `--system-prompt-override`
