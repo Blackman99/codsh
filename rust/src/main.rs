@@ -17,6 +17,7 @@ mod privacy_cmd;
 mod prompt_edit;
 mod screen_mode;
 mod session_catalog;
+mod session_data;
 mod session_fork;
 mod session_history;
 mod session_owner;
@@ -328,12 +329,26 @@ enum LaunchMode {
     Resume(String),
     Sessions(session_catalog::SessionsCommand),
     Dashboard,
+    Export(session_data::ExportRequest),
+    Share(session_data::ShareRequest),
+    DiskUsage {
+        json: bool,
+    },
 }
 
 struct Connection {
     client: AcpClient,
     owner: SessionOwner,
     resumed: bool,
+}
+
+#[derive(Clone, Debug)]
+enum DeleteReturn {
+    Welcome,
+    #[allow(dead_code)]
+    Picker,
+    #[allow(dead_code)]
+    Dashboard,
 }
 
 enum Overlay {
@@ -353,6 +368,12 @@ enum Overlay {
         query: String,
         /// A refused resume stays on this picker. Empty while the list is clean.
         refusal: String,
+        /// `d` then `y` deletes the highlighted session. Esc or any other key cancels.
+        delete_armed: bool,
+    },
+    DeleteConfirm {
+        session_id: String,
+        return_to: DeleteReturn,
     },
     Dashboard(session_catalog::DashboardView),
     Location {
@@ -396,6 +417,10 @@ fn is_subcommand(arg: &str) -> bool {
             | "voice"
             | "sessions"
             | "dashboard"
+            | "export"
+            | "share"
+            | "du"
+            | "disk-usage"
     )
 }
 
@@ -693,7 +718,23 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         },
         ["voice", flags @ ..] => parse_voice(flags)?,
         ["sessions"] => LaunchMode::Sessions(session_catalog::SessionsCommand::Help),
+        ["sessions", "delete"] => {
+            return Err(io::Error::other(
+                "missing session id; use codsh --rust sessions delete <ID> --yes",
+            ));
+        }
+        ["sessions", "delete", flags @ ..] => LaunchMode::Sessions(
+            session_catalog::SessionsCommand::Delete(session_data::parse_delete(flags)?),
+        ),
         ["sessions", flags @ ..] => LaunchMode::Sessions(session_catalog::parse_sessions(flags)?),
+        ["export"] => return Err(io::Error::other(session_data::export_help())),
+        ["export", flags @ ..] => LaunchMode::Export(session_data::parse_export(flags)?),
+        ["share"] => return Err(io::Error::other(session_data::share_help())),
+        ["share", flags @ ..] => LaunchMode::Share(session_data::parse_share(flags)?),
+        ["du"] | ["disk-usage"] => LaunchMode::DiskUsage { json: false },
+        ["du", flags @ ..] | ["disk-usage", flags @ ..] => LaunchMode::DiskUsage {
+            json: parse_disk_flags(flags)?,
+        },
         ["dashboard"] | ["dashboard", "--help" | "-h"] => LaunchMode::Dashboard,
         _ => {
             return Err(io::Error::other(
@@ -740,6 +781,47 @@ fn parse_launch(args: &[String]) -> io::Result<Launch> {
         session_rules,
         system_prompt_override,
     })
+}
+
+fn parse_disk_flags(flags: &[&str]) -> io::Result<bool> {
+    let mut json = false;
+    for flag in flags {
+        match *flag {
+            "--json" => json = true,
+            "--help" | "-h" => return Err(io::Error::other(session_data::disk_help())),
+            "--debug" | "--debug-file" | "--leader-socket" => {
+                return Err(io::Error::other(format!(
+                    "unsupported disk-usage flag {flag}; dsh owns execution. Omit it."
+                )));
+            }
+            other => {
+                return Err(io::Error::other(format!(
+                    "unsupported disk-usage flag {other}; use codsh --rust du --help"
+                )));
+            }
+        }
+    }
+    Ok(json)
+}
+
+fn share_destination(config: &config::EffectiveConfig, explicit: Option<&str>) -> Option<String> {
+    if let Some(url) = explicit.map(str::trim).filter(|url| !url.is_empty()) {
+        return Some(url.to_string());
+    }
+    if let Ok(url) = std::env::var("CODSH_SHARE_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            return Some(url.to_string());
+        }
+    }
+    config
+        .merged_table
+        .get("endpoints")
+        .and_then(|endpoints| endpoints.get("share_url"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
 }
 
 fn parse_voice(flags: &[&str]) -> io::Result<LaunchMode> {
@@ -1557,6 +1639,9 @@ enum CatalogSlash {
     Clear,
     Info,
     Cd(Option<String>),
+    Export(String),
+    Share,
+    Delete,
 }
 
 fn session_catalog_slash(text: &str) -> Option<CatalogSlash> {
@@ -1583,6 +1668,9 @@ fn session_catalog_slash(text: &str) -> Option<CatalogSlash> {
         "cd" => Some(CatalogSlash::Cd(
             (!rest.is_empty()).then(|| rest.to_string()),
         )),
+        "export" => Some(CatalogSlash::Export(rest.to_string())),
+        "share" => Some(CatalogSlash::Share),
+        "delete" => Some(CatalogSlash::Delete),
         _ => None,
     }
 }
@@ -1605,7 +1693,7 @@ fn apply_session_catalog_slash(
     history: &mut String,
     composer: &mut PromptComposer,
 ) -> io::Result<()> {
-    if *inflight && !matches!(action, CatalogSlash::Info) {
+    if *inflight && !matches!(action, CatalogSlash::Info | CatalogSlash::Export(_)) {
         *last_error = "finish or cancel the running turn before switching sessions".into();
         composer.set_text("");
         return Ok(());
@@ -1710,6 +1798,68 @@ fn apply_session_catalog_slash(
             last_error.clear();
             composer.set_text("");
         }
+        CatalogSlash::Export(path) => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "No active session to export".into();
+                composer.set_text("");
+                return Ok(());
+            };
+            let target = if path.trim().is_empty() {
+                session_data::ExportTarget::Clipboard
+            } else {
+                session_data::ExportTarget::File(PathBuf::from(path.trim()))
+            };
+            let mut sink = Vec::new();
+            match session_data::export_session(
+                &effective.dsh_home,
+                &effective.cwd,
+                &session_data::ExportRequest { session_id, target },
+                &mut sink,
+            ) {
+                Ok(outcome) => {
+                    *hint = outcome.message;
+                    last_error.clear();
+                }
+                Err(error) => *last_error = error.message,
+            }
+            composer.set_text("");
+        }
+        CatalogSlash::Share => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "No active session to share".into();
+                composer.set_text("");
+                return Ok(());
+            };
+            let request = session_data::ShareRequest {
+                session_id,
+                url: share_destination(effective, None),
+            };
+            match session_data::share_session(&effective.dsh_home, &effective.cwd, &request) {
+                Ok(outcome) => {
+                    *hint = format!("shared {}", outcome.url);
+                    last_error.clear();
+                }
+                Err(error) => *last_error = error.message,
+            }
+            composer.set_text("");
+        }
+        CatalogSlash::Delete => {
+            let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            else {
+                *last_error = "No active session to delete".into();
+                composer.set_text("");
+                return Ok(());
+            };
+            *overlay = Overlay::DeleteConfirm {
+                session_id,
+                return_to: DeleteReturn::Welcome,
+            };
+            *hint = String::new();
+            last_error.clear();
+            composer.set_text("");
+        }
         CatalogSlash::Cd(path) => {
             if screen == ScreenMode::Minimal {
                 *hint = "/cd isn't available in minimal mode (the location picker needs fullscreen). Run /fullscreen to switch this session.".into();
@@ -1782,29 +1932,76 @@ fn handle_catalog_overlay_key(
             cursor,
             query,
             refusal,
+            delete_armed,
         } => {
             match key.code {
                 KeyCode::Esc => {
-                    *overlay = Overlay::None;
-                    hint.clear();
+                    if *delete_armed {
+                        *delete_armed = false;
+                        *hint = "delete cancelled".into();
+                    } else {
+                        *overlay = Overlay::None;
+                        hint.clear();
+                    }
+                }
+                KeyCode::Char('d') if key.modifiers.is_empty() => {
+                    if let Some(hit) = hits.get(*cursor) {
+                        *delete_armed = true;
+                        *hint = session_data::confirm_delete_prompt(&hit.session.id);
+                        refusal.clear();
+                    }
+                }
+                KeyCode::Char('y') if key.modifiers.is_empty() && *delete_armed => {
+                    let Some(hit) = hits.get(*cursor).cloned() else {
+                        *delete_armed = false;
+                        return Ok(true);
+                    };
+                    match session_data::delete_session(
+                        &effective.dsh_home,
+                        &effective.cwd,
+                        &session_data::DeleteRequest {
+                            session_id: hit.session.id.clone(),
+                            confirmed: true,
+                        },
+                    ) {
+                        Ok(outcome) => {
+                            *hint = outcome.message;
+                            last_error.clear();
+                            *delete_armed = false;
+                            refresh_picker(hits, cursor, query, effective);
+                        }
+                        Err(error) => {
+                            *last_error = error.message.clone();
+                            *refusal = error.message;
+                            *delete_armed = false;
+                        }
+                    }
+                }
+                KeyCode::Char('n') if key.modifiers.is_empty() && *delete_armed => {
+                    *delete_armed = false;
+                    *hint = "delete cancelled".into();
                 }
                 KeyCode::Up | KeyCode::Char('k') if key.modifiers.is_empty() && *cursor > 0 => {
                     *cursor -= 1;
+                    *delete_armed = false;
                     refusal.clear();
                 }
                 KeyCode::Down | KeyCode::Char('j')
                     if key.modifiers.is_empty() && *cursor + 1 < hits.len() =>
                 {
                     *cursor += 1;
+                    *delete_armed = false;
                     refusal.clear();
                 }
                 KeyCode::Backspace => {
                     query.pop();
+                    *delete_armed = false;
                     refusal.clear();
                     refresh_picker(hits, cursor, query, effective);
                 }
                 KeyCode::Char(ch) if key.modifiers.is_empty() => {
                     query.push(ch);
+                    *delete_armed = false;
                     refusal.clear();
                     refresh_picker(hits, cursor, query, effective);
                 }
@@ -1878,6 +2075,66 @@ fn handle_catalog_overlay_key(
                     terminal,
                     screen,
                 )?;
+            }
+            Ok(true)
+        }
+        Overlay::DeleteConfirm {
+            session_id,
+            return_to,
+        } => {
+            match key.code {
+                KeyCode::Char('y') if key.modifiers.is_empty() => {
+                    let id = session_id.clone();
+                    let back = return_to.clone();
+                    match session_data::delete_session(
+                        &effective.dsh_home,
+                        &effective.cwd,
+                        &session_data::DeleteRequest {
+                            session_id: id.clone(),
+                            confirmed: true,
+                        },
+                    ) {
+                        Ok(outcome) => {
+                            *hint = outcome.message;
+                            last_error.clear();
+                            let current =
+                                client.as_ref().and_then(|active| active.session_id.clone());
+                            if current.as_deref() == Some(id.as_str()) {
+                                drop_connection(client, owner);
+                                *turns = Vec::new();
+                                *committed = 0;
+                                history.clear();
+                                *resumed = false;
+                                *previous_session = None;
+                                let _ = reset_native_history_after_switch(
+                                    terminal, screen, committed, history,
+                                );
+                            }
+                            match back {
+                                DeleteReturn::Dashboard => {
+                                    let _ = open_dashboard_overlay(overlay, effective, None);
+                                }
+                                DeleteReturn::Picker => open_session_picker(overlay, effective),
+                                DeleteReturn::Welcome => *overlay = Overlay::None,
+                            }
+                        }
+                        Err(error) => {
+                            *last_error = error.message;
+                            *overlay = Overlay::None;
+                        }
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Esc if key.modifiers.is_empty() => {
+                    *hint = "delete cancelled".into();
+                    match return_to {
+                        DeleteReturn::Dashboard => {
+                            let _ = open_dashboard_overlay(overlay, effective, client.as_ref());
+                        }
+                        DeleteReturn::Picker => open_session_picker(overlay, effective),
+                        DeleteReturn::Welcome => *overlay = Overlay::None,
+                    }
+                }
+                _ => {}
             }
             Ok(true)
         }
@@ -2059,6 +2316,41 @@ fn apply_dashboard_action(
         *hint = format!("stop requested for {id}; other sessions were not changed");
         return Ok(());
     }
+    if let Some(id) = action.strip_prefix("delete ") {
+        match session_data::delete_session(
+            &effective.dsh_home,
+            &effective.cwd,
+            &session_data::DeleteRequest {
+                session_id: id.to_string(),
+                confirmed: true,
+            },
+        ) {
+            Ok(outcome) => {
+                *hint = outcome.message;
+                last_error.clear();
+                if client
+                    .as_ref()
+                    .and_then(|active| active.session_id.as_deref())
+                    == Some(id)
+                {
+                    drop_connection(client, owner);
+                    *turns = Vec::new();
+                    *committed = 0;
+                    history.clear();
+                    *resumed = false;
+                    *overlay = Overlay::None;
+                    let _ = reset_native_history_after_switch(terminal, screen, committed, history);
+                }
+            }
+            Err(error) => {
+                *last_error = error.message.clone();
+                if let Overlay::Dashboard(view) = overlay {
+                    view.notice = error.message;
+                }
+            }
+        }
+        return Ok(());
+    }
     Ok(())
 }
 
@@ -2120,6 +2412,7 @@ fn open_session_picker(overlay: &mut Overlay, effective: &config::EffectiveConfi
         cursor: 0,
         query: String::new(),
         refusal: String::new(),
+        delete_armed: false,
     };
 }
 
@@ -2304,13 +2597,27 @@ fn overlay_hint(overlay: &Overlay, prefs: &UiPrefs) -> String {
         ),
         Overlay::Plugins(_) => String::new(),
         Overlay::Feedback(_) => String::new(),
+        Overlay::DeleteConfirm { session_id, .. } => {
+            session_data::confirm_delete_prompt(session_id)
+        }
         Overlay::SessionPick {
             hits,
             cursor,
             query,
             refusal,
+            delete_armed,
         } => session_catalog::with_refusal(
-            &session_catalog::render_picker(hits, *cursor, query),
+            &format!(
+                "{}\n{}",
+                session_catalog::render_picker(hits, *cursor, query),
+                if *delete_armed {
+                    hits.get(*cursor)
+                        .map(|hit| session_data::confirm_delete_prompt(&hit.session.id))
+                        .unwrap_or_else(|| "delete cancelled".into())
+                } else {
+                    "d then y deletes the highlighted session".into()
+                }
+            ),
             refusal,
         ),
         Overlay::Dashboard(view) => {
@@ -3605,7 +3912,7 @@ fn run() -> io::Result<()> {
         }
         LaunchMode::Help => {
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, voice doctor, login, logout, setup. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, and /ask set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. share <id> and /share post only to endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. sessions delete <id> --yes removes that idle session directory. Without --yes nothing is removed. /delete asks first; n or Esc cancels. /resume uses d then y. The dashboard uses Ctrl+X twice. A live write lock is refused and other sessions stay. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nOptions: --help, --version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, --model <id>, --effort/--reasoning-effort <level>, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -3731,6 +4038,45 @@ fn run() -> io::Result<()> {
                 }
                 Err(error) => return Err(io::Error::other(error.message)),
             }
+        }
+        LaunchMode::Export(request) => {
+            let loaded = load_runtime_config(&launch);
+            let mut stdout = io::stdout().lock();
+            return match session_data::export_session(
+                &loaded.dsh_home,
+                &loaded.cwd,
+                request,
+                &mut stdout,
+            ) {
+                Ok(_) => Ok(()),
+                Err(error) => Err(io::Error::other(error.message)),
+            };
+        }
+        LaunchMode::Share(request) => {
+            let loaded = load_runtime_config(&launch);
+            let mut request = request.clone();
+            request.url = share_destination(&loaded, request.url.as_deref());
+            return match session_data::share_session(&loaded.dsh_home, &loaded.cwd, &request) {
+                Ok(outcome) => {
+                    println!("{}", outcome.url);
+                    Ok(())
+                }
+                Err(error) => Err(io::Error::other(error.message)),
+            };
+        }
+        LaunchMode::DiskUsage { json } => {
+            let loaded = load_runtime_config(&launch);
+            let report = session_data::collect_disk(&loaded.grok_home, &loaded.dsh_home)
+                .map_err(|error| io::Error::other(error.message))?;
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into())
+                );
+            } else {
+                println!("{}", session_data::format_disk(&report));
+            }
+            return Ok(());
         }
         LaunchMode::Dashboard => {
             // Interactive dashboard is the TUI. The subcommand only opens it
@@ -4386,7 +4732,10 @@ fn run() -> io::Result<()> {
                 }
                 if matches!(
                     overlay,
-                    Overlay::SessionPick { .. } | Overlay::Dashboard(_) | Overlay::Location { .. }
+                    Overlay::SessionPick { .. }
+                        | Overlay::Dashboard(_)
+                        | Overlay::Location { .. }
+                        | Overlay::DeleteConfirm { .. }
                 ) && handle_catalog_overlay_key(
                     key,
                     &mut overlay,
@@ -4714,7 +5063,8 @@ fn run() -> io::Result<()> {
                         Overlay::None | Overlay::Plugins(_) | Overlay::Feedback(_) => {}
                         Overlay::SessionPick { .. }
                         | Overlay::Dashboard(_)
-                        | Overlay::Location { .. } => {}
+                        | Overlay::Location { .. }
+                        | Overlay::DeleteConfirm { .. } => {}
                     }
                 }
 
@@ -6552,6 +6902,72 @@ mod tests {
             mp.mode,
             LaunchMode::Plugin(plugin::PluginCommand::MarketplaceHelp)
         ));
+    }
+
+    #[test]
+    fn parse_export_share_delete_and_disk_usage() {
+        let export = parse_launch(&args(&[
+            "export",
+            "11111111-1111-4111-8111-111111111111",
+            "out.md",
+        ]))
+        .expect("export");
+        match export.mode {
+            LaunchMode::Export(request) => {
+                assert_eq!(request.session_id, "11111111-1111-4111-8111-111111111111");
+                assert!(matches!(
+                    request.target,
+                    session_data::ExportTarget::File(_)
+                ));
+            }
+            other => panic!("expected export, got {other:?}"),
+        }
+        let share = parse_launch(&args(&[
+            "share",
+            "--url",
+            "http://127.0.0.1:9/share",
+            "11111111-1111-4111-8111-111111111111",
+        ]))
+        .expect("share");
+        match share.mode {
+            LaunchMode::Share(request) => {
+                assert_eq!(request.url.as_deref(), Some("http://127.0.0.1:9/share"));
+            }
+            other => panic!("expected share, got {other:?}"),
+        }
+        let missing = parse_launch(&args(&["share", "11111111-1111-4111-8111-111111111111"]))
+            .expect("share without url still parses");
+        assert!(matches!(
+            missing.mode,
+            LaunchMode::Share(session_data::ShareRequest { url: None, .. })
+        ));
+        let delete = parse_launch(&args(&[
+            "sessions",
+            "delete",
+            "11111111-1111-4111-8111-111111111111",
+            "--yes",
+        ]))
+        .expect("delete");
+        assert!(matches!(
+            delete.mode,
+            LaunchMode::Sessions(session_catalog::SessionsCommand::Delete(request))
+                if request.confirmed && request.session_id == "11111111-1111-4111-8111-111111111111"
+        ));
+        let cancelled = parse_launch(&args(&[
+            "sessions",
+            "delete",
+            "11111111-1111-4111-8111-111111111111",
+        ]))
+        .expect("unconfirmed delete still parses");
+        assert!(matches!(
+            cancelled.mode,
+            LaunchMode::Sessions(session_catalog::SessionsCommand::Delete(request))
+                if !request.confirmed
+        ));
+        let disk = parse_launch(&args(&["disk-usage", "--json"])).expect("disk");
+        assert!(matches!(disk.mode, LaunchMode::DiskUsage { json: true }));
+        let alias = parse_launch(&args(&["du"])).expect("du");
+        assert!(matches!(alias.mode, LaunchMode::DiskUsage { json: false }));
     }
 
     #[test]

@@ -1444,6 +1444,7 @@ pub struct DashboardView {
     pub notice: String,
     pub open_session: Option<String>,
     pub entered: bool,
+    pub delete_armed: Option<String>,
 }
 
 impl DashboardView {
@@ -1463,6 +1464,7 @@ impl DashboardView {
             notice: String::new(),
             open_session: None,
             entered: true,
+            delete_armed: None,
         }
     }
 }
@@ -1499,6 +1501,7 @@ pub fn handle_dashboard_key(
     match (&view.focus, key) {
         (DashboardFocus::Search, DashKey::Esc) | (DashboardFocus::Search, DashKey::Ctrl('/')) => {
             view.query.clear();
+            view.delete_armed = None;
             view.focus = DashboardFocus::List;
             view.notice = "search cancelled".into();
             None
@@ -1581,7 +1584,20 @@ pub fn handle_dashboard_key(
             view.location.clear();
             None
         }
-        (_, DashKey::Ctrl('x')) => view.selected.clone().map(|id| format!("stop {id}")),
+        (_, DashKey::Ctrl('x')) => {
+            let Some(id) = view.selected.clone() else {
+                view.notice = "select a session before deleting".into();
+                return None;
+            };
+            if view.delete_armed.as_deref() == Some(id.as_str()) {
+                view.delete_armed = None;
+                Some(format!("delete {id}"))
+            } else {
+                view.delete_armed = Some(id.clone());
+                view.notice = format!("Ctrl+X again deletes {id}; Esc cancels");
+                None
+            }
+        }
         (_, DashKey::Tab) => {
             view.focus = match view.focus {
                 DashboardFocus::List => DashboardFocus::Dispatch,
@@ -1638,6 +1654,11 @@ pub fn handle_dashboard_key(
             }
         },
         (_, DashKey::Esc) => {
+            if view.delete_armed.is_some() {
+                view.delete_armed = None;
+                view.notice = "delete cancelled".into();
+                return None;
+            }
             if view.entered {
                 view.entered = false;
                 view.notice = "left dashboard; draft kept".into();
@@ -1884,6 +1905,7 @@ pub enum SessionsCommand {
     Help,
     List { limit: usize },
     Search { query: String, limit: usize },
+    Delete(crate::session_data::DeleteRequest),
 }
 
 pub fn parse_sessions(flags: &[&str]) -> io::Result<SessionsCommand> {
@@ -1931,6 +1953,9 @@ pub fn parse_sessions(flags: &[&str]) -> io::Result<SessionsCommand> {
         index += 1;
     }
     match rest.as_slice() {
+        ["delete"] => Err(io::Error::other(
+            "missing session id; use codsh --rust sessions delete <ID> --yes",
+        )),
         ["list"] => Ok(SessionsCommand::List { limit }),
         ["search"] => Err(io::Error::other(
             "missing search query; use codsh --rust sessions search <query>",
@@ -1945,7 +1970,7 @@ pub fn parse_sessions(flags: &[&str]) -> io::Result<SessionsCommand> {
             Ok(SessionsCommand::Search { query, limit })
         }
         _ => Err(io::Error::other(
-            "sessions requires list or search; use codsh --rust sessions --help",
+            "sessions requires list, search, or delete; use codsh --rust sessions --help",
         )),
     }
 }
@@ -1970,6 +1995,13 @@ pub fn run_sessions(
             let catalog = load_catalog(dsh_home, cwd);
             Ok(search_text(&catalog, query, *limit))
         }
+        SessionsCommand::Delete(request) => {
+            crate::session_data::delete_session(dsh_home, cwd, request)
+                .map(|outcome| outcome.message)
+                .map_err(|error| CatalogError {
+                    message: error.message,
+                })
+        }
     }
 }
 
@@ -1978,7 +2010,7 @@ pub fn minimal_dashboard_refusal() -> &'static str {
 }
 
 pub fn help_text() -> &'static str {
-    "codsh --rust sessions list [--limit N]\ncodsh --rust sessions search <query> [--limit N]\n\nList and search dsh sessions in the isolated Home. Titles prefer a manual /rename. Content matches are labeled content. A missing or empty result does not invent a session.\n"
+    "codsh --rust sessions list [--limit N]\ncodsh --rust sessions search <query> [--limit N]\ncodsh --rust sessions delete <ID> --yes\n\nList and search dsh sessions in the isolated Home. Titles prefer a manual /rename. Content matches are labeled content. A missing or empty result does not invent a session. delete removes one confirmed idle session directory and leaves every other session in place.\n"
 }
 
 #[cfg(test)]
