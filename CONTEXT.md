@@ -112,7 +112,8 @@ stay inactive until `--trust` or an interactive grant. After trust, compatible
 rules, skills, agent definitions, and custom commands are discovered in the
 frozen order (closer skill directories outrank broader ones; nested
 `SKILL.md` files return only when the walk depth is greater than five, and a
-child of a directory that already has `SKILL.md` is still recorded; flat
+child of a directory that already has `SKILL.md` is still recorded; a
+configured `[skills] paths` directory uses that same walk; flat
 `commands/*.md` files are slash commands) and included in the dsh prompt.
 A skill or command named `login`, `logout`, or `feedback` does not take the
 bare slash: that name stays the built-in, and the asset is `/local:name` (or

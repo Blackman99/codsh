@@ -848,6 +848,7 @@ fn scan_configured_skill(
         return;
     }
     if path.join("SKILL.md").is_file()
+        && !ignored_skill(input, &path.join("SKILL.md"))
         && let Some(skill) = parse_skill(
             input,
             &path.join("SKILL.md"),
@@ -859,8 +860,14 @@ fn scan_configured_skill(
     {
         skills.push(skill);
     }
-    let entries = match fs::read_dir(path) {
-        Ok(entries) => entries,
+    // The configured directory is the walk root, not depth 0. Its children
+    // start at 0, matching find_skill_md_paths plus walk_for_skill_md.
+    let mut children = match fs::read_dir(path) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|child| child.is_dir())
+            .collect::<Vec<_>>(),
         Err(error) => {
             diagnostics.push(AssetDiagnostic {
                 kind: "skill-path".into(),
@@ -870,37 +877,18 @@ fn scan_configured_skill(
             return;
         }
     };
-    for entry in entries.flatten() {
-        let child = entry.path();
-        if !child.is_dir() || ignored_skill(input, &child.join("SKILL.md")) {
-            continue;
-        }
-        walk_skill_dirs(input, &child, skills, diagnostics);
-    }
-}
-
-fn walk_skill_dirs(
-    input: &DiscoverInput<'_>,
-    directory: &Path,
-    skills: &mut Vec<RawSkill>,
-    diagnostics: &mut Vec<AssetDiagnostic>,
-) {
-    let file = directory.join("SKILL.md");
-    if file.is_file()
-        && !ignored_skill(input, &file)
-        && let Some(skill) = parse_skill(input, &file, "config", "config", 30, diagnostics)
-    {
-        skills.push(skill);
-    }
-    let entries = match fs::read_dir(directory) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_skill_dirs(input, &path, skills, diagnostics);
-        }
+    children.sort();
+    for child in children {
+        walk_named_skills(
+            input,
+            &child,
+            "config",
+            "config",
+            30,
+            skills,
+            diagnostics,
+            0,
+        );
     }
 }
 
@@ -2162,5 +2150,70 @@ mod tests {
             builtin_commands: &[],
         });
         assert!(!catalog.skills.iter().any(|skill| skill.name == "smuggled"));
+    }
+
+    #[test]
+    fn configured_skill_path_uses_the_same_depth_cap() {
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let base = root.path().join("configured");
+        let mut at_limit = base.clone();
+        for part in ["a", "b", "c", "d", "e"] {
+            at_limit.push(part);
+        }
+        write(
+            &at_limit.join("SKILL.md"),
+            "---\nname: config-deep6\ndescription: configured depth five\n---\nCONFIG_DEEP6\n",
+        );
+        write(
+            &at_limit.join("child").join("SKILL.md"),
+            "---\nname: config-child\ndescription: child under a configured skill\n---\nCONFIG_CHILD\n",
+        );
+        let mut too_deep = base.clone();
+        for part in ["z", "a", "b", "c", "d", "e", "f"] {
+            too_deep.push(part);
+        }
+        write(
+            &too_deep.join("SKILL.md"),
+            "---\nname: config-deep7\ndescription: configured past depth five\n---\nCONFIG_DEEP7\n",
+        );
+        let path = base.display().to_string();
+        let catalog = discover(&DiscoverInput {
+            cwd: &root.path().join("repo").join("src"),
+            grok_home: &root.path().join("grok"),
+            home: &root.path().join("home"),
+            project_active: true,
+            claude_rules: true,
+            cursor_rules: false,
+            claude_agents: true,
+            claude_skills: true,
+            cursor_skills: false,
+            extra_rule_dirs: &[],
+            skill_paths: &[path],
+            skill_ignore: &[],
+            skill_disabled: &[],
+            builtin_commands: &[],
+        });
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "config-deep6" && skill.body.contains("CONFIG_DEEP6")),
+            "a configured path loads the skill at depth five"
+        );
+        assert!(
+            catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "config-child" && skill.body.contains("CONFIG_CHILD")),
+            "a configured path still records a child of a SKILL.md directory"
+        );
+        assert!(
+            !catalog
+                .skills
+                .iter()
+                .any(|skill| skill.name == "config-deep7"),
+            "a configured path returns when depth is greater than five"
+        );
     }
 }
