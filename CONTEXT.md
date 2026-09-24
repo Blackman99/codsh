@@ -22,7 +22,13 @@ tool result stays failed), model and reasoning changes persist before the next
 prompt and are restored on resume even when the advertised model is not a
 catalog id, and unadvertised
 `x.ai/*` methods return method-not-found. Closing the editor releases the write
-owner. dsh remains the only
+owner. `agent serve` (authenticated WebSocket, loopback by default) and
+`agent leader` (per-user 0600 socket, reached by `agent --leader stdio`) put
+several clients on one hub: one dsh process per live session, `session/load`
+attaches to a live session instead of starting a second executor, the first
+approval answer wins, a concurrent prompt is refused, and a dsh exit is reported
+without retrying. Nothing listens unless one of those commands runs, and a
+non-off sandbox profile keeps a session out of the leader. dsh remains the only
 executing agent core and durable session owner; the Rust process does not link
 the official agent runtime or own tools. Protocol mismatch, empty answers,
 mid-stream failure, disconnect, and cancellation are reported truthfully.

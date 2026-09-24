@@ -62,7 +62,32 @@ method-not-found. Closing the editor releases the write owner; a second client
 is refused while it is held. In Zed, add a custom agent server whose command is
 the installed `codsh` with arguments `--rust`, `agent`, `stdio`. This checkout
 did not launch Zed or another GUI editor; the repeatable check is an external
-ACP client over stdio. Streamed answers, provider
+ACP client over stdio.
+
+Sharing is opt-in; a plain launch starts no service and opens no port.
+`codsh --rust agent serve` serves the same ACP over an authenticated WebSocket
+(`/ws`, default `127.0.0.1:2419`). The secret comes from `--secret`,
+`GROK_AGENT_SECRET`, or is generated and printed once; clients send
+`Authorization: Bearer <secret>` or `?server-key=<secret>`, and a non-loopback
+`--bind` prints a warning. `codsh --rust agent leader` runs a per-user leader on
+`$GROK_HOME/leader.sock` (mode 0600, same-user peers only). `agent --leader stdio`,
+or `[cli] use_leader = true`, starts or reuses it for an editor; `--no-leader`
+wins. One dsh process runs each live session. `session/load` of a session the
+process already runs attaches without a second executor: saved turns, the
+running turn, and a pending approval are sent again. Approval requests reach
+every attached client; the first answer wins, and a late one gets
+`_codsh/stale_response`. A second prompt during a turn is refused, not queued.
+Option changes reach the other clients as `config_option_update`. A client
+disconnect never cancels a turn. A dsh exit is reported as
+`_codsh/runtime_exited`; the running turn's effects are unknown and nothing is
+retried. A sandbox profile other than `off` keeps the session in the editor's own
+process instead of the leader, and a leader client cannot bring its own model or
+permission flags. `codsh --rust leader list|info|kill` inspects and stops
+leaders. `agent headless`, `--remote`, `--grok-ws-url`, and Cursor worker mode
+need official services and are refused. The leader is Unix-only; it was checked
+on Linux, not on macOS or Windows.
+
+Streamed answers, provider
 thoughts, empty replies, and failures are shown as dsh reports them; a protocol
 mismatch or missing dsh is refused instead of faked as success. It reuses licensed
 Grok Rust UI components, requires no official account, and does not start the

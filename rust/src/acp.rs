@@ -1059,6 +1059,11 @@ impl AcpClient {
         .expect("fake ACP agent")
     }
 
+    /// Process id of the dsh child, for status and diagnostics.
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     pub fn shutdown(&mut self) {
         if let Some(pending) = self.pending_permission.clone() {
             let _ = self.cancel_permission(&pending.request_id);

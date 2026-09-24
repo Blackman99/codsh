@@ -135,6 +135,8 @@ loads that session. `--fork-session` copies conversation into a new session id.
 `/rewind` and `/fork` are conversation-only; `--restore-code` is refused.
 Interrupted tools are shown as unknown and not replayed.
 A second client is refused while this process holds write ownership.
+`agent serve` and `agent leader` are the opt-in shared forms: several clients
+attach to one live session run by one dsh process (see the root README).
 `--minimal` / `--fullscreen` and `/minimal` / `/fullscreen` switch the official
 alternate-screen and native-history renderers in the current process without
 rewriting isolated `[ui] screen_mode`. Official `xai-grok-markdown` renders Markdown, tables, code, mermaid labels, thoughts, and dsh tool cards/diffs; Tab then `l`/`r`/Enter/`y` fold, expand, show raw markdown, open full content, or copy original bytes. `/expand` reprints the last folded block in minimal; `/transcript` opens the exact transcript in `$PAGER`. `/rewind` and `/fork` in minimal replace

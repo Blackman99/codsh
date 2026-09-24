@@ -536,7 +536,16 @@ including an advertised ACP value that is not a catalog id. An unknown model
 is refused. Terminal `/dontAsk` and `/acceptEdits` write the same
 session mode file, and resume writes that mode into the policy before dsh starts. Proprietary
 `x.ai/*` methods return method-not-found. The repeatable check is the
-`serves an editor` case in `scripts/rust-acp-protocol.spec.mjs`. A GUI editor
+`serves an editor` case in `scripts/rust-acp-protocol.spec.mjs`. The shared
+hub behind `agent serve` / `agent leader` / `agent --leader stdio` is checked by
+`scripts/rust-shared-server.spec.mjs` against real dsh: WebSocket auth (401/404,
+Bearer and `server-key`), two clients on one session, first-answer-wins
+approval with a stale notice, a refused concurrent prompt, a disconnect during
+an approval followed by a reattach that answers it (the file is edited once),
+config broadcast, a killed dsh reported as `_codsh/runtime_exited`, and leader
+auto-start, `[cli] use_leader`, `leader list|info|kill`, idle exit, and a lost
+leader failing the waiting prompt. It needs Node 22 (dsh's engine) and a built
+`rust/target/debug/codsh-rust`. A GUI editor
 was not launched. `--restore-code` is refused.
 Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
 into native history through the official inline renderer. `/rewind` and `/fork`

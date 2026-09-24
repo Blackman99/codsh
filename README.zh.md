@@ -58,6 +58,24 @@ Rust 界面通过 ACP/JSON-RPC 把提示提交给隔离 Home 中真实的 `dsh -
 关闭编辑器会释放写入者；持有期间第二个客户端会被拒绝。在 Zed 中把自定义 Agent
 服务器的命令设为已安装的 `codsh`，参数为 `--rust`、`agent`、`stdio`。本次没有启动
 Zed 或其他图形编辑器；可重复检查是外部 ACP 客户端通过标准输入输出驱动协议。
+
+共享服务需要显式开启；普通启动不会常驻服务，也不会监听端口。
+`codsh --rust agent serve` 通过带认证的 WebSocket（`/ws`，默认 `127.0.0.1:2419`）
+提供同一套 ACP。密钥来自 `--secret`、`GROK_AGENT_SECRET`，否则自动生成并只打印一次；
+客户端发送 `Authorization: Bearer <secret>` 或 `?server-key=<secret>`，`--bind`
+不是回环地址时会打印警告。`codsh --rust agent leader` 在 `$GROK_HOME/leader.sock`
+上运行每用户一个的 leader（权限 0600，只接受同一用户的连接）。`agent --leader stdio`
+或 `[cli] use_leader = true` 会为编辑器启动或复用它；`--no-leader` 优先。每个活动会话
+只由一个 dsh 进程执行。对本进程已在运行的会话调用 `session/load` 会直接接入，不会出现
+第二个执行者：已保存的轮次、正在运行的轮次和待处理的审批会重新发送。审批请求发给所有
+已接入的客户端，第一个回答生效，迟到的回答会收到 `_codsh/stale_response`。轮次运行期间
+的第二个 prompt 会被拒绝，不会排队。选项修改以 `config_option_update` 通知其他客户端。
+客户端断开不会取消轮次。dsh 退出会以 `_codsh/runtime_exited` 报告；正在运行的轮次效果
+未知，不会重试。沙箱配置不是 `off` 时，会话留在编辑器自己的进程里，不进入 leader；leader
+客户端也不能带自己的模型或权限参数。`codsh --rust leader list|info|kill` 查看并停止
+leader。`agent headless`、`--remote`、`--grok-ws-url` 和 Cursor worker 模式依赖官方服务，
+会被拒绝。leader 只支持 Unix；本次在 Linux 上验证，未在 macOS 或 Windows 上验证。
+
 流式回答、提供商给出的思考、空回答和失败都按 dsh 的实际结果显示；协议不匹配
 或找不到 dsh 会明确拒绝，不会伪造成功。它复用具有合法许可证的 Grok Rust
 界面组件，无需官方账号，不启动旧版 Bundle、官方 Agent 核心、更新检查、遥测

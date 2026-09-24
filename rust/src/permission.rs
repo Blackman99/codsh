@@ -228,6 +228,21 @@ pub fn write_policy_file(dsh_home: &Path, policy: &PermissionPolicy) -> io::Resu
     Ok(path)
 }
 
+/// Write a policy to its own path. A shared process gives every dsh child
+/// its own file so one session's mode never reaches another. The file is
+/// replaced by rename: the approval plugin rereads it on every tool call and
+/// must never see a partial write (that would fail closed).
+pub fn write_policy_to(path: &Path, policy: &PermissionPolicy) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut staging = path.as_os_str().to_owned();
+    staging.push(".tmp");
+    let staging = PathBuf::from(staging);
+    fs::write(&staging, format!("{}\n", compile_policy_json(policy)))?;
+    fs::rename(&staging, path)
+}
+
 pub fn grants_path(grok_home: &Path, workspace_key: &Path) -> PathBuf {
     grok_home
         .join("sessions")

@@ -79,6 +79,7 @@ regex = "1.12.4"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
+sha1 = "0.10"
 sha2 = "0.10"
 toml = "1.1.6"
 unicode-segmentation.workspace = true
