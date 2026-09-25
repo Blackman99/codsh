@@ -59,6 +59,22 @@ describe('grok hook contract', () => {
     expect(rewrite.updatedInput).toBeNull()
   })
 
+  it('reads a Claude Code systemMessage for any event and keeps it off the decision', () => {
+    const shown = decodeHook('UserPromptSubmit', {
+      exitCode: 0,
+      stdout: '{"systemMessage":"  Ship graph · http://127.0.0.1:1/t/  "}',
+      stderr: '',
+      spawned: true,
+    })
+    expect(shown.systemMessage).toBe('Ship graph · http://127.0.0.1:1/t/')
+    expect(shown.decision).toBe('')
+    expect(shown.failure).toBe('')
+    const plain = decodeHook('PostToolUse', { exitCode: 0, stdout: 'hello', stderr: '', spawned: true })
+    expect(plain.systemMessage).toBe('')
+    const long = decodeHook('SessionStart', { exitCode: 0, stdout: JSON.stringify({ systemMessage: 'x'.repeat(600) }), stderr: '', spawned: true })
+    expect(long.systemMessage.length).toBeLessThan(600)
+  })
+
   it('clips hook feedback and matches claude tool aliases', () => {
     expect(clip('abcdef', 3)).toBe('abc… [+3 chars]')
     expect(matcherHits('Bash', 'bash')).toBe(true)

@@ -494,7 +494,17 @@ idea and a spec past wayfinding in fresh sessions, checks Stop writes nothing,
 and checks `plugin disable ship` removes `/ship`. `pnpm exec vitest run
 scripts/rust-ship-extension.spec.mjs packages/bundle/tests/ship-extension.spec.ts`
 covers the generated plugin and the hook logic; the legacy `e2e/pty-ship*.e2e.ts`
-suites stay the reference for the full legacy flow. The assets test
+suites stay the reference for the full legacy flow. The plugin's browser graph
+is checked with `python3 scripts/rust-ship-web-pty-test.py`, which drives real
+dsh in a PTY and headless Chromium through the agent-browser CLI at 1440x900
+and 390x844 (the checklist in "Web panorama" above: `/` and `/index.html`,
+navigation, expand/collapse, relations, long and missing answers, live
+updates, reconnect after the session ends and resumes, a corrupt cache, and
+uninstall), and saves screenshots to the printed directory. agent-browser is
+not a repo dependency: install it anywhere (for example `npm i -g
+agent-browser`, or into a temp prefix) and set `AGENT_BROWSER` to its binary;
+set `AGENT_BROWSER_EXECUTABLE_PATH` to use an installed Chrome instead of
+`agent-browser install`. Never point it at your own browser profile. The assets test
 trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
 command change the dsh request, rescans an added skill, requires the deleted
 skill to be absent from the next dsh reply, checks `--rules`, and checks an

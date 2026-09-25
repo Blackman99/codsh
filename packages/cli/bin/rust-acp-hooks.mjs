@@ -33,6 +33,7 @@ const RESERVED_ENV = new Set([
   'GROK_SESSION_ID',
   'GROK_WORKSPACE_ROOT',
   'CLAUDE_PROJECT_DIR',
+  'CODSH_HOOK_HOST_PID',
 ])
 
 const EVENTS = {
@@ -455,6 +456,9 @@ function runCommand(hook, payload, event, signal, cwd) {
   childEnv.GROK_SESSION_ID = payload.sessionId
   childEnv.GROK_WORKSPACE_ROOT = payload.workspaceRoot
   childEnv.CLAUDE_PROJECT_DIR = payload.workspaceRoot
+  // The dsh process running this hook: a helper a hook leaves behind (the
+  // Ship extension's browser graph server) exits when it does.
+  childEnv.CODSH_HOOK_HOST_PID = String(process.pid)
   return new Promise(resolvePromise => {
     let settled = false
     const finish = (outcome) => {
@@ -521,6 +525,7 @@ export function decodeHook(event, outcome) {
     continue: true,
     stopReason: '',
     updatedToolOutput: null,
+    systemMessage: '',
     failure: '',
   }
   if (outcome.cancelled) {
@@ -554,6 +559,7 @@ export function decodeHook(event, outcome) {
     if (sameEvent && specific && Object.hasOwn(specific, 'updatedToolOutput')) base.updatedToolOutput = specific.updatedToolOutput
     if (parsed.continue === false) base.continue = false
     if (typeof parsed.stopReason === 'string') base.stopReason = parsed.stopReason
+    if (typeof parsed.systemMessage === 'string') base.systemMessage = parsed.systemMessage.trim()
     if (base.decision && !['allow', 'deny', 'ask', 'defer'].includes(base.decision)) {
       base.failure = `invalid decision ${base.decision}`
       base.decision = ''
@@ -584,6 +590,7 @@ export function decodeHook(event, outcome) {
   if (base.decision === 'deny' && event === 'PreToolUse') base.updatedInput = null
   base.reason = clip(base.reason, event === 'PreToolUse' ? REASON_CHARS : FEEDBACK_CHARS)
   base.additionalContext = clip(base.additionalContext, FEEDBACK_CHARS)
+  base.systemMessage = clip(base.systemMessage, STDERR_LINE)
   return base
 }
 
@@ -615,6 +622,11 @@ async function runMatched(registry, event, subject, payload, signal, cwd) {
       if (result.failure) notes.push(note(hook, event, `failed, ignored: ${clip(result.failure, STDERR_LINE)}`))
       else if (blocks(result, event) || (event === 'PostToolUse' && result.decision === 'deny')) {
         notes.push(note(hook, event, result.reason || result.decision))
+      } else if (result.systemMessage) {
+        // Claude Code's `systemMessage`: shown as-is, for every event, instead
+        // of the raw JSON output line, labeled with the hook's source (for
+        // example `plugin:ship`) rather than its whole command line.
+        notes.push(`${MARK}${event} hook (${hook.source}) ${result.systemMessage}`)
       } else if (result.stdout && event !== 'PreToolUse' && event !== 'UserPromptSubmit') {
         notes.push(note(hook, event, `output: ${clip(result.stdout, STDERR_LINE)}`))
       }

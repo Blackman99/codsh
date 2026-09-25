@@ -296,8 +296,21 @@ then flushed after the snapshot is sealed), later tool calls recheck the
 frozen original, and any other prompt ends the run. Plan mode and subagent
 sessions are ignored. Specs past wayfinding are refused. Spec, snapshot, and
 answers files stay the source of truth and are the same files legacy `codsh`
-reads; there is no Goal (`Goal-Id` stays blank), Rhai, graph, or automatic
-phase continuation.
+reads; there is no Goal (`Goal-Id` stays blank), Rhai, or automatic phase
+continuation. The browser graph (ticket 196) is the same Web panorama page
+(`ship-web-app.tsx`, built into the plugin's `web/`), served by
+`hooks/ship-web.mjs`, a detached loopback server per workspace owned by the
+dsh process that ran `/ship` (`CODSH_HOOK_HOST_PID`). It listens on
+`127.0.0.1` only and answers GET/HEAD only under a random 128-bit path prefix
+(`/<token>/`, `/<token>/index.html`, `graph.json`, two assets) for a loopback
+Host naming its port. `graph.json` is joined on each request from the run
+state, spec, snapshot, answers, and local wayfinder tickets, never from the
+graph cache; the hooks rebuild `<spec>.ship.graph.json` like the legacy runner
+and print one `Ship graph · <spec> · Status · 待认领/已认领/已关闭 · N of M
+decision answers recorded · <url>` line (a hook `systemMessage`) when it
+changes. SessionEnd, the owner's exit, or removing the plugin data (uninstall)
+stops the server; its record in `$GROK_PLUGIN_DATA/web/` (0600) keeps the port
+and token so SessionStart for the same session reopens the same URL.
 `codsh --rust login` / `logout` / `setup` use configured substitute identity
 or management services. Independent API-key use does not require login unless
 `GROK_DISABLE_API_KEY_AUTH` or a team pin (`auth.force_login_team_uuid` or
@@ -1461,7 +1474,10 @@ rebinding when `/ship` continues or a spec appears; zoom and selection survive
 updates. Connection failures retain the last graph with an automatic retry notice.
 The URL is pinned on the Panorama teaser and overlay title; `/ship` does not
 open a browser. Off a TTY the URL is printed once. On narrow screens, node
-details sit below the graph.
+details sit below the graph. The `codsh --rust` Ship plugin serves the same page
+under a secret path prefix (the app fetches `graph.json` relative to the page)
+and joins the graph from the persisted files on each request; its terminal
+line carries the teaser buckets and the answer count the page shows.
 Distinct from the Panorama overlay and the Panorama teaser. Not a second store.
 _Avoid_: dashboard, hub, site, graph UI, second port per `/ship`
 

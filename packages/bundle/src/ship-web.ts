@@ -21,6 +21,8 @@ export interface WebPanoramaResponse {
   end(body?: string): unknown
 }
 
+/** The page loads only its own script, styles, and graph. */
+export const WEB_PANORAMA_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'"
 export const WEB_PANORAMA_LISTEN = { host: '127.0.0.1', port: 0 } as const
 export interface WebPanoramaHandle { url: string; close(): void | Promise<void> }
 const EMPTY_GRAPH: ShipGraph = { version: SHIP_GRAPH_VERSION, specPath: '', nodes: [], edges: [] }
@@ -83,7 +85,7 @@ export function handleWebPanoramaRequest(request: WebPanoramaRequest, response: 
   if (path === '/' || path === '/index.html') {
     response.writeHead(200, {
       ...headers, 'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+      'content-security-policy': WEB_PANORAMA_CSP,
     })
     response.end(webPanoramaHtml())
     return
@@ -100,7 +102,13 @@ export function openWebPanorama(url: string, run: typeof execFile = execFile, pl
   try { run(command.file, command.args, { timeout: 5_000 }, () => undefined) } catch { /* Optional open must not fail the run. */ }
 }
 
-export function webPanoramaHtml(): string {
+/**
+ * The page shell. `assets` is where ship-web.js/css are served: the legacy
+ * runner uses `/assets/`; the Ship extension serves under a secret path
+ * prefix and passes the relative `assets/`. The app fetches `graph.json`
+ * relative to the page, so both layouts poll their own graph.
+ */
+export function webPanoramaHtml(assets = '/assets/'): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -108,12 +116,12 @@ export function webPanoramaHtml(): string {
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Ship Flow · Web panorama</title>
 <link rel="icon" href="data:,"/>
-<link rel="stylesheet" href="/assets/ship-web.css"/>
+<link rel="stylesheet" href="${assets}ship-web.css"/>
 </head>
 <body>
 <div id="root"><p>Loading Ship Flow. If this message remains, rebuild or reinstall codsh-bundle and reload this page.</p></div>
 <noscript>Enable JavaScript to explore the Ship workflow.</noscript>
-<script type="module" src="/assets/ship-web.js"></script>
+<script type="module" src="${assets}ship-web.js"></script>
 </body>
 </html>
 `

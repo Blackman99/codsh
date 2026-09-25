@@ -353,7 +353,9 @@ PostToolUse, Stop, and SessionEnd (Cursor camelCase aliases included). Exit 2
 or `{"decision":"deny"}` blocks the prompt or tool; any other non-zero exit,
 timeout, or malformed output is a recorded failure and does not look like
 success. Hook stdout and stderr are shown as hook output, not as the model
-answer. An allowing hook does not skip the permission check, and a hook
+answer; a JSON `systemMessage` (as in Claude Code) is shown by itself, for any
+event, instead of the raw output. Hook commands also get `CODSH_HOOK_HOST_PID`,
+the dsh process running them. An allowing hook does not skip the permission check, and a hook
 cannot widen a sandbox or permission deny. Untrusted project hooks stay
 skipped. HTTP hooks are not run. A `updatedInput` rewrite is not applied;
 that call is blocked instead of running the original arguments. Unsplittable shell
@@ -784,10 +786,19 @@ unfinished spec in `docs/specs`. Its hooks keep the legacy records
 guards (a conflicting idea, a changed original, several unfinished specs,
 corrupt answers). A dismissed or cancelled card records nothing, so a later
 `/ship` resumes. A spec past wayfinding is refused with a pointer to legacy
-`codsh` (`/ship`), which reads the same files: grill, planning, execution, the
-Ship graph, and automatic phase continuation are not migrated yet. The plugin
-adds no keybinding, overrides no built-in command, and does not use Goals or
-Rhai. Legacy `codsh` `/ship` is unchanged.
+`codsh` (`/ship`), which reads the same files: grill, planning, execution, and
+automatic phase continuation are not migrated yet. `/ship` prints one line such
+as `Ship graph · docs/specs/x.md · Status: wayfinding · 待认领 1 · 已认领 1 ·
+已关闭 2 · 2 of 4 decision answers recorded · http://127.0.0.1:<port>/<token>/`
+and prints it again only when it changes; the URL opens the same live Web
+panorama as legacy `/ship`, joined from the same files on every poll, so the
+page and the terminal show the same Status, buckets, and answers. The server
+listens on `127.0.0.1` only, answers only under that random path, reads
+nothing it does not show, and stops when the session ends, dsh exits, or the
+plugin is uninstalled; resuming the session (`--continue`, `--resume`) reopens
+the same URL, and an open page reconnects by itself. `/ship` does not open a
+browser. The plugin adds no keybinding, overrides no built-in command, and does
+not use Goals or Rhai. Legacy `codsh` `/ship` is unchanged.
 Failed download, checksum, conflict, offline, or cancel leaves no success
 record. `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` also
 refuse unpinned remote updates and leave the previous install. Official marketplace auto-register stays off unless

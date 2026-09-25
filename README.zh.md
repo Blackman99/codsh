@@ -199,7 +199,9 @@ PostToolUse、Stop 和 SessionEnd 运行 `$GROK_HOME/hooks/*.json`、已信任�
 `<project>/.grok/hooks/*.json`，以及 `config.toml` 里 `hooks` 表中的命令 Hook
 （含 Cursor 驼峰别名）。退出码 2 或 `{"decision":"deny"}` 阻断提示或工具；其他
 非零退出、超时或畸形输出记为失败，不会显示成成功。Hook 的 stdout 和 stderr
-显示为 hook 输出，而不是模型回答。允许 Hook 不能跳过随后的权限检查，也不能放宽
+显示为 hook 输出，而不是模型回答；JSON 里的 `systemMessage`（与 Claude Code 相同）
+在任何事件中都单独显示，取代原始输出。Hook 命令还会拿到 `CODSH_HOOK_HOST_PID`，
+即运行它的 dsh 进程。允许 Hook 不能跳过随后的权限检查，也不能放宽
 沙箱或权限拒绝。未信任的项目 Hook 仍然跳过。HTTP Hook 不运行。`updatedInput`
 重写不会被套用，该调用会被阻断，而不是带着原参数执行。无法拆分的
 shell（`$(...)`、参数展开如 `$x`、`${x}`、`$1`、`"$1"`、`$@` 或 `$*`、控制流）不会被当成一条 glob allow；Read/Edit 的 deny 也
@@ -452,9 +454,16 @@ Ship 是 `codsh --rust` 的可选一方插件，不属于默认界面。
 保存封存的原始需求，`<spec>.ship.answers.json` 保存每张已回答的问题卡）和旧版保护
 （想法冲突、原始需求被改、多个未完成 spec、答案文件损坏）。被关闭或取消的问题卡
 不会留下记录，之后的 `/ship` 可以继续。已越过 wayfinding 的 spec 会被拒绝，并提示用
-旧版 `codsh`（`/ship`）继续，两者读取同一批文件：grill、规划、执行、Ship 图和阶段
-自动续跑尚未迁移。该插件不增加快捷键、不覆盖内置命令，也不使用 Goal 或 Rhai。
-旧版 `codsh` 的 `/ship` 保持不变。
+旧版 `codsh`（`/ship`）继续，两者读取同一批文件：grill、规划、执行和阶段自动续跑
+尚未迁移。`/ship` 会打印一行，例如 `Ship graph · docs/specs/x.md · Status: wayfinding ·
+待认领 1 · 已认领 1 · 已关闭 2 · 2 of 4 decision answers recorded ·
+http://127.0.0.1:<端口>/<令牌>/`，之后只在内容变化时再打印；该 URL 打开的是与旧版
+`/ship` 相同的实时 Web 全景图，每次轮询都从同一批文件重新汇总，因此浏览器与终端显示
+相同的 Status、分桶计数和问答。服务只监听 `127.0.0.1`，只响应这条随机路径，不读取
+页面之外的内容；会话结束、dsh 退出或卸载插件时停止；恢复会话（`--continue`、
+`--resume`）会重新打开同一 URL，已打开的页面自动重连。`/ship` 不会自动打开浏览器。
+该插件不增加快捷键、不覆盖内置命令，也不使用 Goal 或 Rhai。旧版 `codsh` 的 `/ship`
+保持不变。
 下载、校验、冲突、离线或取消失败不会留下成功安装。
 `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` 也会拒绝未钉死
 的远程更新并保留原安装。官方 marketplace 默认不

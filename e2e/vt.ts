@@ -51,10 +51,16 @@ function width(character: string): number {
  * A joiner is not its own column. Reading it as a separate character splits
  * 👩‍💻 into woman, ZWJ, and laptop even when the bytes wrote one cluster.
  */
+const graphemes = typeof Intl !== 'undefined' && 'Segmenter' in Intl
+  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  : undefined
+
 function nextGrapheme(text: string): string {
-  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
-    const segment = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
-      .segment(text)[Symbol.iterator]().next().value
+  if (graphemes !== undefined) {
+    // Only a short head is segmented: ICU copies whatever it is handed, and
+    // handing it the whole unread stream once per character made a long
+    // session cost gigabytes. No real grapheme runs anywhere near 64 units.
+    const segment = graphemes.segment(text.slice(0, 64))[Symbol.iterator]().next().value
     if (segment?.segment) return segment.segment
   }
   return text[0] ?? ''

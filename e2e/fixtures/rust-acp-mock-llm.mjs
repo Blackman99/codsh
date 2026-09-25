@@ -1865,7 +1865,7 @@ class RustAcpMockAdapter extends LlmAdapter {
         yield* mockText(`${answer.includes('Continue') ? 'WAYFINDER_RESUMED' : 'WAYFINDER_STOPPED'} original=${recovered}`)
         return
       }
-      const pending = idea.includes('PENDING_WAYFINDER')
+      const pending = idea.includes('PENDING_WAYFINDER') || idea.includes('MAP_WAYFINDER')
       if (done.length === 0) {
         yield* mockToolCall(`ship-wayfinder-question-${Date.now().toString(36)}`, 'ask_user_question', { questions: [{
           id: 'route', header: 'ship · wayfinder', question: 'Is the route clear?',
@@ -1893,6 +1893,36 @@ class RustAcpMockAdapter extends LlmAdapter {
       }
       if (last?.isError === true) {
         yield* mockText(`SHIP_LEDGER_REFUSED ${answer.replaceAll('\n', ' ').slice(0, 400)}`)
+        return
+      }
+      if (idea.includes('MAP_WAYFINDER')) {
+        // Browser graph scenario (ticket 196): after the ledger, write a local
+        // wayfinder map (a Blocked-by chain; closed, claimed, and open
+        // tickets; a long recorded answer; a question with no answer; a ticket
+        // never asked), then ask one more question so the terminal waits on a
+        // card while the browser shows the live map.
+        const map = join(process.cwd(), '.scratch', 'wayfinder-e2e', 'wayfinder')
+        const longAnswer = Array.from({ length: 12 }, (_, i) => `Line ${i + 1}: keep notes in an append-only local log so an offline edit is never lost.`).join(' ')
+        const tickets = [
+          ['01-repo-facts.md', ['# Repo facts', '', 'Type: research', 'Status: closed', '', '## Resolution', '', 'The workspace has no storage layer yet.', '']],
+          ['02-storage-choice.md', ['# Storage choice', '', 'Type: grilling', 'Status: resolved', 'Blocked by: 1', '', '## Question', '', 'Which local store keeps field notes available offline?', '', '## User answer', '', longAnswer, '']],
+          ['03-sync-policy.md', ['# Sync policy', '', 'Type: task', 'Status: claimed', 'Blocked by: 1, 2', '', '## Question', '', 'How should conflicting offline edits be merged?', '']],
+          ['04-offline-prototype.md', ['# Offline prototype', '', 'Type: prototype', 'Status: open', 'Blocked by: 3', '']],
+        ]
+        const step = done.length - 2
+        if (step < tickets.length) {
+          const [name, lines] = tickets[step]
+          yield* mockToolCall(`ship-map-ticket-${step}-${Date.now().toString(36)}`, 'write', { file_path: join(map, name), content: lines.join('\n') })
+          return
+        }
+        if (step === tickets.length) {
+          yield* mockToolCall(`ship-map-ask-${Date.now().toString(36)}`, 'ask_user_question', { questions: [{
+            id: 'storage', header: 'ship · wayfinder', question: 'Keep the append-only log?',
+            options: [{ label: 'Keep it', description: 'Recommended.' }, { label: 'Replace it' }],
+          }] })
+          return
+        }
+        yield* mockText(`WAYFINDER_MAPPED original=${idea} storage=${answer.includes('Keep it') ? 'keep' : 'other'}`)
         return
       }
       yield* mockText(`${pending ? 'WAYFINDER_WAITING' : 'WAYFINDER_READY'} original=${idea}`)

@@ -193,7 +193,7 @@ def main():
         listed = cli('plugin', 'list')
         assert 'status=disabled' in listed, listed
         enabled = cli('plugin', 'enable', 'ship')
-        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 2 hooks' in enabled, enabled
+        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 4 hooks' in enabled, enabled
         results['install_enable'] = True
 
         spec = main_cwd / 'docs/specs/wayfinder-e2e.md'

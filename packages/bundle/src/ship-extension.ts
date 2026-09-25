@@ -23,7 +23,9 @@
  *   spec is bound and `<spec>.ship.json` is sealed, and a bound spec is
  *   checked against its snapshot. Child sessions and plan mode are ignored.
  *
- * Nothing here touches a goal, Rhai, the graph cache, or the browser view.
+ * Nothing here touches a goal or Rhai. The graph cache, the browser graph,
+ * and the terminal summary line are layered on top in `ship-extension-web.ts`
+ * (ticket 196), which reads the same files.
  * @module codsh-bundle/src/ship-extension
  */
 
@@ -126,7 +128,8 @@ export interface ShipHookOutput {
 
 const OK: ShipHookOutput = { stdout: '', exitCode: 0 }
 
-function block(reason: string): ShipHookOutput {
+/** A hook result that stops the prompt or tool loop with a `Ship:` reason. */
+export function block(reason: string): ShipHookOutput {
   return { stdout: `${JSON.stringify({ decision: 'block', reason: `Ship: ${reason}` })}\n`, exitCode: 0 }
 }
 
@@ -157,7 +160,7 @@ export function readRunState(dataDir: string, cwd: string): ShipRunState | undef
   }
 }
 
-function writeRunState(dataDir: string, state: ShipRunState): void {
+export function writeRunState(dataDir: string, state: ShipRunState): void {
   const path = runStatePath(dataDir, state.cwd)
   mkdirSync(dirname(path), { recursive: true })
   const tmp = `${path}.${process.pid}.tmp`

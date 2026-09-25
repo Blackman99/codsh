@@ -68,8 +68,11 @@ state and contributions.
 Ship is optional here: `plugin install bundled:ship --trust` then
 `plugin enable ship` adds `/ship`, which runs the legacy pre-flight and
 wayfinder phase through dsh and keeps the legacy spec, snapshot, and answer
-files (a bare `/ship` resumes). Specs past wayfinding are pointed at legacy
-`codsh`; nothing Ship-related exists until you install and enable it.
+files (a bare `/ship` resumes). It prints a `Ship graph · …` line with a
+loopback URL (`127.0.0.1`, random path) for the same live browser graph as
+legacy `/ship`, stopped with the session and reopened on resume. Specs past
+wayfinding are pointed at legacy `codsh`; nothing Ship-related exists until you
+install and enable it.
 `/goal <objective> [--budget <tokens>]` keeps dsh working on an objective in
 goal rounds until independent verifier subagents agree it is done (the model's
 own claim never counts); `/goal status|pause|resume|clear` manage it, the

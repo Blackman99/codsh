@@ -248,7 +248,7 @@ function App() {
       request = new AbortController()
       const deadline = setTimeout(() => request?.abort(), 5000)
       try {
-        const response = await fetch('/graph.json', {
+        const response = await fetch('graph.json', {
           cache: 'no-store',
           signal: request.signal,
         })

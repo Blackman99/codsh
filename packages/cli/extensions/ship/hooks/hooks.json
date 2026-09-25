@@ -1,5 +1,8 @@
 {
   "hooks": {
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 15 }] }
+    ],
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }] }
     ],
@@ -8,6 +11,9 @@
         "matcher": "^(ask_user_question|write|edit|multi_edit|bash)$",
         "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }]
       }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 5 }] }
     ]
   }
 }

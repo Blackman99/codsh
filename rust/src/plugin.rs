@@ -5735,8 +5735,10 @@ mod tests {
         assert_eq!(
             row.contributions.hooks,
             vec![
+                "SessionStart".to_string(),
                 "UserPromptSubmit".to_string(),
-                "PostToolUse(^(ask_user_question|write|edit|multi_edit|bash)$)".to_string()
+                "PostToolUse(^(ask_user_question|write|edit|multi_edit|bash)$)".to_string(),
+                "SessionEnd".to_string()
             ]
         );
 

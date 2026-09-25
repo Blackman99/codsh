@@ -9,3 +9,5 @@ rust/target/
 packages/cli/native/
 packages/cli/extensions/ship/hooks/ship-hook.mjs
 packages/cli/extensions/ship/commands/
+packages/cli/extensions/ship/hooks/ship-web.mjs
+packages/cli/extensions/ship/web/
