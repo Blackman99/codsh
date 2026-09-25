@@ -6,8 +6,10 @@
 //! tool call and speaks JSON lines with it:
 //!
 //! * host -> engine, first line: `{"op":"run"|"validate", "source":
-//!   {"type":"script","script"} | {"type":"script_path","script_path"},
-//!   "cwd", "grokHome", "trusted", "args", "agentBudget", "scratchDir"}`.
+//!   {"type":"script","script"} | {"type":"script_path","script_path"} |
+//!   {"type":"name","name"}, "cwd", "grokHome", "trusted", "args",
+//!   "agentBudget", "scratchDir"}`. The `catalog` and `save` ops (ticket 184,
+//!   `workflow_catalog.rs`) are answered with one line and end the process.
 //! * engine -> host: `rejected`, `validated`, `started`, `request`
 //!   (`spawn_agent` with normalized options, `resume_agent` with the
 //!   `agent` request id and a prompt), `close` (`agent`, `status`,
@@ -76,6 +78,8 @@ const MAX_REPLY_LINE_BYTES: u64 = 32 * 1024 * 1024;
 pub enum Source {
     Script(String),
     Path(String),
+    /// A saved workflow of the catalog (ticket 184).
+    Name(String),
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +97,7 @@ pub struct Scope {
     pub trusted: bool,
 }
 
-fn valid_name(name: &str) -> bool {
+pub(crate) fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= MAX_WORKFLOW_NAME_BYTES
         && !name.starts_with('-')
@@ -104,13 +108,16 @@ fn valid_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-fn parse_workflow(script: &str, path: Option<&Path>) -> Result<WorkflowMeta, String> {
+pub(crate) fn invalid_name(name: &str) -> String {
+    format!(
+        "invalid workflow name '{name}': expected 1-64 lowercase letters, digits, or single hyphens"
+    )
+}
+
+pub(crate) fn parse_workflow(script: &str, path: Option<&Path>) -> Result<WorkflowMeta, String> {
     let meta = extract_meta(script).map_err(|error| format!("invalid workflow script: {error}"))?;
     if !valid_name(&meta.name) {
-        return Err(format!(
-            "invalid workflow name '{}': expected 1-64 lowercase letters, digits, or single hyphens",
-            meta.name
-        ));
+        return Err(invalid_name(&meta.name));
     }
     if let Some(path) = path {
         let stem = path
@@ -137,14 +144,14 @@ fn parse_workflow(script: &str, path: Option<&Path>) -> Result<WorkflowMeta, Str
 }
 
 /// The repository root above `cwd` (the nearest `.git` entry), else `cwd`.
-fn project_root(cwd: &Path) -> PathBuf {
+pub(crate) fn project_root(cwd: &Path) -> PathBuf {
     cwd.ancestors()
         .find(|dir| dir.join(".git").exists())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| cwd.to_path_buf())
 }
 
-fn read_trusted_source(path: &Path) -> Result<String, String> {
+pub(crate) fn read_trusted_source(path: &Path) -> Result<String, String> {
     let shown = path.display().to_string();
     let meta = std::fs::symlink_metadata(path)
         .map_err(|error| format!("failed to read {shown}: {error}"))?;
@@ -187,10 +194,23 @@ fn read_trusted_source(path: &Path) -> Result<String, String> {
 }
 
 /// Resolve a workflow source like the reference registry: an inline script
-/// (at most 1 MiB), or a `.rhai` file named after its `meta.name` inside the
-/// project (folder trust required) or `$GROK_HOME/workflows`.
+/// (at most 1 MiB), a `.rhai` file named after its `meta.name` inside the
+/// project (folder trust required) or `$GROK_HOME/workflows`, or the name of
+/// a saved workflow of the catalog (read now, so the run keeps this copy).
 pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
     match source {
+        Source::Name(name) => {
+            if !valid_name(name) {
+                return Err(invalid_name(name));
+            }
+            let catalog = crate::workflow_catalog::scan(scope);
+            let entry = catalog.find(name)?;
+            Ok(Resolved {
+                meta: entry.meta.clone(),
+                script: entry.script.clone(),
+                path: Some(entry.path.clone()),
+            })
+        }
         Source::Script(script) => {
             if script.len() as u64 > MAX_WORKFLOW_SOURCE_BYTES {
                 return Err(format!(
@@ -472,6 +492,13 @@ pub fn parse_start(line: &str) -> Result<Start, String> {
                 .ok_or("invalid engine request: script_path source needs `script_path`")?
                 .to_string(),
         ),
+        Some("name") => Source::Name(
+            source
+                .get("name")
+                .and_then(Value::as_str)
+                .ok_or("invalid engine request: name source needs `name`")?
+                .to_string(),
+        ),
         other => {
             return Err(format!(
                 "invalid engine request: unsupported source type {other:?}"
@@ -628,6 +655,14 @@ where
             return 2;
         }
     };
+    if let Some(reply) = serde_json::from_str::<Value>(&start)
+        .ok()
+        .as_ref()
+        .and_then(crate::workflow_catalog::serve_op)
+    {
+        write_line(&mut output, &reply);
+        return 0;
+    }
     let start = match parse_start(&start) {
         Ok(start) => start,
         Err(error) => {
@@ -1955,5 +1990,70 @@ mod tests {
         );
         let error = resolve(&Source::Script(big), &scope(true)).unwrap_err();
         assert!(error.contains("<inline>"), "{error}");
+    }
+
+    #[test]
+    fn a_named_run_keeps_the_script_it_resolved_at_launch() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("repo");
+        let home = root.path().join("grok");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(project.join(".grok").join("workflows")).unwrap();
+        std::fs::create_dir_all(home.join("workflows")).unwrap();
+        let file = project.join(".grok").join("workflows").join("tally.rhai");
+        let original = "let meta = #{ name: \"tally\", description: \"project tally\" };\nlet r = agent(\"count \" + args.query);\nr.output";
+        std::fs::write(&file, original).unwrap();
+        std::fs::write(
+            home.join("workflows").join("tally.rhai"),
+            "let meta = #{ name: \"tally\", description: \"user tally\" };\n\"user\"",
+        )
+        .unwrap();
+        let start = |trusted: bool| json!({"op": "run", "source": {"type": "name", "name": "tally"}, "cwd": project.to_str().unwrap(), "grokHome": home.to_str().unwrap(), "trusted": trusted, "args": {"query": "files"}});
+        // Trusted: the project definition shadows the personal one.
+        let session = Session::start(start(true), 1_000_000);
+        let started = session.sink.wait(|line| line["type"] == "started");
+        assert_eq!(started["meta"]["description"], "project tally");
+        assert_eq!(started["script"], original);
+        assert_eq!(started["path"], file.to_str().unwrap());
+        let request = session.sink.wait(|line| line["type"] == "request");
+        // Editing the file while the run waits changes nothing for it.
+        std::fs::write(
+            &file,
+            "let meta = #{ name: \"tally\", description: \"edited\" };\n\"edited\"",
+        )
+        .unwrap();
+        session
+            .send(json!({"type": "reply", "id": request["id"], "ok": ok_result("a1", "3 files")}));
+        let (code, lines) = session.finish();
+        assert_eq!(code, 0);
+        let outcome = lines.iter().find(|line| line["type"] == "outcome").unwrap();
+        assert_eq!(outcome["outcome"], "completed");
+        assert_eq!(outcome["result"], "3 files");
+        // Untrusted: only the personal definition is visible.
+        let session = Session::start(start(false), 1_000_000);
+        let started = session.sink.wait(|line| line["type"] == "started");
+        assert_eq!(started["meta"]["description"], "user tally");
+        let (_, lines) = session.finish();
+        assert_eq!(
+            lines.iter().find(|line| line["type"] == "outcome").unwrap()["result"],
+            "user"
+        );
+        // Unknown and invalid names are resolve failures.
+        for (name, expected) in [
+            ("missing", "unknown workflow: missing"),
+            ("Bad_Name", "invalid workflow name 'Bad_Name'"),
+        ] {
+            let session = Session::start(
+                json!({"op": "run", "source": {"type": "name", "name": name}, "cwd": project.to_str().unwrap(), "grokHome": home.to_str().unwrap(), "trusted": true}),
+                1_000_000,
+            );
+            let (_, lines) = session.finish();
+            assert_eq!(lines[0]["type"], "rejected");
+            assert_eq!(lines[0]["code"], "workflow_resolve_failed");
+            assert!(
+                lines[0]["error"].as_str().unwrap().starts_with(expected),
+                "{lines:?}"
+            );
+        }
     }
 }

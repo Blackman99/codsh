@@ -360,6 +360,20 @@ the hint line, and the board's `event: "workflow"` lines (run id, `call`,
 `session`, status, `elapsedMs`) feed the block title, the tasks pane's
 Workflows section, and the status line. A plain `-p` prompt sets
 `CODSH_WORKFLOW_FOREGROUND=1`, so there the tool waits for its run.
+Since ticket 184 the saved catalog lives in `rust/src/workflow_catalog.rs`:
+`scan` reads `<project root>/.grok/workflows` (trusted folders only) then
+`$GROK_HOME/workflows`, keeps the first definition of a name (project wins),
+and records shadowed, same-scope duplicate, and invalid files; it parses
+`meta` only and never runs a script. The engine answers `{op: "catalog"}` and
+`{op: "save"}` start lines without starting a run, and resolves
+`{type: "name"}` sources from a fresh scan, so the run's stored
+`script.rhai` is whatever the file held at launch. The Rust client scans the
+same catalog for `/workflows`, the slash menu, and `/<name>` (sent as a
+`workflow` control message with `launch`); the plugin parses slash arguments
+(`parseNamedArgs`), injects a `form: snapshot` reminder for a host-side
+launch, adds the reference listing to a top-level agent's first step when it
+changes, and saves a run through the engine (create-new, no symlinks, trusted
+project only). Built-in and plugin workflow catalogs are separate tickets.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and

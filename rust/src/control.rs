@@ -277,6 +277,12 @@ pub fn workflow_message(id: &str, session_id: &str, text: &str) -> Value {
     json!({ "type": "workflow", "id": id, "sessionId": session_id, "text": text })
 }
 
+/// `/<name> [args]` for a saved workflow (ticket 184): the name travels on
+/// its own, so a workflow called `runs` or `stop` is still a launch.
+pub fn workflow_launch_message(id: &str, session_id: &str, name: &str, args: &str) -> Value {
+    json!({ "type": "workflow", "id": id, "sessionId": session_id, "text": args, "launch": name })
+}
+
 pub struct ControlChannel {
     rx: Receiver<ControlEvent>,
     ready: bool,

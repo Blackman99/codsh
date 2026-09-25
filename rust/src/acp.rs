@@ -875,6 +875,16 @@ impl AcpClient {
         self.control_send(&crate::control::workflow_message(id, session, text))
     }
 
+    pub fn send_workflow_launch(&self, id: &str, name: &str, args: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::workflow_launch_message(
+            id, session, name, args,
+        ))
+    }
+
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
         let id = self.request(
             "initialize",

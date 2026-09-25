@@ -54,9 +54,46 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "view-plan",
         "reload-assets",
         "workflow",
+        "workflows",
         "worktree",
     ]
 }
+
+/// Slash names the host handles outside [`SLASH_COMMANDS`] (permission
+/// modes, appearance, screen, session, memory, MCP and plugin commands). A
+/// saved workflow with one of these names runs only as `/workflow <name>`.
+const HOST_SLASH_NAMES: &[&str] = &[
+    "accept",
+    "accept-edits",
+    "always-approve",
+    "ask",
+    "auto",
+    "dont",
+    "dont-ask",
+    "yolo",
+    "announcements",
+    "compact-mode",
+    "config",
+    "debug",
+    "docs",
+    "gboom",
+    "guides",
+    "help",
+    "howto",
+    "preferences",
+    "prefs",
+    "scroll-debug",
+    "settings",
+    "t",
+    "timestamps",
+    "toggle-mouse-reporting",
+    "mem",
+    "marketplace",
+    "plugins",
+    "revoke-approvals",
+    "exit",
+    "quit",
+];
 
 pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new(
@@ -145,8 +182,14 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new(
         "workflow",
         &[],
-        "List workflow runs; pause, resume, or stop one by name",
+        "Launch a saved workflow, list runs, or pause, resume, stop, save one",
         false,
+    ),
+    SlashCommand::new(
+        "workflows",
+        &[],
+        "List saved project and personal workflows; /workflows <name> for details",
+        true,
     ),
     SlashCommand::new(
         "worktree",
@@ -318,6 +361,10 @@ pub struct PromptComposer {
     pub chips: bool,
     pub footer_notice: String,
     pub asset_commands: Vec<(String, String)>,
+    /// Saved workflows offered as `/<name>` (ticket 184), rescanned from
+    /// `workflow_scope` whenever slash completion opens.
+    pub workflow_commands: Vec<(String, String)>,
+    pub workflow_scope: Option<crate::workflow::Scope>,
     pub last_esc: Option<Instant>,
     browse_origin: Option<String>,
     /// Prompt text cleared for a submit the host has not accepted yet.
@@ -388,6 +435,8 @@ impl PromptComposer {
             chips: false,
             footer_notice: String::new(),
             asset_commands: Vec::new(),
+            workflow_commands: Vec::new(),
+            workflow_scope: None,
             last_esc: None,
             browse_origin: None,
             pending_submit: None,
@@ -993,6 +1042,7 @@ impl PromptComposer {
                         .or_else(|| {
                             self.asset_commands
                                 .iter()
+                                .chain(self.workflow_commands.iter())
                                 .find(|(name, _)| name == item)
                                 .map(|(_, hint)| hint.as_str())
                         })
@@ -1952,14 +2002,47 @@ impl PromptComposer {
         Action::Submit(prepared.text)
     }
 
+    /// Whether `/<name>` already belongs to a host command, skill, or custom
+    /// command; those win over a saved workflow of the same name.
+    pub fn slash_taken(&self, name: &str) -> bool {
+        SLASH_COMMANDS
+            .iter()
+            .any(|command| command.names().any(|candidate| candidate == name))
+            || builtin_command_names().contains(&name)
+            || HOST_SLASH_NAMES.contains(&name)
+            || self
+                .asset_commands
+                .iter()
+                .any(|(label, _)| label.strip_prefix('/') == Some(name))
+    }
+
+    /// Rescan the saved workflows for `/<name>` completion.
+    pub fn refresh_workflow_commands(&mut self) {
+        let Some(scope) = self.workflow_scope.clone() else {
+            self.workflow_commands.clear();
+            return;
+        };
+        let catalog = crate::workflow_catalog::scan(&scope);
+        self.workflow_commands =
+            crate::workflow_catalog::menu_entries(&catalog, &|name| self.slash_taken(name));
+    }
+
     fn open_slash(&mut self) {
+        if self.overlay != Overlay::Slash {
+            self.refresh_workflow_commands();
+        }
         let query = self.draft.text();
         let mut ranked: Vec<(u8, String)> = SLASH_COMMANDS
             .iter()
             .filter_map(|command| command.rank(query).map(|rank| (rank, command.primary())))
-            .chain(self.asset_commands.iter().filter_map(|(name, _)| {
-                rank_slash_name(name, query).map(|rank| (rank, name.clone()))
-            }))
+            .chain(
+                self.asset_commands
+                    .iter()
+                    .chain(self.workflow_commands.iter())
+                    .filter_map(|(name, _)| {
+                        rank_slash_name(name, query).map(|rank| (rank, name.clone()))
+                    }),
+            )
             .collect();
         ranked.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
         self.matches = ranked.into_iter().map(|(_, name)| name).collect();
@@ -4359,6 +4442,49 @@ mod tests {
             1,
             "{shown}"
         );
+        let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn saved_workflows_complete_as_slash_names_with_arguments() {
+        let home = temp_home();
+        let workflows = home.join("grok").join("workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("triage.rhai"),
+            "let meta = #{ name: \"triage\", description: \"Sort new issues\" };\n1",
+        )
+        .unwrap();
+        fs::write(
+            workflows.join("compact.rhai"),
+            "let meta = #{ name: \"compact\", description: \"clashes\" };\n1",
+        )
+        .unwrap();
+        let mut composer = PromptComposer::load(&home, &[]);
+        composer.workflow_scope = Some(crate::workflow::Scope {
+            cwd: home.clone(),
+            grok_home: Some(home.join("grok")),
+            trusted: false,
+        });
+        for ch in "/tri".chars() {
+            composer.handle_key(key(KeyCode::Char(ch)), ctx());
+        }
+        let shown = composer.overlay_text();
+        assert!(
+            shown.contains("> /triage  workflow · user  Sort new issues"),
+            "{shown}"
+        );
+        // A name a host command owns is not offered as a workflow.
+        assert!(
+            !composer
+                .workflow_commands
+                .iter()
+                .any(|(name, _)| name == "/compact")
+        );
+        assert!(composer.slash_taken("compact") && composer.slash_taken("workflows"));
+        // Accepting leaves room for arguments instead of running at once.
+        assert_eq!(composer.handle_key(key(KeyCode::Tab), ctx()), Action::None);
+        assert_eq!(composer.text(), "/triage ");
         let _ = fs::remove_dir_all(home);
     }
 

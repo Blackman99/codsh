@@ -1,9 +1,11 @@
-// Rhai workflows (tickets 181, 182 and 183): a real reference-format script runs in the
+// Rhai workflows (tickets 181, 182, 183 and 184): a real reference-format script runs in the
 // Rust engine (`codsh-rust __workflow-engine`) and its agent() calls start
 // real dsh children through rust-acp-subagents. The children answer from the
 // keyless mock model. Ticket 183 runs are background runs: the tool call
 // returns at once and the result comes back in a completion message that
-// wakes the session (the mock echoes it as PARENT_WORKFLOW_NOTICE).
+// wakes the session (the mock echoes it as PARENT_WORKFLOW_NOTICE). Ticket
+// 184 adds the saved project and personal catalog: launch by name, /<name>,
+// /workflow save, and the listing the model sees.
 // Build the debug binary first:
 //   cargo build --manifest-path rust/Cargo.toml --locked -p codsh-rust
 import { execFileSync, spawn } from 'node:child_process'
@@ -22,8 +24,8 @@ import {
   concurrencyCap,
   normalizeInput,
   scratchDir,
+  engineSource,
   summarizeResult,
-  unsupportedSource,
 } from '../packages/cli/bin/rust-acp-workflow.mjs'
 import {
   formatElapsed,
@@ -33,6 +35,7 @@ import {
   needsName,
   newRunId,
   parseCommand,
+  parseNamedArgs,
   uniqueName,
 } from '../packages/cli/bin/rust-acp-workflow-runs.mjs'
 
@@ -150,10 +153,11 @@ function startAgent({ policy, env = {}, trusted = true, permission = { mode: 'al
   const traceLines = () => (existsSync(trace) ? readFileSync(trace, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) : [])
   let controlId = 0
   /** `/workflow <text>` over the control channel; resolves with the reply text. */
-  async function slash(sessionId, text) {
+  async function slash(sessionId, text, launch) {
     const id = `w${++controlId}`
     await waitFor(() => server?.socket && controlLines.some(line => line.type === 'hello'), 'the control hello')
-    server.socket.write(`${JSON.stringify({ type: 'workflow', id, sessionId, text })}\n`)
+    // Ticket 184: `launch` is what the client sends for `/<name> [args]`.
+    server.socket.write(`${JSON.stringify({ type: 'workflow', id, sessionId, text, ...launch === undefined ? {} : { launch } })}\n`)
     const reply = await waitFor(() => controlLines.find(line => line.type === 'workflow_result' && line.id === id), `workflow reply ${id}`)
     if (reply.error) throw new Error(reply.error)
     return reply.text
@@ -273,10 +277,18 @@ describe('workflow tool input and helpers', () => {
     }
   })
 
-  it('names what this build cannot run instead of pretending', () => {
-    expect(unsupportedSource({ type: 'name', value: 'deep-research' }).message).toMatch(/^workflow_unsupported: registered workflow names are not available in this build/)
-    // Ticket 183: resume, pause and stop are real sources now.
-    for (const type of ['resume', 'pause', 'stop', 'script', 'script_path']) expect(unsupportedSource({ type, value: 'r' })).toBeUndefined()
+  it('maps launch sources for the engine and parses /<name> arguments like the reference', () => {
+    // Ticket 184: a registered name is resolved by the engine against the catalog.
+    expect(engineSource({ type: 'name', value: 'deep-research' })).toEqual({ type: 'name', name: 'deep-research' })
+    expect(engineSource({ type: 'script', value: 'x' })).toEqual({ type: 'script', script: 'x' })
+    expect(engineSource({ type: 'script_path', value: '/p.rhai' })).toEqual({ type: 'script_path', script_path: '/p.rhai' })
+    expect(parseNamedArgs('')).toMatchObject({ args: null, objective: undefined, agentBudget: undefined, effort: undefined })
+    expect(parseNamedArgs('  find the  bug ')).toEqual({ args: { query: 'find the  bug', objective: 'find the  bug' }, objective: 'find the  bug' })
+    expect(parseNamedArgs('--agent-budget 3 --effort high find it')).toEqual({ args: { query: 'find it', objective: 'find it' }, objective: 'find it', agentBudget: 3, effort: 'high' })
+    expect(parseNamedArgs('--agent-budget=2 {"objective":"o","n":1}')).toEqual({ args: { objective: 'o', n: 1 }, objective: 'o', agentBudget: 2 })
+    expect(() => parseNamedArgs('--agent-budget 0 x')).toThrow('`agent_budget` must be a positive integer')
+    expect(() => parseNamedArgs('--effort turbo x')).toThrow('turbo')
+    expect(parseNamedArgs('[1,2]').args).toEqual({ query: '[1,2]', objective: '[1,2]' })
   })
 
   it('summarizes results, caps concurrency and intersects capabilities like the reference', async () => {
@@ -349,9 +361,12 @@ describe('workflow tool input and helpers', () => {
     expect(needsName('stop', runs)).toBe('Say which run to stop:\n  deep-research-2 (active)\n  triage (user paused)\n(/workflow stop <name>)')
     expect(needsName('pause', [runs[0]])).toBe('No runs to pause.')
     const overview = formatOverview(runs)
-    expect(overview).toBe(`- 'deep-research-2' — active\n  Phase: check (2/2)\n  Agents: 1 done, 1 running, 1 failed\n  Elapsed: 1m 1s\n  Objective: find the bug\n- 'triage' — user paused\n  Elapsed: 5s\n- 'deep-research' — complete\n  Elapsed: 0s\nManage with /workflow pause|resume|stop <name>.`)
+    expect(overview).toBe(`- 'deep-research-2' — active\n  Phase: check (2/2)\n  Agents: 1 done, 1 running, 1 failed\n  Elapsed: 1m 1s\n  Objective: find the bug\n- 'triage' — user paused\n  Elapsed: 5s\n- 'deep-research' — complete\n  Elapsed: 0s\nManage with /workflow pause|resume|stop|save <name>.`)
     expect(overview).not.toContain('wf_')
-    expect(formatOverview([])).toBe('No workflow runs in this session yet. Ask the agent to run a workflow script (inline or a script_path); saved workflows cannot be launched by name in this build.')
+    expect(formatOverview([])).toBe('No workflow runs in this session yet. Launch one with /workflow <name> [args]; browse with /workflows.')
+    // Ticket 184: bare save offers only runs that can be saved under their own name.
+    expect(needsName('save', runs, new Set(['triage']))).toBe('Say which run to save:\n  triage (user paused)\n(/workflow save <name>)')
+    expect(needsName('save', runs)).toBe('No runs to save.')
     const reminder = formatReminder([
       run('wf_9', 'scan', 'complete', { resultSummary: 'line one\nline two', elapsedFloor: 2000 }),
       run('wf_8', 'fan', 'budget_limited', { pauseMessage: 'workflow agent budget exceeded:  requested 2', agentsUsed: 1 }),
@@ -481,7 +496,7 @@ let b = budget();
     const agent = startAgent()
     const sessionId = await open(agent)
     const refused = [
-      [{ source: { type: 'name', name: 'deep-research' } }, 'workflow_unsupported: registered workflow names are not available in this build'],
+      [{ source: { type: 'name', name: 'deep-research' } }, 'workflow_resolve_failed: unknown workflow: deep-research'],
       [{ source: { type: 'resume', resume_from_run_id: 'wf_1' } }, 'workflow_resume_failed: workflow run not found: wf_1'],
       [{ source: { type: 'stop', run_id: 'wf_1' } }, "workflow_control_failed: no workflow run in this session matches 'wf_1'"],
       [{ source: { type: 'pause', run_id: 'nope' } }, "workflow_control_failed: no workflow run in this session matches 'nope'"],
@@ -844,7 +859,7 @@ describe('background runs, pause, resume and stop (ticket 183)', () => {
     // The text view agrees with the board while the runs are live.
     await waitFor(() => agent.events.filter(event => event.event === 'start').length === 3, 'three holding children')
     const live = await agent.slash(first, 'runs')
-    expect(live).toMatch(/^- 'dup-probe-2' — active\n  Agents: 0 done, 1 running\n  Elapsed: \ds\n  Objective: hold then answer\n- 'dup-probe' — active\n  Agents: 0 done, 1 running\n  Elapsed: \ds\n  Objective: first launch\nManage with \/workflow pause\|resume\|stop <name>\.$/)
+    expect(live).toMatch(/^- 'dup-probe-2' — active\n  Agents: 0 done, 1 running\n  Elapsed: \ds\n  Objective: hold then answer\n- 'dup-probe' — active\n  Agents: 0 done, 1 running\n  Elapsed: \ds\n  Objective: first launch\nManage with \/workflow pause\|resume\|stop\|save <name>\.$/)
     expect(await agent.slash(second, '')).toMatch(/^- 'dup-probe' — active\n/)
     const one = await completion(agent, 'dup-probe', first)
     const two = await completion(agent, 'dup-probe-2', first)
@@ -865,8 +880,9 @@ describe('background runs, pause, resume and stop (ticket 183)', () => {
     expect(await agent.slash(first, 'stop dup')).toBe("Several runs could be 'stop' — pick one by name:\n  dup-probe (complete)\n  dup-probe-2 (complete)\n(/workflow stop <name>)")
     expect(await agent.slash(first, 'resume nothing')).toBe("No workflow run matches 'nothing'.")
     expect(await agent.slash(first, 'resume dup-probe')).toBe("Run 'dup-probe' cannot be resumed (status: complete). Start a new run instead.")
-    expect(await agent.slash(first, 'save dup-probe')).toContain("Could not save workflow 'dup-probe': saving a run as a named workflow is not available in this build")
-    expect(await agent.slash(first, 'deep-research look')).toContain("Workflow 'deep-research' unavailable: registered workflow names are not available in this build")
+    // Ticket 184: a repeated launch's handle is not a workflow name.
+    expect(await agent.slash(first, 'save dup-probe-2')).toMatch(/^Save is disabled for run 'dup-probe-2'/)
+    expect(await agent.slash(first, 'deep-research look')).toBe("Workflow 'deep-research' unavailable: unknown workflow: deep-research")
     expect(await agent.slash(first, 'stop')).toBe('No runs to stop.')
   }, 180000)
 
@@ -1043,4 +1059,173 @@ let b = agent("CHILD_SAY two");
     await new Promise(resolve => setTimeout(resolve, 500))
     expect(notices(agent, sessionId)).toEqual([])
   }, 120000)
+})
+
+describe('saved project and personal workflows (ticket 184)', () => {
+  const saved = (dir, name, description, body, extra = '') => {
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, `${name}.rhai`)
+    writeFileSync(path, `let meta = #{ name: "${name}", description: "${description}"${extra} };\n${body}`)
+    return path
+  }
+  const projectDir = agent => join(agent.cwd, '.grok', 'workflows')
+  const userDir = agent => join(agent.grokHome, 'workflows')
+  /** What the model was shown: saved-workflow listings and slash-launch reminders. */
+  async function context(agent, sessionId) {
+    agent.updates.length = 0
+    await agent.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'WORKFLOW_CONTEXT' }] }, 60000)
+    const text = answer(agent, sessionId)
+    expect(text).toContain('PARENT_WORKFLOW_CONTEXT\n')
+    return text.slice(text.lastIndexOf('PARENT_WORKFLOW_CONTEXT\n'))
+  }
+
+  it('runs a saved workflow by name: the project copy wins in a trusted folder, the personal copy otherwise, and the model sees the listing', async () => {
+    const agent = startAgent({ control: true })
+    const projectPath = saved(projectDir(agent), 'tally', 'project tally', 'agent("CHILD_SAY project " + args.query).output', ', when_to_use: "counting things"')
+    const userPath = saved(userDir(agent), 'tally', 'user tally', 'agent("CHILD_SAY user " + args.query).output')
+    const notesPath = saved(userDir(agent), 'notes', 'personal notes', '"notes"')
+    writeFileSync(join(userDir(agent), 'broken.rhai'), 'let meta = #{ name: "broken", description: "d" ;\n1')
+    writeFileSync(join(userDir(agent), 'README.md'), 'not a workflow')
+    const sessionId = await open(agent)
+    const shown = await context(agent, sessionId)
+    expect(shown).toContain(`The following workflows are available:\n\n- tally: project tally\n  Use when: counting things\n  Absolute path: ${projectPath}\n- notes: personal notes\n  Absolute path: ${notesPath}`)
+    expect(shown).not.toContain('user tally')
+    expect(shown).not.toContain('broken')
+    // The listing is sent once per change, not on every turn.
+    expect((await context(agent, sessionId)).split('The following workflows are available:')).toHaveLength(2)
+
+    const block = await runToEnd(agent, sessionId, { source: { type: 'name', name: 'tally' }, args: { query: 'q1' } }, 'tally')
+    expect(block).toContain('— status: complete')
+    expect(resultText(block, 'tally')).toBe('CHILD_SAID project q1')
+    // Discovery ran no script: only the launched workflow started a child.
+    expect(agent.events.filter(event => event.event === 'start')).toHaveLength(1)
+    expect(childTurns(agent).flatMap(line => line.user).join('\n')).not.toContain('CHILD_SAY user')
+    // An invalid file is named, not run, and not guessed at.
+    agent.updates.length = 0
+    await workflow(agent, sessionId, { source: { type: 'name', name: 'broken' } })
+    expect(answer(agent)).toMatch(/PARENT_WORKFLOW error: Error: workflow_resolve_failed: workflow 'broken' is not loaded: \S+broken\.rhai is invalid: /)
+    expect(await agent.slash(sessionId, 'broken')).toMatch(/^Workflow 'broken' unavailable: workflow 'broken' is not loaded: /)
+    agent.updates.length = 0
+    await workflow(agent, sessionId, { source: { type: 'name', name: '../tally' } })
+    expect(answer(agent)).toContain("PARENT_WORKFLOW error: Error: workflow_resolve_failed: invalid workflow name '../tally'")
+
+    // Removing every saved workflow tells the model its listing is out of date.
+    rmSync(projectDir(agent), { recursive: true })
+    rmSync(userDir(agent), { recursive: true })
+    expect(await context(agent, sessionId)).toContain('No saved workflows are available any more; the earlier workflow listing is out of date.')
+
+    // An untrusted folder loads no project workflow: the personal copy runs.
+    const untrusted = startAgent({ control: true, trusted: false })
+    saved(projectDir(untrusted), 'tally', 'project tally', 'agent("CHILD_SAY project " + args.query).output')
+    const personal = saved(userDir(untrusted), 'tally', 'user tally', 'agent("CHILD_SAY user " + args.query).output')
+    const other = await open(untrusted)
+    const listing = await context(untrusted, other)
+    expect(listing).toContain(`- tally: user tally\n  Absolute path: ${personal}`)
+    expect(listing).not.toContain('project tally')
+    const personalBlock = await runToEnd(untrusted, other, { source: { type: 'name', name: 'tally' }, args: { query: 'q2' } }, 'tally')
+    expect(resultText(personalBlock, 'tally')).toBe('CHILD_SAID user q2')
+    expect(userPath).not.toBe(personal)
+  }, 180000)
+
+  it('/<name> and /workflow <name> take args, --agent-budget and --effort, run dsh children, and report into the session', async () => {
+    const agent = startAgent({ control: true })
+    saved(userDir(agent), 'probe', 'route probe', `phase("go");
+let r = agent("CHILD_MODEL report", #{ model: "cli-mock-fork" });
+let objective = if type_of(args) == "map" { args.objective } else { "none" };
+#{ objective: objective, route: r.output }`)
+    saved(userDir(agent), 'pair', 'two children', 'let a = agent("CHILD_SAY a");\nlet b = agent("CHILD_SAY b");\n[a.output, b.output]')
+    const sessionId = await open(agent)
+    expect(await agent.slash(sessionId, 'probe --effort high check the queue')).toBe("Workflow 'probe' started in the background. Watch it in /workflow runs; the result lands here when it finishes.")
+    const probe = runBlock(await completion(agent, 'probe', sessionId), 'probe')
+    expect(probe).toContain('— status: complete')
+    const result = JSON.parse(resultText(probe, 'probe'))
+    expect(result.objective).toBe('check the queue')
+    // The launch effort reached the real child.
+    expect(result.route).toMatch(/^CHILD_MODEL route=cli-mock\/cli-mock-fork effort=high tools=/)
+    // The model learns about the host-side launch.
+    const shown = await context(agent, sessionId)
+    expect(shown).toMatch(/The user launched background workflow 'probe' \(run id wf_[0-9a-f]+\) with the slash command: \/probe --effort high check the queue\nThis was handled host-side; no tool call was involved\./)
+
+    // The agent budget is a hard cap.
+    expect(await agent.slash(sessionId, 'pair --agent-budget 1')).toContain("Workflow 'pair' started in the background.")
+    const limited = runBlock(await completion(agent, 'pair', sessionId), 'pair')
+    expect(limited).toContain('— status: budget_limited')
+    // The client's `/<name>` form: the whole text is the arguments (JSON here).
+    expect(await agent.slash(sessionId, '--agent-budget 2 {"objective":"json objective"}', 'pair')).toContain("Workflow 'pair-2' started in the background.")
+    const full = runBlock(await completion(agent, 'pair-2', sessionId), 'pair-2')
+    expect(full).toContain('— status: complete')
+    expect(full).toContain('Objective: json objective')
+    expect(JSON.parse(resultText(full, 'pair-2'))).toEqual(['CHILD_SAID a', 'CHILD_SAID b'])
+
+    // Bad arguments and unknown names start nothing.
+    const started = agent.events.filter(event => event.event === 'start').length
+    expect(await agent.slash(sessionId, 'probe --effort turbo x')).toBe("Could not start workflow 'probe': invalid workflow `effort`: unknown reasoning effort 'turbo'")
+    expect(await agent.slash(sessionId, 'probe --agent-budget 0 x')).toBe("Could not start workflow 'probe': `agent_budget` must be a positive integer")
+    expect(await agent.slash(sessionId, 'ghost x')).toBe("Workflow 'ghost' unavailable: unknown workflow: ghost")
+    expect(await agent.slash(sessionId, 'x', 'ghost')).toBe("Workflow 'ghost' unavailable: unknown workflow: ghost")
+    expect(agent.events.filter(event => event.event === 'start')).toHaveLength(started)
+    const board = await agent.slash(sessionId, 'runs')
+    for (const line of ["- 'pair' — budget limited\n", "- 'pair-2' — complete\n", "- 'probe' — complete\n"]) expect(board).toContain(line)
+  }, 180000)
+
+  it('keeps the script a run started with when the file is edited, including across pause and resume', async () => {
+    const agent = startAgent({ control: true })
+    const path = saved(userDir(agent), 'editable', 'edit me', 'let a = agent("CHILD_SAY first", #{ label: "early" });\nlet b = agent("CHILD_ONCE edit-tag", #{ label: "held" });\n"original " + a.output + " " + b.output')
+    const original = readFileSync(path, 'utf8')
+    const sessionId = await open(agent)
+    expect(await agent.slash(sessionId, 'editable')).toContain("Workflow 'editable' started in the background.")
+    await waitFor(() => agent.events.some(event => event.event === 'start' && event.label === 'held'), 'the held child')
+    // Its first model turn is holding (so the resumed one answers at once).
+    await waitFor(() => childTurns(agent).some(line => line.user.some(text => text.includes('CHILD_ONCE edit-tag'))), 'the held turn')
+    writeFileSync(path, 'let meta = #{ name: "editable", description: "edited" };\n"edited"')
+    expect(readFileSync(join(runDir(agent, sessionId, 'editable').dir, 'script.rhai'), 'utf8')).toBe(original)
+    expect(await agent.slash(sessionId, 'pause editable')).toMatch(/^Paused editable/)
+    await waitFor(() => engines(agent).length === 0, 'the engine exited')
+    expect(await agent.slash(sessionId, 'resume editable')).toBe('Resumed editable from its journal.')
+    const resumed = runBlock(await completion(agent, 'editable', sessionId), 'editable')
+    expect(resultText(resumed, 'editable')).toBe('original CHILD_SAID first CHILD_ONCE_DONE edit-tag')
+    // A new launch reads the edited file.
+    expect(await agent.slash(sessionId, 'editable')).toContain("Workflow 'editable-2' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'editable-2', sessionId), 'editable-2'), 'editable-2')).toBe('edited')
+  }, 180000)
+
+  it('/workflow save writes a run into the project catalog, never replaces a file, and refuses what it cannot write', async () => {
+    const agent = startAgent({ control: true })
+    const sessionId = await open(agent)
+    const script = 'let meta = #{ name: "keeper", description: "keep me" };\nagent("CHILD_SAY kept").output'
+    await runToEnd(agent, sessionId, { source: { type: 'script', script } }, 'keeper')
+    await runToEnd(agent, sessionId, { source: { type: 'script', script } }, 'keeper-2')
+    expect(await agent.slash(sessionId, 'save')).toBe('Say which run to save:\n  keeper (complete)\n(/workflow save <name>)')
+    expect(await agent.slash(sessionId, 'save keeper-2')).toMatch(/^Save is disabled for run 'keeper-2': it is a duplicate-run display handle, while the script is still named 'keeper'\./)
+    const target = join(projectDir(agent), 'keeper.rhai')
+    expect(await agent.slash(sessionId, 'save keeper')).toBe(`Saved workflow 'keeper' to ${target} — runnable by name from now on.`)
+    expect(readFileSync(target, 'utf8')).toBe(script)
+    const again = await agent.slash(sessionId, 'save keeper')
+    expect(again).toContain(`Could not save workflow 'keeper': ${target} already exists; saving never replaces a workflow file`)
+    expect(again).toContain("\nThe run's script stays at ")
+    expect(await agent.slash(sessionId, 'save')).toBe('No runs to save.')
+    // The saved copy is runnable by name at once.
+    expect(await agent.slash(sessionId, 'keeper')).toContain("Workflow 'keeper-3' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'keeper-3', sessionId), 'keeper-3'), 'keeper-3')).toBe('CHILD_SAID kept')
+
+    // No project folder trust: nothing is written, and the reply says where to copy it.
+    const untrusted = startAgent({ control: true, trusted: false })
+    const other = await open(untrusted)
+    await runToEnd(untrusted, other, { source: { type: 'script', script } }, 'keeper')
+    const refused = await untrusted.slash(other, 'save keeper')
+    expect(refused).toContain("Could not save workflow 'keeper': workflow path is not trusted: ")
+    expect(refused).toContain(`No project workflow directory is writable here, so nothing was saved. The run's script stays at `)
+    expect(refused).toContain(`copy it to ${join(untrusted.grokHome, 'workflows', 'keeper.rhai')}.`)
+    expect(existsSync(join(untrusted.cwd, '.grok'))).toBe(false)
+
+    // A trusted folder whose .grok is not a directory is not writable either.
+    const blocked = startAgent({ control: true })
+    writeFileSync(join(blocked.cwd, '.grok'), 'a file')
+    const third = await open(blocked)
+    await runToEnd(blocked, third, { source: { type: 'script', script } }, 'keeper')
+    const unwritable = await blocked.slash(third, 'save keeper')
+    expect(unwritable).toContain("Could not save workflow 'keeper': ")
+    expect(unwritable).toContain('No project workflow directory is writable here, so nothing was saved.')
+    expect(readFileSync(join(blocked.cwd, '.grok'), 'utf8')).toBe('a file')
+  }, 240000)
 })

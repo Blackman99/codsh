@@ -22,6 +22,13 @@ returns at once, the run's completion arrives as its own notice turn, and
 Workflows section show and control it. A plain -p prompt still waits for its
 run and prints the run's result block.
 
+Ticket 184 adds the saved catalog: a project workflow in <root>/.grok/workflows
+(trusted folder) shadows a personal one of the same name in
+$GROK_HOME/workflows, /workflows lists both scopes with what is hidden or
+invalid, the slash menu completes `/<name>`, `/<name> args` runs real dsh
+children and reports into the session, /workflow save writes a finished run
+into the project catalog, and -p runs a workflow by name.
+
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first); the binary is also the workflow
 engine. It reuses the Session harness of rust-screen-pty-test.py.
@@ -95,6 +102,20 @@ let note = write_scratch_file("panel.md", "held " + counted.output.held.to_strin
 #{ peaks: peaks, held: counted.output.held, note: note }
 '''
 
+DIGEST = '''let meta = #{ name: "digest", description: "Project digest of one topic", when_to_use: "Ticket 184 PTY probe" };
+phase("Digest");
+let topic = if type_of(args) == "map" { args.objective } else { "nothing" };
+agent("CHILD_SAY project digest of " + topic, #{ label: "digester" }).output
+'''
+
+PERSONAL_DIGEST = '''let meta = #{ name: "digest", description: "Personal digest (shadowed)" };
+agent("CHILD_SAY personal digest").output
+'''
+
+KEEP = '''let meta = #{ name: "keeper", description: "A run worth keeping" };
+agent("CHILD_SAY kept answer", #{ label: "keeper" }).output
+'''
+
 BROKEN = '''let meta = #{ name: "broken", description: "A script with a syntax error" };
 let x = ;
 '''
@@ -156,6 +177,13 @@ def main():
         (cwd / 'slow.rhai').write_text(SLOW)
         (cwd / 'broken.rhai').write_text(BROKEN)
         (cwd / 'panel.rhai').write_text(PANEL)
+        project_workflows = cwd / '.grok' / 'workflows'
+        project_workflows.mkdir(parents=True)
+        (project_workflows / 'digest.rhai').write_text(DIGEST)
+        user_workflows = home / '.codsh-rust' / '.grok' / 'workflows'
+        user_workflows.mkdir(parents=True)
+        (user_workflows / 'digest.rhai').write_text(PERSONAL_DIGEST)
+        (user_workflows / 'mangled.rhai').write_text(BROKEN.replace('broken', 'mangled'))
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
         env = {
@@ -189,7 +217,7 @@ def main():
             prompt(session, '/workflow runs')
             shown = wait_until(session, lambda s: "- 'triage' — complete" in s, 'runs overview', 15)
             assert 'Phase: Summary (2/2)' in shown and 'Agents: 4 done' in shown, shown
-            assert 'Manage with /workflow pause|resume|stop <name>.' in shown, shown
+            assert 'Manage with /workflow pause|resume|stop|save <name>.' in shown, shown
             results['overview'] = True
 
             # 3. /tasks lists the four children, tagged with the workflow, and
@@ -252,8 +280,76 @@ def main():
             shown = wait_until(session, lambda s: 'workflow_resolve_failed' in s, 'syntax error not shown', 10)
             assert 'script failed to parse' in shown, shown
             results['syntax_error'] = True
+
             results['session_id'] = session.session_id()
             results['screen'] = session.finish(expect_alt_leave=True)['exit']
+        finally:
+            session.close()
+
+        # Ticket 184 runs in a second PTY session (same folder and homes), so
+        # neither session's screen log grows past what the emulator replays.
+        session = Session('saved', LAUNCHER, cwd, env, output,
+                          extra=['--fullscreen', '--always-approve', '--trust'], cols=150, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+
+            # 6. Ticket 184: /workflows lists the catalog with its scopes, the
+            #    shadowed personal copy and the invalid file, in lines that fit
+            #    the status area; /workflows <name> gives details or the reason.
+            prompt(session, '/workflows')
+            shown = wait_until(session, lambda s: 'Saved workflows (1): /digest [project].' in s, '/workflows overview', 15)
+            flat = shown.replace('\n', '')
+            assert 'Hidden: digest [user] (a project workflow of the same name takes precedence)' in flat, shown
+            assert 'Not loaded (invalid, never run): mangled.rhai [user]' in flat, shown
+            assert 'Built-in and plugin workflows are not part of this catalog' in flat, shown
+            assert 'details: /workflows <name>' in flat, shown
+            prompt(session, '/workflows digest')
+            shown = wait_until(session, lambda s: 'digest [project] — Project digest of one topic' in s, '/workflows digest', 15)
+            flat = shown.replace('\n', '')
+            assert 'Use when: Ticket 184 PTY probe' in flat and 'Run: /digest [args] or /workflow digest [args]' in flat, shown
+            assert '[user] — the project workflow takes precedence.' in flat, shown
+            prompt(session, '/workflows mangled')
+            shown = wait_until(session, lambda s: 'Not loaded: ' in s and 'script failed to parse' in s.replace('\n', ''), '/workflows mangled', 15)
+            results['catalog_overview'] = True
+
+            # 7. The slash menu completes /digest; Tab inserts it for arguments,
+            #    and the run's real child answers into the session.
+            session.write('/dig')
+            shown = session.wait_visible('workflow · project', 10)
+            assert '/digest' in shown, shown
+            session.write(b'\t')
+            session.write('the release notes')
+            session.wait_visible('/digest the release notes', 10)
+            session.write(b'\r')
+            shown = wait_until(session, lambda s: "Workflow 'digest' started in the background." in s, 'slash launch reply', 20)
+            shown = wait_until(session, lambda s: 'CHILD_SAID project digest of the release notes' in s and "Workflow 'digest' (run id wf_" in s,
+                               'slash launch completion', 60)
+            assert 'personal digest' not in shown, shown
+            session.write(b'\x07')  # Ctrl+G: the run and its child in the tasks pane
+            shown = session.wait_visible('Workflows (0 active, 1 total)', 10)
+            assert "'digest' — complete · Digest · 1 agent" in shown and 'digester' in shown, shown
+            session.write(b'\x1b')
+            wait_until(session, lambda s: 'Subagents (' not in s, 'modal did not close', 10)
+            # An invalid file named by /<name> says why instead of running.
+            prompt(session, '/mangled now')
+            shown = wait_until(session, lambda s: "Workflow 'mangled' unavailable: workflow 'mangled' is not loaded:" in s,
+                               'invalid workflow reply', 15)
+            results['slash_launch'] = True
+
+            # 8. /workflow save keeps a finished inline run as a project workflow.
+            prompt(session, call({'script': KEEP}))
+            session.wait_visible("PARENT_WORKFLOW ok: Workflow 'keeper' started in the background.", 40)
+            wait_until(session, lambda s: 'CHILD_SAID kept answer' in s and "Workflow 'keeper' (run id wf_" in s, 'keeper completion', 60)
+            prompt(session, '/workflow save keeper')
+            shown = wait_until(session, lambda s: "Saved workflow 'keeper' to" in s, 'save reply', 15)
+            assert (project_workflows / 'keeper.rhai').read_text() == KEEP
+            prompt(session, '/workflow save keeper')
+            shown = wait_until(session, lambda s: 'saving never replaces a workflow file' in s.replace('\n', ''), 'save refusal', 15)
+            session.write('/kee')
+            shown = session.wait_visible('/keeper', 10)
+            session.write('\x03')
+            results['save'] = True
+            results['saved_screen'] = session.finish(expect_alt_leave=True)['exit']
         finally:
             session.close()
 
@@ -268,8 +364,7 @@ def main():
         assert "- Workflow 'triage' (run id wf_" in ran.stdout and '— status: complete' in ran.stdout, ran.stdout
         assert 'CHILD_SAID reviewed cli' in ran.stdout and 'CHILD_SAID summary of 1 reviews' in ran.stdout, ran.stdout
         # A personal script under the isolated $GROK_HOME/workflows.
-        personal = home / '.codsh-rust' / '.grok' / 'workflows' / 'personal-note.rhai'
-        personal.parent.mkdir(parents=True, exist_ok=True)
+        personal = user_workflows / 'personal-note.rhai'
         personal.write_text('let meta = #{ name: "personal-note", description: "A saved personal workflow" };\n'
                             'agent("CHILD_SAY from " + args.where).output\n')
         mine = plain(call({'script_path': str(personal), 'args': {'where': 'grok-home'}}))
@@ -280,6 +375,11 @@ def main():
         assert off.returncode == 0, off.stderr
         assert 'PARENT_WORKFLOW error:' in off.stdout and 'subagents are disabled' in off.stdout, off.stdout
         assert 'CHILD_SAID' not in off.stdout, off.stdout
+        # Ticket 184: -p runs a saved workflow by name (the project copy).
+        named = plain(call({'source': {'type': 'name', 'name': 'digest'}, 'args': {'objective': 'headless'}}))
+        assert named.returncode == 0, named.stderr
+        assert "Workflow 'digest' ended;" in named.stdout and '— status: complete' in named.stdout, named.stdout
+        assert 'CHILD_SAID project digest of headless' in named.stdout, named.stdout
         results['headless'] = True
 
         # 7. Ticket 182: six held children under a cap of 2 from config.toml,

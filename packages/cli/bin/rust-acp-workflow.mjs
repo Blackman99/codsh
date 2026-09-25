@@ -27,6 +27,16 @@
  * so there (CODSH_WORKFLOW_FOREGROUND=1) the tool call waits for the run and
  * returns its block instead, and cancelling the turn stops the run.
  *
+ * Ticket 184 adds saved workflows: the `name` source and `/workflow <name>
+ * [--agent-budget N] [--effort LEVEL] [args]` (or `/<name>` from the client)
+ * launch a `<meta.name>.rhai` file of the trusted project's `.grok/workflows`
+ * or of `$GROK_HOME/workflows` (the engine's `catalog` op scans them, the
+ * project scope wins, nothing is run while scanning), `/workflow save <name>`
+ * writes a run's immutable script into the project catalog without replacing
+ * a file, and each turn of a top-level agent sees the catalog listing when it
+ * changed. A run copies the script it resolved at launch, so an edit of the
+ * file reaches only later launches and resume keeps the stored copy.
+ *
  * A workflow is a Rhai script in the reference format: its first statement is
  * `let meta = #{ name, description, ... }`, the tool call's `args` are bound
  * to the script's `args`, and `agent(prompt, opts)` / `parallel([...])` start
@@ -39,9 +49,8 @@
  * as the `subagent` tool.
  *
  * Differences from the reference that this build states instead of hiding:
- * - Registered names (built-in, project, user or plugin catalogs), launching
- *   by name from /workflow, and `/workflow save` are not available; pass an
- *   inline `script` or a `script_path`.
+ * - There are no built-in or plugin workflows in the catalog (they ship in
+ *   their own tickets); only project and personal files are listed.
  * - `resume_from` is refused by the engine with an explicit error: dsh
  *   children are disposed when their call ends, so there is no finished
  *   child session to resume from a later agent() call.
@@ -75,6 +84,7 @@ import {
   needsName,
   newRunId,
   parseCommand,
+  parseNamedArgs,
   pauseStatus,
   uniqueName,
 } from './rust-acp-workflow-runs.mjs'
@@ -202,12 +212,11 @@ export function normalizeInput(raw) {
   return { source, agentBudget, args: args ?? null, validateOnly }
 }
 
-/** Sources this build cannot run, with the reason the model sees. */
-export function unsupportedSource(source) {
-  if (source.type === 'name') {
-    return new WorkflowToolError('workflow_unsupported', `registered workflow names are not available in this build (no built-in, project .grok/workflows, user or plugin catalog is loaded), so "${source.value}" cannot be resolved; pass the script inline as source.type "script" or a file as source.type "script_path"`)
-  }
-  return undefined
+/** The engine's `source` for a launch or validate of a tool/slash source. */
+export function engineSource(source) {
+  if (source.type === 'script') return { type: 'script', script: source.value }
+  if (source.type === 'name') return { type: 'name', name: source.value }
+  return { type: 'script_path', script_path: source.value }
 }
 
 /** Reference `summarize_result`: the text a finished run reports. */
@@ -295,7 +304,7 @@ export function runEngine({ enginePath, start, onRequest, onEvent = () => {}, si
           )
         return
       }
-      if (message.type === 'outcome' || message.type === 'validated' || message.type === 'rejected') {
+      if (message.type === 'outcome' || message.type === 'validated' || message.type === 'rejected' || message.type === 'catalog' || message.type === 'saved') {
         final = message
         return
       }
@@ -325,7 +334,7 @@ export function runEngine({ enginePath, start, onRequest, onEvent = () => {}, si
 
 const BACKGROUND_SENTENCE = 'The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait.'
 const FOREGROUND_SENTENCE = 'This is a plain prompt that ends with its turn, so the call waits for the run and returns its result.'
-const DESCRIPTION = `Launch or control a workflow: a Rhai script that orchestrates subagents as one background run. Provide exactly one \`source\`: an inline \`script\`, a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows), a same-process \`resume\`, or a \`pause\` / \`stop\` of a run this session launched (by \`run_id\` or display name). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot (schema retries do not); default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. A session runs at most 4 workflows at once. The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait. Registered workflow names are not available in this build. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
+const DESCRIPTION = `Launch or control a workflow: a Rhai script that orchestrates subagents as one background run. Provide exactly one \`source\`: the \`name\` of a saved workflow (the available ones are listed in a system reminder; a trusted project's .grok/workflows shadows $GROK_HOME/workflows), an inline \`script\`, a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows), a same-process \`resume\`, or a \`pause\` / \`stop\` of a run this session launched (by \`run_id\` or display name). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot (schema retries do not); default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. A session runs at most 4 workflows at once. The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait. A run keeps the script it resolved at launch. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
 
 A started run gets a session-unique display name (e.g. \`review-changes\`, \`review-changes-2\`) — the handle to show the user, who manages runs with \`/workflow pause|resume|stop <name>\`; keep run IDs internal. To stop or pause a run yourself, call this tool with \`source: { type: "stop", run_id }\` or \`{ type: "pause", run_id }\` (run id or display name); both cancel the run's child agents and keep its journal, so either can be continued later with \`resume\`. Pause only applies to an active run; stop applies to any run that has not finished or hit its agent budget (a budget-limited run is already stopped and needs \`resume\` with a higher \`agent_budget\`). Use the \`resume\` source (\`resume_from_run_id\`: run id or display name) only for a paused, stopped, failed or budget-limited run of this dsh process (process restarts are terminal); it reuses the run's original immutable script and args, replays finished agent calls from the run's journal, and runs again the calls that were cancelled or unfinished — their side effects may repeat. A budget-limited run resumes only with a higher \`agent_budget\`.
 
@@ -340,6 +349,14 @@ export const REGISTRY = Symbol.for('codsh.rust.workflow')
 export const NOTICE_PLUGIN = 'rust-acp-workflow'
 const INTERRUPTED = 'the session ended while this workflow was active; start a new run'
 const ACTIVE_LIMIT = `session already has the maximum of ${MAX_ACTIVE_RUNS} active workflow runs`
+
+const LAUNCH_REMINDER_CAP = 256
+const squashText = text => String(text ?? '').split(/\s+/).filter(Boolean).join(' ')
+function truncateBytes(text, cap) {
+  const bytes = Buffer.from(text)
+  if (bytes.length <= cap) return text
+  return bytes.subarray(0, cap).toString('utf8').replace(/\uFFFD$/, '')
+}
 
 const started = name => `Workflow '${name}' started in the background. Progress appears in /workflow runs and completion is reported automatically. '${name}' is the session-unique display handle for user-facing status and /workflow management; keep the structured run id internal.`
 
@@ -513,7 +530,7 @@ export function createWorkflowRuns(deps) {
    * first line (`started`, or the `rejected` final line); the run goes on
    * in the background after `started`.
    */
-  function startEngine(session, run, start, parent, { resume }) {
+  function startEngine(session, run, start, parent, { resume, objective: launchObjective }) {
     const enginePath = deps.enginePath()
     const controller = new AbortController()
     const live = {
@@ -582,7 +599,8 @@ export function createWorkflowRuns(deps) {
           label: row.label,
           typeName: opts.agentType ?? undefined,
           model: opts.model ?? undefined,
-          effort: opts.effort ?? undefined,
+          // A launch effort (`--effort`) is the default; the agent's own wins.
+          effort: opts.effort ?? run.effort ?? undefined,
           capability: opts.capabilityMode ?? undefined,
           isolation: opts.isolationWorktree === true ? 'worktree' : null,
           keepOpen: opts.contract === true,
@@ -651,9 +669,9 @@ export function createWorkflowRuns(deps) {
             run.name = uniqueName(definition, list(session).map(other => other.name))
             run.phases = Array.isArray(line.meta?.phases) ? line.meta.phases.map(phase => ({ title: String(phase.title ?? ''), detail: phase.detail ?? null })) : []
             const objective = start.args && typeof start.args === 'object' && typeof start.args.objective === 'string' ? start.args.objective : undefined
-            run.objective = objective ?? String(line.meta?.description ?? '')
+            run.objective = launchObjective ?? objective ?? String(line.meta?.description ?? '')
             try {
-              session.store.writeLaunch(run.id, { script: String(line.script ?? ''), args: start.args, definition, scriptPath: line.path ?? null })
+              session.store.writeLaunch(run.id, { script: String(line.script ?? ''), args: start.args, definition, scriptPath: line.path ?? null, effort: run.effort ?? null })
             } catch (cause) {
               process.stderr.write(`rust-acp-workflow: could not save the script of run ${run.id}; it cannot be resumed: ${cause instanceof Error ? cause.message : cause}\n`)
             }
@@ -841,6 +859,7 @@ export function createWorkflowRuns(deps) {
         agents: [],
         agentBudget: input.agentBudget ?? DEFAULT_AGENT_BUDGET,
         agentsUsed: 0,
+        effort: input.effort ?? null,
         createdAt: Date.now(),
         activeSince: null,
         elapsedFloor: 0,
@@ -854,7 +873,7 @@ export function createWorkflowRuns(deps) {
       }
       const first = await startEngine(session, run, {
         op: 'run',
-        source: input.source.type === 'script' ? { type: 'script', script: input.source.value } : { type: 'script_path', script_path: input.source.value },
+        source: engineSource(input.source),
         cwd: session.cwd,
         grokHome: env.GROK_HOME ?? null,
         trusted: env.CODSH_WORKSPACE_TRUSTED === '1',
@@ -862,7 +881,7 @@ export function createWorkflowRuns(deps) {
         agentBudget: input.agentBudget ?? null,
         scratchDir: scratchDir(session.id, id, env, session.cwd),
         journal: { path: session.store.journal(id), resume: false },
-      }, parent, { resume: false })
+      }, parent, { resume: false, objective: input.objective })
       if (first.type !== 'started') throw new WorkflowToolError(first.code ?? 'workflow_failed', first.error ?? 'the workflow was rejected')
       return run
     } finally {
@@ -870,26 +889,126 @@ export function createWorkflowRuns(deps) {
     }
   }
 
-  /** `/workflow ...` from the client: the reference replies, run ids kept internal. */
-  async function command(sessionId, text) {
+  const noEngine = 'the Rhai workflow engine is not configured (CODSH_WORKFLOW_ENGINE is unset); workflows run only under codsh --rust'
+
+  /** A one-line engine op (`catalog`, `save`) for this session's directory. */
+  function engineOp(session, start) {
+    const enginePath = deps.enginePath()
+    if (!enginePath) return Promise.reject(new WorkflowToolError('workflow_not_available', noEngine))
+    return runEngine({
+      enginePath,
+      start: { cwd: session.cwd, grokHome: env.GROK_HOME ?? null, trusted: env.CODSH_WORKSPACE_TRUSTED === '1', ...start },
+      onRequest: async () => ({ error: { kind: 'unsupported', message: 'catalog operations start no agents' } }),
+    })
+  }
+
+  /** The saved-workflow catalog (ticket 184): the engine scans, nothing runs. */
+  const catalog = session => engineOp(session, { op: 'catalog' })
+
+  /**
+   * Reference `push_workflow_launch_reminder`: the model learns about a run
+   * the user started with a slash command at its next step.
+   */
+  function remindLaunch(session, run, commandLine) {
+    const line = truncateBytes(squashText(commandLine), LAUNCH_REMINDER_CAP)
+    let body = `The user launched background workflow '${run.name}' (run id ${run.id}) with the slash command: ${line}\nThis was handled host-side; no tool call was involved.`
+    const objective = squashText(run.objective)
+    if (objective && objective !== squashText(commandLine) && !squashText(commandLine).endsWith(` ${objective}`)) {
+      body += `\nObjective: ${truncateBytes(objective, LAUNCH_REMINDER_CAP)}`
+    }
+    body += `\nIt runs in the background: the final result arrives as a workflow completion reminder, and the user can watch it in /workflow runs. If it pauses, it can be resumed by calling the workflow tool with source: { type: "resume", resume_from_run_id: "${run.id}" }; to stop or pause it yourself, call the workflow tool with source: { type: "stop", run_id: "${run.id}" } or { type: "pause", run_id: "${run.id}" }. Keep run ids internal — the user knows runs by display name. No action needed unless the user asks.`
+    try {
+      session.agent?.inject(createUserMessage({
+        content: [{ type: 'text', text: `<system-reminder>\n${body}\n</system-reminder>` }],
+        source: { kind: 'plugin', plugin: NOTICE_PLUGIN, form: 'snapshot', sections: [{ name: 'workflow-launch', text: body }] },
+      }))
+    } catch (cause) {
+      process.stderr.write(`rust-acp-workflow: launch reminder not delivered: ${cause instanceof Error ? cause.message : cause}\n`)
+    }
+  }
+
+  /** `/workflow <name> [args]` and `/<name> [args]` (reference `launch_named_workflow`). */
+  async function launchNamed(session, name, input) {
+    const fail = detail => `Could not start workflow '${name}': ${detail}`
+    if (deps.refusal) return fail(deps.refusal)
+    if (!session?.agent) return fail('this session has no live agent')
+    if (!deps.enginePath()) return fail(noEngine)
+    let parsed
+    try {
+      parsed = parseNamedArgs(input)
+    } catch (cause) {
+      return fail(cause instanceof Error ? cause.message : String(cause))
+    }
+    let run
+    try {
+      run = await launch(session, session.agent, { source: { type: 'name', value: name }, args: parsed.args, agentBudget: parsed.agentBudget, effort: parsed.effort, objective: parsed.objective }, '')
+    } catch (cause) {
+      const detail = cause?.detail ?? (cause instanceof Error ? cause.message : String(cause))
+      if (cause?.code === 'workflow_resolve_failed') return `Workflow '${name}' unavailable: ${detail}`
+      return fail(detail)
+    }
+    const trimmed = String(input ?? '').trim()
+    remindLaunch(session, run, trimmed === '' ? `/${name}` : `/${name} ${trimmed}`)
+    return `Workflow '${run.name}' started in the background. Watch it in /workflow runs; the result lands here when it finishes.`
+  }
+
+  /** Display names bare `/workflow save` offers: own-name runs not yet in the project catalog. */
+  async function savableNames(session, runs) {
+    let project = new Set()
+    try {
+      const reply = await catalog(session)
+      if (reply?.type === 'catalog') project = new Set(reply.entries.filter(entry => entry.scope === 'project').map(entry => entry.name))
+    } catch {}
+    return new Set(runs.filter(run => run.definition && run.name === run.definition && !project.has(run.definition)).map(run => run.name))
+  }
+
+  /** Reference `/workflow save <name>`: the run's immutable script into the project catalog. */
+  async function saveRun(session, run) {
+    let record
+    try {
+      record = session.store.readLaunch(run.id)
+    } catch {
+      return `No persisted script for '${run.name}'; nothing to save.`
+    }
+    const definition = String(record.definition || run.definition || '')
+    if (run.name !== definition) {
+      return `Save is disabled for run '${run.name}': it is a duplicate-run display handle, while the script is still named '${definition}'. Choose a new unique meta.name and save the script under that name instead.`
+    }
+    const scriptPath = join(session.store.dir(run.id), 'script.rhai')
+    let reply
+    try {
+      reply = await engineOp(session, { op: 'save', name: definition, script: record.script })
+    } catch (cause) {
+      return `Could not save workflow '${definition}': ${cause?.detail ?? (cause instanceof Error ? cause.message : String(cause))}`
+    }
+    if (reply?.type === 'saved') return `Saved workflow '${definition}' to ${reply.path} — runnable by name from now on.`
+    const reason = `Could not save workflow '${definition}': ${reply?.error ?? 'the workflow engine gave no answer'}`
+    if (reply?.code === 'workflow_exists' || reply?.code === 'workflow_invalid_input') return `${reason}\nThe run's script stays at ${scriptPath}.`
+    const personal = env.GROK_HOME ? join(env.GROK_HOME, 'workflows', `${definition}.rhai`) : `$GROK_HOME/workflows/${definition}.rhai`
+    return `${reason}\nNo project workflow directory is writable here, so nothing was saved. The run's script stays at ${scriptPath}; to keep it as a personal workflow, copy it to ${personal}.`
+  }
+
+  /**
+   * `/workflow ...` from the client: the reference replies, run ids kept
+   * internal. `launch` is the workflow name of a client `/<name>` command,
+   * whose whole text is then its arguments.
+   */
+  async function command(sessionId, text, { launch: launchName } = {}) {
     const session = sessions.get(sessionId)
     const runs = session ? list(session) : []
+    if (typeof launchName === 'string' && launchName !== '') return launchNamed(session, launchName, text)
     const parsed = parseCommand(text)
     if (parsed.kind === 'overview') return formatOverview(runs)
-    if (parsed.kind === 'launch') {
-      return `Workflow '${parsed.name}' unavailable: registered workflow names are not available in this build (no built-in, project .grok/workflows, user or plugin catalog is loaded). Ask the agent to run the script inline or from a script_path.`
-    }
+    if (parsed.kind === 'launch') return launchNamed(session, parsed.name, parsed.args)
     const { op, name } = parsed
-    if (name === '') return needsName(op, runs)
+    if (name === '') return needsName(op, runs, op === 'save' && session ? await savableNames(session, runs) : undefined)
     const matches = matchRuns(runs, name, op)
     if (matches.length === 0) return `No workflow run matches '${name}'.`
     if (matches.length > 1) {
       return `Several runs could be '${op}' — pick one by name:\n${matches.map(run => `  ${run.name} (${run.status})`).join('\n')}\n(/workflow ${op} <name>)`
     }
     const [run] = matches
-    if (op === 'save') {
-      return `Could not save workflow '${run.name}': saving a run as a named workflow is not available in this build (there is no .grok/workflows catalog yet). Its immutable script is ${join(session.store.dir(run.id), 'script.rhai')}.`
-    }
+    if (op === 'save') return saveRun(session, run)
     if (op === 'pause') {
       if (!accepts(run.status, 'pause')) return `Run '${run.name}' is not active (status: ${run.status}).`
       control(session, run.id, 'pause', { byModel: false })
@@ -925,6 +1044,7 @@ export function createWorkflowRuns(deps) {
     control,
     waitForeground,
     command,
+    catalog,
     find,
     onCreated(agent) {
       if (deps.isChildAgent?.(agent)) return
@@ -974,13 +1094,13 @@ export function registerWorkflow(ctx, deps) {
     parameters: {
       source: {
         type: 'object',
-        description: 'Exactly one workflow source, selected by `type`: {"type":"script","script":"<Rhai>"}, {"type":"script_path","script_path":"<path>"}, {"type":"resume","resume_from_run_id":"<run id or name>"}, {"type":"pause","run_id":"<run id or name>"} or {"type":"stop","run_id":"<run id or name>"}. The reference `name` type is refused in this build.',
+        description: 'Exactly one workflow source, selected by `type`: {"type":"name","name":"<saved workflow>"}, {"type":"script","script":"<Rhai>"}, {"type":"script_path","script_path":"<path>"}, {"type":"resume","resume_from_run_id":"<run id or name>"}, {"type":"pause","run_id":"<run id or name>"} or {"type":"stop","run_id":"<run id or name>"}.',
         additionalProperties: true,
         properties: {
           type: { type: 'string', enum: ['name', 'script', 'script_path', 'resume', 'pause', 'stop'], required: true, description: 'Source kind.' },
           script: { type: 'string', description: 'Inline Rhai workflow script. It must start with a pure-literal `let meta = #{ name: ..., description: ... };` map.' },
           script_path: { type: 'string', description: 'Path to a .rhai workflow script on disk, relative to the session directory.' },
-          name: { type: 'string', description: 'Name of a registered workflow (not available in this build).' },
+          name: { type: 'string', description: 'Name of a saved workflow from the listed catalog (project .grok/workflows in a trusted folder, then $GROK_HOME/workflows).' },
           resume_from_run_id: { type: 'string', description: 'Run to resume (run id or display name) — a paused, stopped, failed or budget-limited run of this process.' },
           run_id: { type: 'string', description: 'Run to pause or stop (run id or display name).' },
         },
@@ -1008,8 +1128,6 @@ export function registerWorkflow(ctx, deps) {
       if (!parent) throw new Error('workflow tool requires a calling agent')
       if (isChildAgent(parent)) throw new WorkflowToolError('workflow_depth_exceeded', DEPTH_MESSAGE)
       const input = normalizeInput(rawArgs)
-      const refused = unsupportedSource(input.source)
-      if (refused) throw refused
       if (deps.refusal) throw new WorkflowToolError('workflow_not_available', deps.refusal)
       const session = runs.sessionFor(parent)
       const type = input.source.type
@@ -1034,7 +1152,7 @@ export function registerWorkflow(ctx, deps) {
           enginePath,
           start: {
             op: 'validate',
-            source: type === 'script' ? { type: 'script', script: input.source.value } : { type: 'script_path', script_path: input.source.value },
+            source: engineSource(input.source),
             cwd: session.cwd,
             grokHome: process.env.GROK_HOME ?? null,
             trusted: process.env.CODSH_WORKSPACE_TRUSTED === '1',
@@ -1054,6 +1172,36 @@ export function registerWorkflow(ctx, deps) {
       return foreground ? runs.waitForeground(session, run, exec.signal) : started(run.name)
     },
   }))
+  // Ticket 184: the model sees the saved-workflow catalog (reference listing
+  // under the skills in the system reminder) at the first step of a turn
+  // whenever it changed for this session. Children never see it.
+  const listed = new Map()
+  ctx.on('agent/pre-step', async ({ agent, step, signal }, next) => {
+    const decision = await next()
+    if (decision?.kind === 'reject' || signal?.aborted || step !== 1 || !Array.isArray(decision?.messages)) return decision
+    if (!agent || isChildAgent(agent) || deps.refusal || !process.env.CODSH_WORKFLOW_ENGINE) return decision
+    let text
+    let session
+    try {
+      session = runs.sessionFor(agent)
+      const reply = await runs.catalog(session)
+      if (reply?.type !== 'catalog') return decision
+      text = typeof reply.listing === 'string' ? reply.listing : ''
+    } catch {
+      return decision
+    }
+    const previous = listed.get(session.id)
+    listed.set(session.id, text)
+    if (previous === text || (previous === undefined && text === '')) return decision
+    const body = text || 'No saved workflows are available any more; the earlier workflow listing is out of date.'
+    return {
+      ...decision,
+      messages: [...decision.messages, createUserMessage({
+        content: [{ type: 'text', text: `<system-reminder>\n${body}\n</system-reminder>` }],
+        source: { kind: 'plugin', plugin: NOTICE_PLUGIN, form: 'snapshot', sections: [{ name: 'workflow-catalog', text: body }] },
+      })],
+    }
+  })
   ctx.on('agent/created', ({ agent }) => runs.onCreated(agent))
   ctx.on('agent/disposed', ({ agent }) => runs.onDisposed(agent))
   globalThis[REGISTRY] = runs

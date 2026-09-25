@@ -19,9 +19,11 @@
  *
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
- * - workflow: `/workflow [runs | pause | resume | stop | save] [name]`,
- *   answered by the workflow run manager of rust-acp-subagents (ticket 183)
- *   with the reference reply text.
+ * - workflow: `/workflow [runs | pause | resume | stop | save] [name]` and
+ *   `/workflow <name> [args]`, answered by the workflow run manager of
+ *   rust-acp-subagents (tickets 183, 184) with the reference reply text; a
+ *   request with `launch` is a saved workflow's `/<name>` and its `text` the
+ *   arguments.
  * - goal: `/goal` set, status, pause, resume, and clear, handed to the
  *   rust-acp-goal plugin (ticket 180). The answer is one `goal_result`.
  *
@@ -219,7 +221,8 @@ export function createControl(ctx, send, options = {}) {
     const runs = globalThis[WORKFLOW]
     try {
       if (runs === undefined) throw new Error('workflows are not available in this dsh (subagents are disabled or the workflow tool is not loaded)')
-      const text = await runs.command(String(request.sessionId ?? ''), typeof request.text === 'string' ? request.text : '')
+      const launch = typeof request.launch === 'string' ? request.launch : undefined
+      const text = await runs.command(String(request.sessionId ?? ''), typeof request.text === 'string' ? request.text : '', { launch })
       send({ type: 'workflow_result', id: request.id, text })
     } catch (error) {
       send({ type: 'workflow_result', id: request.id, error: String(error?.message ?? error) })

@@ -2,8 +2,10 @@
  * Workflow run bookkeeping for the Rust client (ticket 183): the reference
  * tracker statuses, session-unique display names, the `/workflow` runs
  * overview and management replies, the completion reminder, and the run
- * store under the session directory. Nothing here starts a process; the
- * workflow tool module owns the engine and the children.
+ * store under the session directory. Ticket 184 adds the argument parser of
+ * `/workflow <name> [--agent-budget N] [--effort LEVEL] [args]` and the save
+ * rules. Nothing here starts a process; the workflow tool module owns the
+ * engine and the children.
  */
 import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -105,7 +107,7 @@ export function agentsLine(agents) {
 
 /** Reference `format_workflow_runs_overview`: display names only, no run ids. */
 export function formatOverview(runs, now = Date.now()) {
-  if (runs.length === 0) return 'No workflow runs in this session yet. Ask the agent to run a workflow script (inline or a script_path); saved workflows cannot be launched by name in this build.'
+  if (runs.length === 0) return 'No workflow runs in this session yet. Launch one with /workflow <name> [args]; browse with /workflows.'
   const ordered = [...runs].reverse().map((run, index) => ({ run, index }))
   const rank = run => (isTerminal(run.status) ? 2 : run.status === 'active' ? 0 : 1)
   ordered.sort((a, b) => rank(a.run) - rank(b.run) || a.index - b.index)
@@ -121,7 +123,7 @@ export function formatOverview(runs, now = Date.now()) {
     if (objective) out += `\n  Objective: ${truncate(objective, OBJECTIVE_CAP)}`
     out += '\n'
   }
-  return `${out}Manage with /workflow pause|resume|stop <name>.`
+  return `${out}Manage with /workflow pause|resume|stop|save <name>.`
 }
 
 /**
@@ -208,12 +210,100 @@ export function matchRuns(runs, selector, op) {
   return all
 }
 
-/** Reference `format_manage_needs_name`: a bare op never picks a run. */
-export function needsName(op, runs) {
+/**
+ * Reference `format_manage_needs_name`: a bare op never picks a run. For
+ * `save`, `savable` holds the display names that can be saved.
+ */
+export function needsName(op, runs, savable = new Set()) {
   if (runs.length === 0) return 'No workflow runs in this session yet.'
-  const applicable = op === 'save' ? [] : runs.filter(run => applies(op, run))
+  const applicable = op === 'save' ? runs.filter(run => savable.has(run.name)) : runs.filter(run => applies(op, run))
   if (applicable.length === 0) return `No runs to ${op}.`
   return `Say which run to ${op}:\n${applicable.map(run => `  ${run.name} (${run.status.replaceAll('_', ' ')})`).join('\n')}\n(/workflow ${op} <name>)`
+}
+
+/** Reasoning efforts a launch may set (reference `ReasoningEffort`). */
+export const LAUNCH_EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+const MAX_LAUNCH_BUDGET = 1024
+
+function launchBudget(value) {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('`agent_budget` must be a positive integer')
+  if (value > MAX_LAUNCH_BUDGET) throw new Error(`\`agent_budget\` must be at most ${MAX_LAUNCH_BUDGET} agents`)
+  return value
+}
+
+function launchEffort(value) {
+  const effort = LAUNCH_EFFORTS.find(level => level === String(value).toLowerCase())
+  if (!effort) throw new Error(`invalid workflow \`effort\`: unknown reasoning effort '${value}'`)
+  return effort
+}
+
+/** One leading `--flag value` or `--flag=value`; null when `input` does not start with it. */
+function leadingFlag(input, name) {
+  const flag = `--${name}`
+  if (!input.startsWith(flag)) return null
+  const rest = input.slice(flag.length)
+  let valueInput
+  if (rest.startsWith('=')) valueInput = rest.slice(1)
+  else if (rest === '') throw new Error(`\`${flag}\` requires a value`)
+  else if (/^\s/.test(rest)) valueInput = rest.trimStart()
+  else return null
+  if (valueInput === '') throw new Error(`\`${flag}\` requires a value`)
+  const match = /\s/.exec(valueInput)
+  if (!match) return { value: valueInput, rest: '' }
+  return { value: valueInput.slice(0, match.index), rest: valueInput.slice(match.index).trimStart() }
+}
+
+/**
+ * Reference `parse_named_workflow_args`: leading `--agent-budget N` and
+ * `--effort LEVEL` flags, then nothing (the objective is the workflow's
+ * description), a JSON object (passed as `args`; `objective` or `query`
+ * names the objective, and `agent_budget` / `effort` keys count like the
+ * flags, once), or text (`{ query, objective }`). Returns { args, objective
+ * (undefined: use the description), agentBudget, effort }; throws the
+ * reference refusal.
+ */
+export function parseNamedArgs(raw) {
+  let input = String(raw ?? '').trim()
+  let flagBudget
+  let flagEffort
+  for (;;) {
+    const budget = leadingFlag(input, 'agent-budget')
+    if (budget) {
+      if (flagBudget !== undefined) throw new Error('set `--agent-budget` once')
+      if (!/^\d+$/.test(budget.value)) throw new Error('`--agent-budget` must be a positive integer')
+      flagBudget = launchBudget(Number(budget.value))
+      input = budget.rest
+      continue
+    }
+    const effort = leadingFlag(input, 'effort')
+    if (effort) {
+      if (flagEffort !== undefined) throw new Error('set `--effort` once')
+      flagEffort = launchEffort(effort.value)
+      input = effort.rest
+      continue
+    }
+    break
+  }
+  if (input === '') return { args: null, objective: undefined, agentBudget: flagBudget, effort: flagEffort }
+  let parsed
+  try {
+    parsed = JSON.parse(input)
+  } catch {}
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const jsonBudget = parsed.agent_budget === undefined ? undefined : launchBudget(parsed.agent_budget)
+    let jsonEffort
+    if (parsed.effort !== undefined && parsed.effort !== null) {
+      if (typeof parsed.effort !== 'string') throw new Error('`effort` must be a string')
+      jsonEffort = launchEffort(parsed.effort)
+    }
+    if (flagBudget !== undefined && jsonBudget !== undefined) throw new Error('set `agent_budget` once, using either the slash flag or JSON')
+    if (flagEffort !== undefined && jsonEffort !== undefined) throw new Error('set `effort` once, using either the slash flag or JSON')
+    const objective = typeof parsed.objective === 'string'
+      ? parsed.objective
+      : parsed.objective === undefined && typeof parsed.query === 'string' ? parsed.query : input
+    return { args: parsed, objective, agentBudget: flagBudget ?? jsonBudget, effort: flagEffort ?? jsonEffort }
+  }
+  return { args: { query: input, objective: input }, objective: input, agentBudget: flagBudget, effort: flagEffort }
 }
 
 export const RESTART_REFUSAL = 'it was started by an earlier codsh process, and workflow runs resume only in the process that started them (process restarts are terminal)'
@@ -239,13 +329,13 @@ export class RunStore {
   writeLaunch(runId, launch) {
     mkdirSync(this.dir(runId), { recursive: true })
     atomicWrite(join(this.dir(runId), 'script.rhai'), launch.script)
-    atomicWrite(join(this.dir(runId), 'launch.json'), `${JSON.stringify({ args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null }, null, 2)}\n`)
+    atomicWrite(join(this.dir(runId), 'launch.json'), `${JSON.stringify({ args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null }, null, 2)}\n`)
   }
 
   readLaunch(runId) {
     const script = readFileSync(join(this.dir(runId), 'script.rhai'), 'utf8')
     const launch = JSON.parse(readFileSync(join(this.dir(runId), 'launch.json'), 'utf8'))
-    return { script, args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null }
+    return { script, args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null }
   }
 
   save(run) {

@@ -1008,11 +1008,20 @@ async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
   // Ticket 183: a workflow completion message (the reminder plus the wake
   // prompt) is answered by echoing the reminder.
-  const lastUser = [...options.messages].reverse().find(message => message.role === 'user' && message.content.some(block => block.type === 'text'))
-  const noticeTexts = lastUser ? lastUser.content.filter(block => block.type === 'text').map(block => block.text) : []
+  // Ticket 184: a slash-launch reminder can follow the notice in the same
+  // turn, so every user message since the last assistant reply counts.
+  const lastReply = options.messages.findLastIndex(message => message.role === 'assistant')
+  const noticeTexts = options.messages.slice(lastReply + 1).filter(message => message.role === 'user').flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
   const reminder = noticeTexts.find(text => text.includes('background workflow run'))
   if (reminder !== undefined) {
     yield* mockText(`PARENT_WORKFLOW_NOTICE\n${reminder.replace(/^<system-reminder>\n/, '').replace(/<\/system-reminder>$/, '').trimEnd()}`)
+    return
+  }
+  // Ticket 184: `WORKFLOW_CONTEXT` echoes the saved-workflow listings and
+  // slash-launch reminders the plugin put into this session, oldest first.
+  if (latestUserText(options).includes('WORKFLOW_CONTEXT')) {
+    const context = texts.filter(text => text.startsWith('<system-reminder>') && (text.includes('The following workflows are available:') || text.includes('No saved workflows are available') || text.includes('The user launched background workflow')))
+    yield* mockText(`PARENT_WORKFLOW_CONTEXT\n${context.length === 0 ? 'NONE' : context.join('\n---\n')}`)
     return
   }
   // Workflows (ticket 181): `WORKFLOW_CALL <json>` calls the workflow tool
