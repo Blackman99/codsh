@@ -163,12 +163,19 @@ def main():
             shown = session.wait_visible('Scheduled (1 active this session)', 10)
             assert '[every 1 minute] LOOP_PROBE check the deploy' in shown, shown
             assert 'loop: LOOP_PROBE check the deploy (every 1 minute)' in shown, shown
-            for _ in range(40):
-                session.write(b'\x1b[B')
-                session.pump(0.02)
-            shown = wait_until(session, lambda s: re.search(r'^\s*│?\s*> \[every 1 minute\]', s, re.M) is not None, 'loop row selected', 10)
-            session.write('x')
-            shown = session.wait_visible('deleted; a fire already running still reports', 15)
+            # The loop is the last row. New fires add subagent rows above it
+            # while this runs, so Down to the end and x go in one write (no
+            # redraw can shift the selection in between); a miss is retried.
+            deleted = False
+            for _attempt in range(5):
+                session.write(b'\x1b[B' * 60 + b'x')
+                end = time.monotonic() + 3
+                while time.monotonic() < end and not deleted:
+                    session.pump(0.1)
+                    deleted = 'deleted; a fire already running still reports' in session.visible()
+                if deleted:
+                    break
+            assert deleted, session.visible()
             shown = wait_until(session, lambda s: 'Scheduled (' not in s, 'loop row gone', 10)
             session.write(b'\x1b')
             shown = wait_until(session, lambda s: '1 loop' not in s, 'status line loop count cleared', 15)

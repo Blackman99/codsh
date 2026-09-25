@@ -448,6 +448,11 @@ export function apply(ctx) {
         } catch {}
       }
     })
+    // Nothing can fire a scheduled prompt here. A resumed session's saved
+    // loops are listed as paused (and can be deleted), never run or lost.
+    if (process.env.CODSH_SCHEDULER === '1') {
+      registerScheduler(ctx, { isChildAgent: agent => isChildAgent(agent), refusal: null, paused: 'paused: subagents are off in this session, so the loop cannot fire; it stays saved' })
+    }
     return
   }
   const types = policy?.types ?? []

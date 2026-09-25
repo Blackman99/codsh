@@ -963,7 +963,8 @@ impl Board {
     /// command, a message interrupts the wait, and the line says so.
     pub fn status_text(&self) -> String {
         let commands = self.jobs.running();
-        let loops = self.loops().len();
+        // A paused loop does not run; it is listed in the pane only.
+        let loops = self.schedules.firing(self.session.as_deref());
         let children = self.running();
         let mut parts = Vec::new();
         match commands {
@@ -1157,7 +1158,17 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
         }
     }
     if !loops.is_empty() {
-        lines.push(format!("Scheduled ({} active this session)", loops.len()));
+        let paused = loops.iter().filter(|task| !task.paused.is_empty()).count();
+        lines.push(match paused {
+            0 => format!("Scheduled ({} active this session)", loops.len()),
+            paused if paused == loops.len() => {
+                format!("Scheduled ({paused} paused this session)")
+            }
+            paused => format!(
+                "Scheduled ({} active, {paused} paused this session)",
+                loops.len() - paused
+            ),
+        });
     }
     let now = crate::scheduler::now_ms();
     for (offset, task) in loops.iter().enumerate() {
@@ -1169,13 +1180,7 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             task.row_at(now)
         ));
         if selected {
-            lines.push(format!("    id {}", task.id));
-            if !task.last.is_empty() {
-                lines.push(format!(
-                    "    last: {}",
-                    task.last.lines().next().unwrap_or("")
-                ));
-            }
+            lines.extend(task.details().into_iter().map(|line| format!("    {line}")));
         }
     }
     // Background workflow runs (ticket 183): a status row each; /workflow
@@ -1924,6 +1929,25 @@ mod tests {
             lines
                 .iter()
                 .any(|line| line.contains("x cancel/stop/delete"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "    not saved: it ends with this dsh process")
+        );
+        // A paused saved loop is listed but does not count as running.
+        board.schedules.apply(&json!({"event":"state","id":"t1","session":"s1","saved":true,"saveNote":"","paused":"paused: subagents are off in this session, so the loop cannot fire; it stays saved"}));
+        let lines = list_lines(&board, &modal);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Scheduled (1 paused this session)")
+        );
+        assert!(lines.iter().any(|line| line.ends_with("· saved · paused")));
+        assert!(lines.iter().any(|line| line == "    paused: subagents are off in this session, so the loop cannot fire; it stays saved"));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 command · 1 subagent still running · Ctrl+G or /tasks"
         );
         board
             .schedules

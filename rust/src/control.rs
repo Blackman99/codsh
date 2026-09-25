@@ -96,6 +96,13 @@ pub enum ControlEvent {
         ok: bool,
         message: String,
     },
+    /// The owner handover for saved loops (ticket 178): how many saved
+    /// loops dsh restored for the session, or why it could not take them.
+    ScheduleOwnerResult {
+        id: String,
+        session: String,
+        outcome: Result<u64, String>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -209,6 +216,14 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
                 None => Ok(text("text")),
             },
         },
+        "schedule_owner_result" => ControlEvent::ScheduleOwnerResult {
+            id: id()?,
+            session: text("sessionId"),
+            outcome: match value.get("error").and_then(Value::as_str) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(value.get("restored").and_then(Value::as_u64).unwrap_or(0)),
+            },
+        },
         _ => return None,
     })
 }
@@ -281,6 +296,13 @@ pub fn workflow_message(id: &str, session_id: &str, text: &str) -> Value {
 /// its own, so a workflow called `runs` or `stop` is still a launch.
 pub fn workflow_launch_message(id: &str, session_id: &str, name: &str, args: &str) -> Value {
     json!({ "type": "workflow", "id": id, "sessionId": session_id, "text": args, "launch": name })
+}
+
+/// Hand the session owner lock's token to dsh (ticket 178): only then does
+/// dsh save this session's loops and restore the saved ones, and it checks
+/// the lock file for the same token before every save and fire.
+pub fn schedule_owner_message(id: &str, session_id: &str, token: &str) -> Value {
+    json!({ "type": "schedule_owner", "id": id, "sessionId": session_id, "token": token })
 }
 
 pub struct ControlChannel {
@@ -726,6 +748,34 @@ mod tests {
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);
         assert_eq!(parse_event("not json"), None);
+    }
+
+    #[test]
+    fn schedule_owner_handover_round_trip() {
+        assert_eq!(
+            schedule_owner_message("o1", "s1", "123-456"),
+            serde_json::json!({"type":"schedule_owner","id":"o1","sessionId":"s1","token":"123-456"})
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"schedule_owner_result","id":"o1","sessionId":"s1","restored":2}"#
+            ),
+            Some(ControlEvent::ScheduleOwnerResult {
+                id: "o1".into(),
+                session: "s1".into(),
+                outcome: Ok(2),
+            })
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"schedule_owner_result","id":"o2","sessionId":"s1","error":"no live dsh session for this owner"}"#
+            ),
+            Some(ControlEvent::ScheduleOwnerResult {
+                id: "o2".into(),
+                session: "s1".into(),
+                outcome: Err("no live dsh session for this owner".into()),
+            })
+        );
     }
 
     #[test]

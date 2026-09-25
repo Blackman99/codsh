@@ -807,8 +807,10 @@ const ONCE = new Set()
 //   SCHED_CALL <json> calls scheduler_create with that input once.
 //   SCHED_LIST calls scheduler_list; SCHED_DELETE <id|first> deletes one.
 //   A fire's child (a `Scheduled task <id>` reminder) answers
-//   LOOP_STATUS n=<k> prior=<previous status or none> sched=<yes|no>; a
-//   LOOP_SLOW prompt waits 60s first (abortable). A completion notice is read
+//   LOOP_STATUS n=<k> prior=<previous status or none> sched=<yes|no>
+//   interrupted=<fire whose outcome is unknown, or no> (ticket 178); a
+//   LOOP_SLOW prompt waits 60s first (abortable) unless it follows an
+//   interrupted fire. A completion notice is read
 //   with job_output and answered LOOP_WOKE job=<id> out=<one line>.
 let loopChildRuns = 0
 
@@ -818,8 +820,11 @@ async function * schedulerTurn(options) {
   if (fireText) {
     const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : []
     const prior = /Your previous iteration ended with:\n([^\n]*)/.exec(fireText)?.[1]
+    const interrupted = /The previous iteration \(fire (\d+)\) was interrupted/.exec(fireText)?.[1]
     const body = fireText.slice(fireText.indexOf('</system-reminder>\n\n') + '</system-reminder>\n\n'.length)
-    if (body.includes('LOOP_SLOW')) {
+    // A fire after an interrupted one answers at once, so a restart test
+    // sees its status (the interrupted fire itself was the slow one).
+    if (body.includes('LOOP_SLOW') && !interrupted) {
       try {
         await sleep(60000, options.signal)
       } catch {
@@ -827,7 +832,7 @@ async function * schedulerTurn(options) {
       }
     }
     loopChildRuns += 1
-    yield* mockText(`LOOP_STATUS n=${loopChildRuns} prompt=${oneLine(body).slice(0, 40)} prior=${prior ? prior.slice(0, 80) : 'none'} sched=${tools.some(name => name.startsWith('scheduler_')) ? 'yes' : 'no'}`)
+    yield* mockText(`LOOP_STATUS n=${loopChildRuns} prompt=${oneLine(body).slice(0, 40)} prior=${prior ? prior.slice(0, 80) : 'none'} sched=${tools.some(name => name.startsWith('scheduler_')) ? 'yes' : 'no'} interrupted=${interrupted ?? 'no'}`)
     return
   }
   const latest = latestUserText(options)

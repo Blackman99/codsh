@@ -464,6 +464,8 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_SHELL_MARKER",
     "CODSH_SHELL_WORKDIR",
     "CODSH_TEST_SCHEDULER_TIME_SCALE",
+    "CODSH_TEST_SCHEDULER_EPOCH",
+    "CODSH_TEST_SCHEDULER_OFFSET_MS",
     "GROK_HOME",
 ];
 
@@ -852,6 +854,15 @@ impl AcpClient {
             .as_deref()
             .ok_or_else(|| "ACP session is not ready".to_string())?;
         self.control_send(&crate::control::job_kill_message(id, session, job_id))
+    }
+
+    /// Hand this session's owner lock token to dsh (saved loops, ticket 178).
+    pub fn send_schedule_owner(&self, id: &str, token: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::schedule_owner_message(id, session, token))
     }
 
     /// Delete one scheduled prompt of this session (the tasks pane).

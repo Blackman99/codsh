@@ -10,7 +10,14 @@
 //! the provisional schedule preview shown while the model schedules it.
 //!
 //! Only the interactive client turns the scheduler on (CODSH_SCHEDULER=1).
-//! Tasks are session-only: they end with their session or the dsh process.
+//!
+//! Saved loops (ticket 178): dsh saves a session's tasks once this client,
+//! holding the session's owner lock, hands over the lock token
+//! (`schedule_owner` on the control channel), and restores the saved ones
+//! when the session is resumed. Each row says whether its loop is saved,
+//! durable, paused (and why), what became of the last fire (including a
+//! fire whose outcome is unknown because its process ended while it ran),
+//! and whether the permission mode changed since the loop was created.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -58,6 +65,15 @@ fn short(text: &str, max: usize) -> String {
     }
 }
 
+/// A fire's outcome as dsh recorded it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FireResult {
+    pub fire: u64,
+    /// `completed`, `failed`, `cancelled`, `not started`, or `unknown`.
+    pub status: String,
+    pub detail: String,
+}
+
 /// One active scheduled task as the client knows it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Task {
@@ -73,14 +89,28 @@ pub struct Task {
     pub wake_at_ms: Option<i64>,
     /// The latest outcome: a fire's status, a skip, or a failed start.
     pub last: String,
+    pub durable: bool,
+    /// Saved with the session: it comes back when the session is resumed.
+    pub saved: bool,
+    /// Why it is not saved (empty when saved).
+    pub save_note: String,
+    /// Restored from the saved session.
+    pub restored: bool,
+    /// Stopped and not firing, with the reason (empty when active).
+    pub paused: String,
+    /// The permission mode at creation and the one fires run under now.
+    pub permission: Option<(String, String)>,
+    pub last_result: Option<FireResult>,
 }
 
 impl Task {
-    /// `[every 5 minutes] check deploy · next in 4m 10s · 2 fires · last: …`
+    /// `[every 5 minutes] check deploy · next in 4m 10s · 2 fires · saved`
     pub fn row_at(&self, now: i64) -> String {
         let next = match self.wake_at_ms {
-            Some(at) => format!(" · next in {}", countdown(at.saturating_sub(now))),
-            None => String::new(),
+            Some(at) if self.paused.is_empty() => {
+                format!(" · next in {}", countdown(at.saturating_sub(now)))
+            }
+            _ => String::new(),
         };
         let fires = match self.fires {
             0 => String::new(),
@@ -88,11 +118,71 @@ impl Task {
             count => format!(" · {count} fires"),
         };
         let running = if self.running { " · running" } else { "" };
+        let kept = if self.durable && self.saved {
+            " · durable"
+        } else if self.saved {
+            " · saved"
+        } else {
+            " · not saved"
+        };
+        let paused = if self.paused.is_empty() {
+            ""
+        } else {
+            " · paused"
+        };
+        let outcome = match &self.last_result {
+            Some(result) if result.status == "unknown" => {
+                format!(" · fire {} outcome unknown", result.fire)
+            }
+            Some(result) if result.status == "failed" || result.status == "not started" => {
+                format!(" · fire {} {}", result.fire, result.status)
+            }
+            _ => String::new(),
+        };
+        let permission = if self.permission.is_some() {
+            " · permissions changed"
+        } else {
+            ""
+        };
         format!(
-            "[{}] {}{next}{fires}{running}",
+            "[{}] {}{next}{fires}{running}{kept}{paused}{outcome}{permission}",
             self.human,
             short(&self.prompt, 60)
         )
+    }
+
+    /// The selected row's detail lines, without indentation.
+    pub fn details(&self) -> Vec<String> {
+        let mut lines = vec![format!("id {}", self.id)];
+        lines.push(if self.saved {
+            format!(
+                "{} with this session: it comes back when the session is resumed",
+                if self.durable {
+                    "saved (durable)"
+                } else {
+                    "saved"
+                }
+            )
+        } else if self.save_note.is_empty() {
+            "not saved: it ends with this dsh process".to_string()
+        } else {
+            format!("not saved: {}", self.save_note)
+        });
+        if self.restored {
+            lines.push("restored from the saved session".into());
+        }
+        if !self.paused.is_empty() {
+            lines.push(self.paused.clone());
+        }
+        if let Some((created, now)) = &self.permission {
+            lines.push(format!(
+                "permissions changed: created under {created}, fires now run under {now}"
+            ));
+        }
+        if !self.last.is_empty() {
+            lines.push(format!("last: {}", self.last.lines().next().unwrap_or("")));
+        }
+        lines
     }
 }
 
@@ -113,9 +203,21 @@ fn countdown(ms: i64) -> String {
 #[derive(Clone, Debug, Default)]
 pub struct Schedules {
     pub entries: Vec<Task>,
+    /// When the last restore hint was issued. The restored loops' catch-up
+    /// fires settle right after it, and their notices must not hide it.
+    restore_hint_at: Option<std::time::Instant>,
 }
 
+/// How long a restore hint outranks subagent notices.
+const RESTORE_HINT_HOLD: std::time::Duration = std::time::Duration::from_secs(4);
+
 impl Schedules {
+    /// A restore hint went out recently: keep it over subagent notices.
+    pub fn restore_hint_fresh(&self) -> bool {
+        self.restore_hint_at
+            .is_some_and(|at| at.elapsed() < RESTORE_HINT_HOLD)
+    }
+
     fn find_mut(&mut self, session: &str, id: &str) -> Option<&mut Task> {
         self.entries
             .iter_mut()
@@ -128,8 +230,79 @@ impl Schedules {
         }
     }
 
+    /// Saved, paused, permission and last-fire fields, when the line has them.
+    fn flags(task: &mut Task, event: &Value) {
+        if let Some(durable) = event.get("durable").and_then(Value::as_bool) {
+            task.durable = durable;
+        }
+        if let Some(saved) = event.get("saved").and_then(Value::as_bool) {
+            task.saved = saved;
+            task.save_note = text(event, "saveNote");
+        }
+        if let Some(restored) = event.get("restored").and_then(Value::as_bool) {
+            task.restored = restored;
+        }
+        if event.get("paused").is_some() {
+            task.paused = text(event, "paused");
+        }
+        if let Some(permission) = event.get("permission") {
+            task.permission = permission.as_object().map(|pair| {
+                let side = |key: &str| {
+                    pair.get(key)
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string()
+                };
+                (side("created"), side("now"))
+            });
+        }
+        if let Some(result) = event.get("lastResult") {
+            task.last_result = result.as_object().map(|result| FireResult {
+                fire: result.get("fire").and_then(Value::as_u64).unwrap_or(0),
+                status: result
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                detail: result
+                    .get("detail")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            });
+            if let Some(result) = &task.last_result
+                && task.last.is_empty()
+            {
+                task.last = if result.detail.is_empty() {
+                    format!("fire {}: {}", result.fire, result.status)
+                } else {
+                    format!("fire {}: {}: {}", result.fire, result.status, result.detail)
+                };
+            }
+        }
+    }
+
     /// Apply one lifecycle line. Returns a hint worth showing once.
     pub fn apply(&mut self, event: &Value) -> Option<String> {
+        if text(event, "event") == "restore" {
+            let restored = event.get("restored").and_then(Value::as_u64).unwrap_or(0);
+            let error = text(event, "error");
+            if restored > 0 || !error.is_empty() {
+                self.restore_hint_at = Some(std::time::Instant::now());
+            }
+            return if !error.is_empty() {
+                Some(format!(
+                    "Saved loops for this session could not be read ({error}); the file is left as is: {}",
+                    text(event, "path")
+                ))
+            } else if restored > 0 {
+                Some(format!(
+                    "Restored {restored} saved loop(s) for this session · Ctrl+G or /tasks"
+                ))
+            } else {
+                None
+            };
+        }
         let id = text(event, "id");
         if id.is_empty() {
             return None;
@@ -153,7 +326,15 @@ impl Schedules {
                 let task = self.find_mut(&session, &id)?;
                 task.prompt = prompt;
                 task.human = human;
+                if let Some(fires) = event.get("fires").and_then(Value::as_u64) {
+                    task.fires = fires;
+                }
                 Self::timing(task, event);
+                Self::flags(task, event);
+                // A restored loop is covered by the one restore hint.
+                if task.restored && !updated {
+                    return None;
+                }
                 Some(format!(
                     "{} {} · {} · Ctrl+G or /tasks",
                     if updated {
@@ -165,11 +346,20 @@ impl Schedules {
                     short(&task.prompt, 48)
                 ))
             }
+            "state" => {
+                let task = self.find_mut(&session, &id)?;
+                let was = task.paused.clone();
+                Self::timing(task, event);
+                Self::flags(task, event);
+                (task.paused != was && !task.paused.is_empty())
+                    .then(|| format!("Loop paused ({}): {}", short(&task.prompt, 32), task.paused))
+            }
             "fired" => {
                 let task = self.find_mut(&session, &id)?;
                 task.fires = event.get("fire").and_then(Value::as_u64).unwrap_or(0);
                 task.running = true;
                 Self::timing(task, event);
+                Self::flags(task, event);
                 None
             }
             "skipped" => {
@@ -183,6 +373,11 @@ impl Schedules {
                 let task = self.find_mut(&session, &id)?;
                 task.running = false;
                 task.last = format!("fire did not start: {detail}");
+                task.last_result = Some(FireResult {
+                    fire: event.get("fire").and_then(Value::as_u64).unwrap_or(0),
+                    status: "not started".into(),
+                    detail: detail.clone(),
+                });
                 Self::timing(task, event);
                 Some(format!(
                     "Loop fire did not start ({}): {detail}",
@@ -194,11 +389,17 @@ impl Schedules {
                 let task = self.find_mut(&session, &id)?;
                 task.running = false;
                 let summary = text(event, "summary");
+                let status = text(event, "status");
                 task.last = if summary.is_empty() {
-                    text(event, "status")
+                    status.clone()
                 } else {
-                    format!("{}: {}", text(event, "status"), summary)
+                    format!("{status}: {summary}")
                 };
+                task.last_result = Some(FireResult {
+                    fire: event.get("fire").and_then(Value::as_u64).unwrap_or(0),
+                    status,
+                    detail: summary,
+                });
                 None
             }
             "removed" => {
@@ -206,12 +407,21 @@ impl Schedules {
                     task.id == id && (session.is_empty() || task.session == session)
                 })?;
                 let task = self.entries.remove(index);
-                let reason = match text(event, "reason").as_str() {
-                    "deleted" => "deleted".to_string(),
-                    "expired" => "expired after 7 days".to_string(),
-                    "session_closed" => "ended with its session".to_string(),
-                    "shutdown" => "ended with the dsh process".to_string(),
-                    other => other.to_string(),
+                let saved = event.get("saved").and_then(Value::as_bool).unwrap_or(false);
+                let reason = match (text(event, "reason").as_str(), saved) {
+                    ("deleted", _) => "deleted".to_string(),
+                    ("expired", _) => "expired after 7 days".to_string(),
+                    ("session_closed", true) => {
+                        "stopped with its session (saved; it comes back when the session is resumed)"
+                            .to_string()
+                    }
+                    ("session_closed", false) => "ended with its session".to_string(),
+                    ("shutdown", true) => {
+                        "stopped with the dsh process (saved; it comes back when the session is resumed)"
+                            .to_string()
+                    }
+                    ("shutdown", false) => "ended with the dsh process".to_string(),
+                    (other, _) => other.to_string(),
                 };
                 Some(format!("Loop {reason}: {}", short(&task.prompt, 48)))
             }
@@ -227,11 +437,35 @@ impl Schedules {
             .collect()
     }
 
-    /// The dsh process is gone: every task went with it.
-    pub fn end_all(&mut self) -> usize {
+    /// Loops that fire on their own now (not paused).
+    pub fn firing(&self, session: Option<&str>) -> usize {
+        self.active(session)
+            .iter()
+            .filter(|task| task.paused.is_empty())
+            .count()
+    }
+
+    /// The dsh process or its session is gone: every task stopped here.
+    /// Returns (saved, not saved); saved ones come back on resume.
+    pub fn end_all(&mut self) -> (usize, usize) {
+        let saved = self.entries.iter().filter(|task| task.saved).count();
         let count = self.entries.len();
         self.entries.clear();
-        count
+        (saved, count - saved)
+    }
+}
+
+/// The hint for loops that stopped with their dsh process or session.
+pub fn ended_hint(saved: usize, unsaved: usize, why: &str) -> Option<String> {
+    match (saved, unsaved) {
+        (0, 0) => None,
+        (saved, 0) => Some(format!(
+            "{saved} saved loop(s) stopped {why}; they come back when this session is resumed"
+        )),
+        (0, unsaved) => Some(format!("{unsaved} unsaved loop(s) ended {why}")),
+        (saved, unsaved) => Some(format!(
+            "{saved} saved loop(s) stopped {why} (they come back when this session is resumed); {unsaved} unsaved loop(s) ended"
+        )),
     }
 }
 
@@ -366,7 +600,7 @@ mod tests {
         let task = &schedules.entries[0];
         assert_eq!(
             task.row_at(1_000_000 - 250_000),
-            "[every 5 minutes] check the deploy status · next in 4m 10s"
+            "[every 5 minutes] check the deploy status · next in 4m 10s · not saved"
         );
         assert_eq!(
             schedules.apply(
@@ -377,7 +611,7 @@ mod tests {
         assert!(schedules.entries[0].running);
         assert_eq!(
             schedules.entries[0].row_at(1_000_000),
-            "[every 5 minutes] check the deploy status · next in 5m 0s · 1 fire · running"
+            "[every 5 minutes] check the deploy status · next in 5m 0s · 1 fire · running · not saved"
         );
         schedules.apply(&json!({"event":"skipped","id":"t1","session":"s1","wakeAtMs":1_600_000}));
         assert_eq!(
@@ -420,8 +654,91 @@ mod tests {
         let expired =
             schedules.apply(&json!({"event":"removed","id":"c","session":"s2","reason":"expired"}));
         assert_eq!(expired.as_deref(), Some("Loop expired after 7 days: p"));
-        assert_eq!(schedules.end_all(), 2);
+        assert_eq!(schedules.end_all(), (0, 2));
         assert!(schedules.entries.is_empty());
+    }
+
+    #[test]
+    fn saved_loops_show_restore_pause_outcome_and_permissions() {
+        let mut schedules = Schedules::default();
+        assert_eq!(
+            schedules.apply(&json!({"event":"restore","session":"s1","restored":1,"path":"/h/codsh-schedules/s1.json"})),
+            Some("Restored 1 saved loop(s) for this session · Ctrl+G or /tasks".into())
+        );
+        assert!(schedules.restore_hint_fresh());
+        assert_eq!(
+            schedules
+                .apply(&json!({"event":"restore","session":"s1","restored":0,"path":"/h/x.json"})),
+            None
+        );
+        let damaged = schedules
+            .apply(&json!({"event":"restore","session":"s1","restored":0,"error":"bad JSON","path":"/h/x.json"}))
+            .unwrap();
+        assert!(
+            damaged.contains("could not be read (bad JSON)"),
+            "{damaged}"
+        );
+        // A restored loop is covered by the restore hint.
+        let created = schedules.apply(&json!({
+            "event":"created","id":"t1","session":"s1","prompt":"check deploy","human":"every 5 minutes",
+            "updated":false,"fires":3,"durable":true,"saved":true,"saveNote":"","restored":true,"paused":"",
+            "permission":{"created":"always-approve","now":"ask"},
+            "lastResult":{"fire":3,"status":"unknown","detail":"its dsh process ended while it ran"},
+            "wakeAtMs":1_000_000
+        }));
+        assert_eq!(created, None);
+        let task = &schedules.entries[0];
+        assert_eq!(
+            task.row_at(1_000_000),
+            "[every 5 minutes] check deploy · next in 0s · 3 fires · durable · fire 3 outcome unknown · permissions changed"
+        );
+        let details = task.details();
+        assert!(details.contains(&"restored from the saved session".to_string()));
+        assert!(
+            details.contains(
+                &"permissions changed: created under always-approve, fires now run under ask"
+                    .to_string()
+            )
+        );
+        assert!(
+            details
+                .iter()
+                .any(|line| line == "last: fire 3: unknown: its dsh process ended while it ran")
+        );
+        assert_eq!(schedules.firing(Some("s1")), 1);
+        let paused = schedules.apply(&json!({"event":"state","id":"t1","session":"s1","saved":true,"saveNote":"","paused":"owner lost","permission":null,"lastResult":null}));
+        assert_eq!(
+            paused.as_deref(),
+            Some("Loop paused (check deploy): owner lost")
+        );
+        let task = &schedules.entries[0];
+        assert_eq!(
+            task.row_at(0),
+            "[every 5 minutes] check deploy · 3 fires · durable · paused"
+        );
+        assert_eq!(schedules.firing(Some("s1")), 0);
+        schedules.apply(&json!({"event":"created","id":"t2","session":"s1","prompt":"p","human":"every 1 minute","saved":false,"saveNote":"this dsh has no session owner"}));
+        assert!(
+            schedules.entries[1]
+                .details()
+                .contains(&"not saved: this dsh has no session owner".to_string())
+        );
+        assert_eq!(schedules.end_all(), (1, 1));
+        assert_eq!(
+            ended_hint(1, 1, "with the dsh process").unwrap(),
+            "1 saved loop(s) stopped with the dsh process (they come back when this session is resumed); 1 unsaved loop(s) ended"
+        );
+        assert_eq!(ended_hint(0, 0, "x"), None);
+        schedules.apply(&json!({"event":"created","id":"t3","session":"s1","prompt":"p","human":"every 1 minute","saved":true}));
+        let stopped = schedules.apply(
+            &json!({"event":"removed","id":"t3","session":"s1","reason":"shutdown","saved":true}),
+        );
+        assert_eq!(
+            stopped.as_deref(),
+            Some(
+                "Loop stopped with the dsh process (saved; it comes back when the session is resumed): p"
+            )
+        );
     }
 
     #[test]

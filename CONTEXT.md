@@ -398,14 +398,31 @@ the reference `/loop` instruction as the turn; each fire is a background
 subagent of the default type started through the subagent planner, so type,
 capability, approvals, and the live cap apply, and its status returns once as a
 job completion that wakes an idle session. A fire does not resume the previous
-child's transcript; it starts fresh with the previous fire's final status. Tasks
-are session-only: closing the dsh session, a dsh restart, or quitting ends them,
-and `durable: true` is refused with `scheduler_durability_unavailable` (#178).
-The plugin reports `event: "schedule"` lines on stderr; the Rust client keeps
-the loop rows for the status line and the tasks pane, whose `x` sends
-`schedule_delete` through the control channel. Plain `-p`, editor ACP (the
-`x.ai/scheduled_task_*` and `x.ai/scheduler/delete` extensions are listed as
-unsupported), the shared server, and subagent-less sessions have no scheduler.
+child's transcript; it starts fresh with the previous fire's final status.
+Tasks are saved per session (#178), durable or not, as in the reference, which
+keeps all scheduler state in the session's resources: dsh writes
+`$DSH_HOME/codsh-schedules/<session>.json` atomically only after the Rust
+client, holding the session owner lock (`session_owner.rs`), hands over the
+lock token with `schedule_owner` on the control channel. The plugin re-reads
+the lock before every save and fire; a changed lock (`OWNER_LOST`) or a closed
+control socket (`CLIENT_GONE`) stops the session's tasks without writing, so
+two processes never fire one loop. Resume restores the file: an overdue task
+fires once (missed intervals collapse), an expired one is removed unfired, and
+a fire recorded as in flight becomes `lastResult.status = "unknown"`, is never
+replayed, and the next fire's frame says it was interrupted. Deletes and
+durable expiries are acknowledged only after the absence is saved; a durable
+create that cannot be saved is rolled back, and `durable: true` without an
+owner is refused with `scheduler_durability_unavailable`. An unreadable file
+is never overwritten. The creation permission mode is saved and a change is
+flagged, not re-approved: fires run under the current mode. With subagents
+off the plugin registers a paused scheduler (no tools, no fires) so saved
+loops stay visible and deletable. The plugin reports `event: "schedule"` lines
+on stderr; the Rust client keeps the loop rows for the status line and the
+tasks pane, whose `x` sends `schedule_delete` through the control channel.
+Plain `-p`, editor ACP (the `x.ai/scheduled_task_*` and
+`x.ai/scheduler/delete` extensions are listed as unsupported), and the shared
+server have no scheduler and leave saved loops untouched; a fork or rewind is a
+new session id and starts without them.
 Goals (ticket 180) are dsh's own goal driver plus `rust-acp-goal.mjs`; the
 Rust client runs no loop of its own. `/goal` parses like the reference
 (`status`, `pause`, `resume`, `clear` as the whole input, otherwise an

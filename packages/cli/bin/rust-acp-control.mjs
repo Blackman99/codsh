@@ -16,6 +16,10 @@
  *
  * - schedule_delete: the tasks pane's delete for a scheduled prompt, handed
  *   to rust-acp-scheduler (ticket 177).
+ * - schedule_owner: the client holding a session's owner lock hands over
+ *   its token, so rust-acp-scheduler saves that session's loops and
+ *   restores the saved ones (ticket 178). The socket closing means the
+ *   owning client is gone: every loop stops firing and saving at once.
  *
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
@@ -245,6 +249,17 @@ export function createControl(ctx, send, options = {}) {
     send({ type: 'goal_result', id: request.id, action: String(request.action ?? 'status'), ok: result.ok === true, message: String(result.message ?? '') })
   }
 
+  const scheduleOwner = (request) => {
+    const scheduler = globalThis[SCHEDULER]
+    const agent = agents.get(request.sessionId)
+    const token = typeof request.token === 'string' ? request.token : ''
+    let outcome
+    if (scheduler === undefined) outcome = { error: 'scheduled prompts are unavailable in this dsh' }
+    else if (agent === undefined) outcome = { error: 'no live dsh session for this owner' }
+    else outcome = scheduler.attach(agent, token)
+    send({ type: 'schedule_owner_result', id: request.id, sessionId: request.sessionId, ...outcome })
+  }
+
   const btw = async (request) => {
     const id = request.id
     const agent = agents.get(request.sessionId)
@@ -333,6 +348,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'schedule_delete') scheduleDelete(request)
       else if (request.type === 'workflow') void workflow(request)
       else if (request.type === 'goal') goal(request)
+      else if (request.type === 'schedule_owner') scheduleOwner(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()
@@ -400,6 +416,8 @@ export function apply(ctx) {
   socket.on('close', () => {
     connected = false
     control.close()
+    // The owning client is gone: its loops must not keep firing unseen.
+    globalThis[SCHEDULER]?.stopAll()
   })
   // The socket must not keep dsh alive after stdin closes.
   socket.unref()
