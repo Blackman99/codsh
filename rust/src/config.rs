@@ -2005,6 +2005,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
                 key.starts_with("GROK_SUBAGENT")
                     || key.as_str() == "GROK_MAX_CONCURRENT_SUBAGENTS"
                     || key.as_str() == "GROK_WORKFLOW_MAX_CONCURRENT_AGENTS"
+                    || key.as_str() == "GROK_ACTIVE_AGENT_MESSAGES"
             })
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),

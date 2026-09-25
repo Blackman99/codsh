@@ -215,7 +215,7 @@ function isDirectUser(event) {
   if (isCompactCheckpoint(event)) return true
   const source = eventSource(event)
   const kind = typeof source === 'string' ? source : source?.kind ?? source?.type ?? ''
-  if (kind === 'inject' || kind === 'tool' || kind === 'system' || kind === 'plugin') return false
+  if (kind === 'inject' || kind === 'tool' || kind === 'system' || kind === 'plugin' || kind === 'agent-message') return false
   const message = event.data?.message ?? event.data ?? {}
   const text = textBlocks(message.content)
   if (text.startsWith('<') && !text.includes('<compacted-summary>')) return false
@@ -253,6 +253,7 @@ function jobNotice(event) {
   const source = eventSource(event)
   const round = goalRound(event, source)
   if (round !== undefined) return round
+  if (source?.kind === 'agent-message') return agentMessageLine(event)
   if (source?.kind === 'plugin' && source?.plugin === 'rust-acp-monitor' && source?.form === 'notice') {
     const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
     return summary === '' ? MONITOR_NOTICE_PREFIX : `${MONITOR_NOTICE_PREFIX} · ${summary}`
@@ -260,6 +261,23 @@ function jobNotice(event) {
   if (source?.kind !== 'plugin' || source?.plugin !== 'tool-jobs') return undefined
   const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
   return summary === '' ? JOB_NOTICE_PREFIX : `${JOB_NOTICE_PREFIX} · ${summary}`
+}
+
+/** The line a relayed subagent message shows as (ticket 173). */
+export const MESSAGE_NOTICE_PREFIX = '◎ Message from'
+
+/**
+ * A message another agent sent this one (send_subagent_message). It is a
+ * turn nobody typed, so it shows marked, with the sender and its first line.
+ */
+function agentMessageLine(event) {
+  const message = event.data?.message ?? event.data ?? {}
+  const text = textBlocks(message.content)
+  const match = /^(Your parent agent|Subagent (\S+)) sent a message: ([\s\S]*)$/u.exec(text)
+  const from = match === null ? 'agent' : match[2] === undefined ? 'parent' : `subagent ${match[2]}`
+  const body = (match === null ? text : match[3]).split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
+  const line = body.length > SUMMARY_LIMIT ? `${body.slice(0, SUMMARY_LIMIT - 1)}…` : body
+  return line === '' ? `${MESSAGE_NOTICE_PREFIX} ${from}` : `${MESSAGE_NOTICE_PREFIX} ${from} · ${line}`
 }
 
 /** A command completion or monitor event line (not a goal round). */

@@ -1006,6 +1006,49 @@ async function * schedulerTurn(options) {
 async function * subagentChildTurn(options, kind, signal) {
   const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name).sort().join(',') : ''
   const done = toolResults(options)
+  // Ticket 173. WAITMSG <n> polls (bash sleep 0.25) up to n times until a
+  // relayed message is in its context, then reports every message it heard.
+  // A later turn (a queued message or a wake) answers at once.
+  if (kind === 'WAITMSG') {
+    const limit = Number(/CHILD_WAITMSG (\d+)/.exec(rawUserTexts(options).join('\n'))?.[1] ?? '40')
+    const heard = relayed(options)
+    const lastReply = options.messages.findLastIndex(message => message.role === 'assistant' && message.content.every(block => block.type !== 'tool-call'))
+    const polls = options.messages.slice(lastReply + 1).flatMap(message => message.content.filter(block => block.type === 'tool-result')).length
+    if (heard.length === 0 && polls < limit) {
+      yield* mockToolCall(`rust-acp-child-poll-${done.length}-${Date.now().toString(36)}`, 'bash', { command: 'sleep 0.25', description: 'wait for a message' })
+      return
+    }
+    yield* mockText(`CHILD_HEARD [${heard.join(' | ')}] polls=${polls} tools=${tools}`)
+    return
+  }
+  // TELL messages its parent and reports the outcome.
+  if (kind === 'TELL') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-child-tell', 'send_subagent_message', { subagent_id: 'parent', text: 'child says hi' })
+      return
+    }
+    yield* mockText(`CHILD_TOLD ${done[0].isError ? 'error' : 'ok'}:${oneLine(resultText(done[0])).slice(0, 200)}`)
+    return
+  }
+  // INTERJECT starts a background sleep, blocks on it with job_output, and
+  // after the wait ends kills it and reports the wait result and messages.
+  if (kind === 'INTERJECT') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-child-bg', 'bash', { command: 'sleep 20.173', description: 'long background probe', run_in_background: true })
+      return
+    }
+    const job = jobIdOf(resultText(done[0]))
+    if (done.length === 1) {
+      yield* mockToolCall('rust-acp-child-wait', 'job_output', { job_id: job, wait: true, timeout_ms: 60000 })
+      return
+    }
+    if (done.length === 2) {
+      yield* mockToolCall('rust-acp-child-kill', 'job_kill', { job_id: job })
+      return
+    }
+    yield* mockText(`CHILD_INTERJECTED wait=${done[1].isError ? 'error' : 'ok'}:${oneLine(resultText(done[1])).slice(0, 200)} heard=[${relayed(options).join(' | ')}]`)
+    return
+  }
   if (kind === 'WRITE') {
     if (done.length === 0) {
       const name = `child-${Date.now().toString(36)}.txt`
@@ -1255,8 +1298,64 @@ async function * researchTurn(options, { role, prompt }) {
   yield* mockText(`<report-body>\nRESEARCH_SYNTHESIZED answer from ${packet.length} verified finding(s).\n\n### Findings\n${lines.join('\n')}\n</report-body>`)
 }
 
+// Ticket 173. `STEPS <json>` in the parent prompt is a list of
+// [tool, args, {delay}] calls, run one per model step. In string args,
+// {{id:N}} is the subagent_id and {{job:N}} the job id named by the result
+// of step N. Afterwards the parent reports every result (PARENT_STEPS), and a
+// later dsh job notice is echoed (PARENT_NOTICE).
+const RELAY = ' sent a message: '
+
+function relayed(options) {
+  return rawUserTexts(options).filter(text => text.includes(RELAY)).map(text => text.slice(text.indexOf(RELAY) + RELAY.length).split('\n')[0])
+}
+
+function stepValue(value, done) {
+  if (typeof value === 'string') {
+    return value.replace(/\{\{(id|job):(\d+)\}\}/g, (_all, kind, index) => {
+      const text = resultText(done[Number(index)])
+      const found = kind === 'id'
+        ? /\[subagent_id: ([^\]]+)\]/.exec(text)?.[1] ?? /subagent_id is (\S+?)\.(?:\s|$)/.exec(text)?.[1]
+        : /background (?:subagent )?job (\S+?)[ .(]/.exec(text)?.[1]
+      return found ?? `missing-${kind}-${index}`
+    })
+  }
+  if (Array.isArray(value)) return value.map(item => stepValue(item, done))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, stepValue(item, done)]))
+  return value
+}
+
+async function * stepsTurn(options, stepsText) {
+  const steps = JSON.parse(stepsText.slice(stepsText.indexOf('STEPS ') + 'STEPS '.length))
+  const done = turnToolResults(options, 'STEPS ')
+  if (done.length < steps.length) {
+    const [name, args, extra] = steps[done.length]
+    if (extra?.delay) await sleep(extra.delay, options.signal)
+    yield* mockToolCall(`rust-acp-step-${done.length}-${Date.now().toString(36)}`, name, stepValue(args, done))
+    return
+  }
+  const latest = latestUserText(options)
+  const reported = options.messages.some(message => message.role === 'assistant' && message.content.some(block => block.type === 'text' && block.text.startsWith('PARENT_STEPS ')))
+  if (reported && /^background job /.test(latest)) {
+    yield* mockText(`PARENT_NOTICE ${oneLine(latest).slice(0, 600)}`)
+    return
+  }
+  yield* mockText(`PARENT_STEPS ${done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 700)}`).join(' ')}`)
+}
+
 async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
+  const stepsText = [...texts].reverse().find(text => text.startsWith('STEPS '))
+  if (stepsText !== undefined) {
+    yield* stepsTurn(options, stepsText)
+    return
+  }
+  // Ticket 173: a resume_from child reports what it inherited.
+  if (latestUserText(options).includes('CHILD_RECALL')) {
+    const kinds = texts.filter(text => !text.includes('CHILD_RECALL')).flatMap(text => [...text.matchAll(/CHILD_([A-Z]+)/g)].map(match => match[1]))
+    const model = options.model?.id ?? options.model ?? ''
+    yield* mockText(`CHILD_RECALLED kinds=[${kinds.join(',')}] heard=[${relayed(options).join(' | ')}] route=${options.provider}/${model}`)
+    return
+  }
   // Ticket 183: a workflow completion message (the reminder plus the wake
   // prompt) is answered by echoing the reminder.
   // Ticket 184: a slash-launch reminder can follow the notice in the same

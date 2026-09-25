@@ -42,6 +42,18 @@
  *   run_in_background call. The scheduler exists only in the interactive
  *   client (CODSH_SCHEDULER=1) and only while subagents are enabled.
  *
+ * - Messages and continuation (ticket 173, rust-acp-subagent-messages.mjs).
+ *   A settled `subagent` child stays live (at most MAX_RESIDENT_CHILDREN, the
+ *   oldest released first) so `resume_from` can seed a new child with its
+ *   transcript and model. With `activeAgentMessages` the flag-gated
+ *   `send_subagent_message` tool reaches one owned child: a running child
+ *   takes the message into its own dsh inbox (steer, queue, or interject);
+ *   a queued one keeps it until it starts; a completed one wakes with it as
+ *   its next turn, as a dsh job of the same child agent. A cancelled,
+ *   workflow, scheduled, verifier, isolated, released, or unknown child is
+ *   refused with the reference outcome; nothing survives a restart, so a
+ *   stale id can never resume anything.
+ *
  * Lifecycle lines go to stderr as `\u241esubagent\u241e{json}` so the Rust
  * client can keep one board. CODSH_SUBAGENT_CONTROL names a private directory
  * where the client drops `<n>.json` files ({"action":"cancel","id":callId}).
@@ -56,6 +68,26 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
 import { DEFAULT_MAX_CONCURRENT_AGENTS, DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
 import { registerScheduler } from './rust-acp-scheduler.mjs'
+import {
+  DSH_MESSAGE_TOOLS,
+  INVALID_TARGET,
+  MAX_ADMISSIONS,
+  MAX_ADMISSIONS_PER_CHILD,
+  MAX_ATTEMPT_OUTBOUND,
+  MAX_RESIDENT_CHILDREN,
+  MAX_SENDER_TARGET_IN_FLIGHT,
+  MESSAGE_TOOL,
+  MESSAGE_TOOL_DESCRIPTION,
+  RESUME_ERRORS,
+  RESUME_FROM_DESCRIPTION,
+  disposition,
+  outcomeText,
+  parseDelivery,
+  relayText,
+  resumeSource,
+  sizeOutcome,
+  validTarget,
+} from './rust-acp-subagent-messages.mjs'
 
 export const MARK = '\u241esubagent\u241e'
 /** rust-acp-goal (ticket 180) takes its completion verifiers from here. */
@@ -99,7 +131,7 @@ const READ_TOOLS = new Set([
 ])
 const WRITE_TOOLS = new Set(['write', 'edit', 'str_replace_editor'])
 const EXECUTE_TOOLS = new Set(['bash', 'pwsh', 'bash_persistent', 'pwsh_persistent', 'terminal'])
-const TASK_TOOLS = new Set(['subagent', 'subagent_fork', 'send_message', 'interrupt_agent'])
+const TASK_TOOLS = new Set(['subagent', 'subagent_fork', 'send_message', 'interrupt_agent', MESSAGE_TOOL])
 export const SPAWN_TOOLS = ['subagent', 'subagent_fork']
 
 /** Whether a capability mode keeps a tool. Unclassified tools survive only `all`. */
@@ -124,6 +156,7 @@ export function readPolicy(raw) {
     limitBehavior: 'queue',
     maxDepth: 1,
     workflowMaxConcurrent: DEFAULT_MAX_CONCURRENT_AGENTS,
+    activeAgentMessages: false,
     types: BUILTIN_TYPES.map(type => ({ ...type })),
   }
   if (raw === undefined || String(raw).trim() === '') return { policy: base }
@@ -169,6 +202,7 @@ export function readPolicy(raw) {
       limitBehavior: value.limitBehavior === 'fail' ? 'fail' : 'queue',
       maxDepth: positiveInt(value.maxDepth, 1),
       workflowMaxConcurrent: positiveInt(value.workflowMaxConcurrent, DEFAULT_MAX_CONCURRENT_AGENTS),
+      activeAgentMessages: value.activeAgentMessages === true,
       types: Array.isArray(value.types) ? types : base.types,
     },
   }
@@ -253,7 +287,7 @@ function turnStopReason(reason) {
  * session). Reads the turn's last non-empty assistant message and its stop
  * reason from the events after the boundary, like dsh's in-process driver.
  */
-export async function continueChild(child, prompt, signal) {
+export async function continueChild(child, prompt, signal, message, afterFollowup) {
   const boundary = child.session.snapshotEvents().length
   let cancelled = false
   const onAbort = () => {
@@ -264,7 +298,8 @@ export async function continueChild(child, prompt, signal) {
   try {
     if (signal?.aborted) onAbort()
     else {
-      child.followup(createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }))
+      child.followup(message ?? createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }))
+      afterFollowup?.()
       await child.whenIdle()
     }
   } finally {
@@ -278,6 +313,11 @@ export async function continueChild(child, prompt, signal) {
   }
   const recorded = end ? turnStopReason(end.data?.reason) : 'error'
   return { output, stopReason: cancelled && recorded !== 'completed' ? 'aborted' : recorded }
+}
+
+/** A subagent result names the id that send_subagent_message and resume_from take. */
+export function withSubagentId(text, id) {
+  return `${text}${text ? '\n\n' : ''}[subagent_id: ${id}]`
 }
 
 function emit(event) {
@@ -402,6 +442,30 @@ export function parentInWorktree(parent, cwd) {
   return new Proxy(parent, { get: (target, key) => (key === 'session' ? session : bindGet(target, key)) })
 }
 
+/**
+ * The parent as the fork provider sees it for `resume_from` (ticket 173):
+ * the provider seeds the new child with the balanced completed-turn prefix
+ * of `parent.session.snapshotEvents()`, and that one read returns the
+ * source child's log. Depth, lineage, cwd, and policy stay the real
+ * parent's, so the resumed child is a sibling of its source.
+ */
+export function parentWithTranscriptOf(parent, source) {
+  let used = false
+  const session = new Proxy(parent.session, {
+    get: (target, key) => {
+      if (key !== 'snapshotEvents') return bindGet(target, key)
+      return (...args) => {
+        if (!used && args.length === 0) {
+          used = true
+          return source.session.snapshotEvents()
+        }
+        return target.snapshotEvents(...args)
+      }
+    },
+  })
+  return new Proxy(parent, { get: (target, key) => (key === 'session' ? session : bindGet(target, key)) })
+}
+
 /** Remove an isolated worktree that holds no change; describe one that does. */
 export function settleWorktree(worktree) {
   let changed
@@ -459,8 +523,10 @@ export function apply(ctx) {
   const admission = new Admission(policy?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT, policy?.limitBehavior ?? 'queue')
   /** callId -> record */
   const records = new Map()
-  /** child agent id -> record */
+  /** child agent id -> record while it runs (board activity) */
   const byChild = new Map()
+  /** child agent id -> record, for the child's whole life in this process (ticket 173) */
+  const lineage = new Map()
   let seq = 0
 
   const cancelRecord = (record, reason) => {
@@ -558,12 +624,16 @@ export function apply(ctx) {
     const capability = spec.capability ? intersectCapability(spec.capability, type.capability) : type.capability
     const shaped = { ...type, capability }
     const parentTools = [...ctx.tools.view(parent).visible.keys()]
-    const allow = childAllowList(parentTools, shaped, lastLevel)
+    // Workflow agents, verifiers, and scheduled fires are harness children:
+    // they never get the messaging tool (reference curated toolsets).
+    const allow = childAllowList(parentTools, shaped, lastLevel).filter(tool => !(spec.noMessaging && tool === MESSAGE_TOOL))
     const parentOptions = parent.options ?? {}
-    const provider = type.provider ?? parentOptions.provider
-    const model = spec.model ?? type.model ?? parentOptions.model
-    const effort = spec.effort
-    const routed = Boolean(spec.model || type.model || effort)
+    // resume_from pins the source's route; a model override is ignored.
+    const pinned = spec.resume?.options
+    const provider = pinned ? pinned.provider : type.provider ?? parentOptions.provider
+    const model = pinned ? pinned.model : spec.model ?? type.model ?? parentOptions.model
+    const effort = pinned ? pinned.reasoningEffort : spec.effort
+    const routed = Boolean(pinned || spec.model || type.model || effort)
     if (routed) {
       const llm = ctx.get('llm')
       if (!llm) throw new Error('cannot resolve the subagent model because the llm service is unavailable')
@@ -572,6 +642,7 @@ export function apply(ctx) {
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : String(cause)
         emit({ event: 'refused', id: spec.id, type: type.name, label: spec.label, detail: `no available model ${provider}/${model}${effort ? ` with effort ${effort}` : ''}` })
+        if (pinned) throw new Error(RESUME_ERRORS.model(spec.resume.id, `${provider}/${model}`, detail))
         if (effort && /reasoning effort/i.test(detail)) throw new Error(`workflow agent effort "${effort}" is not available for model ${provider}/${model}: ${detail}`)
         throw new Error(`subagent type "${type.name}" model ${provider}/${model} is not available: ${detail}`)
       }
@@ -585,7 +656,7 @@ export function apply(ctx) {
         throw new Error(`worktree isolation is unavailable: ${cause instanceof Error ? cause.message : cause}`)
       }
     }
-    const unrestricted = capability === 'all' && !type.tools && !lastLevel
+    const unrestricted = capability === 'all' && !type.tools && !lastLevel && !(spec.noMessaging && parentTools.includes(MESSAGE_TOOL))
     const prompt = type.instructions
       ? `<system-reminder>\n${type.instructions}\n</system-reminder>\n\n${spec.prompt}`
       : String(spec.prompt)
@@ -607,6 +678,7 @@ export function apply(ctx) {
       depth,
       tools: unrestricted ? null : allow,
       ...isolation ? { isolation } : {},
+      ...spec.resume ? { resumedFrom: spec.resume.id } : {},
       ...spec.workflow ? { workflow: spec.workflow.name, workflowRun: spec.workflow.run, ...spec.workflow.phase ? { phase: spec.workflow.phase } : {} } : {},
     }
     return { type, request, base, isolation }
@@ -618,12 +690,32 @@ export function apply(ctx) {
    * settlement). `admit` is { acquire(signal, onQueued), release(), count(),
    * limit }.
    */
-  function childRun(plan, admit, { keepOpen = false } = {}) {
+  function childRun(plan, admit, { keepOpen = false, retain = false, origin = 'tool', seedFrom } = {}) {
     const { request, base, isolation, type } = plan
     const id = base.id
     const parent = request.parent
     const controller = new AbortController()
-    const record = { id, status: 'queued', controller, cancelRequested: false, type: type.name }
+    // Ticket 173: the record is also the message target. `attempt` counts
+    // this child's runs (a wake is a new attempt of the same child agent).
+    const record = {
+      id,
+      status: 'queued',
+      controller,
+      cancelRequested: false,
+      type: type.name,
+      label: request.label,
+      origin,
+      parentSession: parent.id,
+      parentAgent: parent,
+      root: rootSessionOf(ctx, parent),
+      base,
+      attempt: 1,
+      parked: [],
+      pending: new Set(),
+      finalizing: false,
+      isolated: Boolean(isolation),
+      pins: 0,
+    }
     records.set(id, record)
     const run = async signal => {
       await admit.acquire(signal, () => {
@@ -634,6 +726,12 @@ export function apply(ctx) {
       try {
         record.status = 'running'
         let spawnRequest = request
+        if (seedFrom) {
+          // resume_from: the fork provider seeds this child with the source's
+          // completed turns. The source stays pinned (never released) until
+          // the seed is read.
+          spawnRequest = { ...spawnRequest, parent: parentWithTranscriptOf(parent, seedFrom.child) }
+        }
         if (isolation) {
           // Created after admission so a queued child holds no directory.
           try {
@@ -649,21 +747,37 @@ export function apply(ctx) {
           }
           base.worktree = record.worktree.path
           base.branch = record.worktree.branch
-          spawnRequest = { ...request, parent: parentInWorktree(parent, record.worktree.sessionCwd) }
+          spawnRequest = { ...spawnRequest, parent: parentInWorktree(spawnRequest.parent, record.worktree.sessionCwd) }
         }
-        started = await ctx.subagents.start('spawn', { ...spawnRequest, signal })
+        if (seedFrom) seedFrom.pins += 1
+        try {
+          started = await ctx.subagents.start(seedFrom ? 'fork' : 'spawn', { ...spawnRequest, signal })
+        } finally {
+          if (seedFrom) seedFrom.pins -= 1
+        }
         const child = started.localAgent
         if (child?.id) {
           record.childId = child.id
+          record.child = child
           byChild.set(child.id, record)
+          lineage.set(child.id, record)
         }
         emit({ ...base, event: 'start', child: record.childId ?? started.id })
+        // Messages that arrived while this child waited for a slot.
+        if (record.child) deliverParked(record)
         const result = await started.result
+        record.finalizing = true
         if (keepOpen && result.stopReason === 'completed' && !signal.aborted) {
           // Held for a follow-up turn; the holder disposes it (ticket 182).
           const held = started
           started = undefined
           return { result, startedAt, held }
+        }
+        if (retain && record.child && !isolation) {
+          // Kept live for a message (wake) or resume_from; released oldest
+          // first, or with its parent session.
+          record.held = started
+          started = undefined
         }
         return { result, startedAt }
       } catch (cause) {
@@ -686,7 +800,7 @@ export function apply(ctx) {
         status = override.status
         detail = override.detail ?? ''
       } else if (failure !== undefined) {
-        status = controller.signal.aborted ? 'cancelled' : 'failed'
+        status = record.controller.signal.aborted ? 'cancelled' : 'failed'
         detail = failure instanceof Error ? failure.message : String(failure)
       } else if (outcome.stopReason === 'completed') {
         status = 'completed'
@@ -700,13 +814,15 @@ export function apply(ctx) {
       }
       record.status = status
       if (record.childId) byChild.delete(record.childId)
+      settleMessages(record)
       if (record.worktree) {
         record.settled = settleWorktree(record.worktree)
         if (!record.settled.kept) delete base.worktree
       }
-      emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId, ...record.settled ? { worktreeKept: record.settled.kept, changedFiles: record.settled.changed?.length ?? null } : {} })
+      emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId, ...record.attempt > 1 ? { attempt: record.attempt } : {}, ...record.settled ? { worktreeKept: record.settled.kept, changedFiles: record.settled.changed?.length ?? null } : {} })
       return status
     }
+    record.finish = finish
     const withWorktree = text => (record.settled ? `${text}${text ? '\n\n' : ''}${record.settled.note}` : text)
     return { record, controller, run, finish, withWorktree }
   }
@@ -801,9 +917,362 @@ export function apply(ctx) {
     limit: admission.limit,
   })
 
+
+  // ---- Messages and continuation (ticket 173) ----------------------------
+  const activeMessages = policy?.activeAgentMessages === true && !error
+  /** Settled children kept live, oldest first. */
+  const resident = []
+  /** Accepted messages not yet claimed by the target's dsh driver: id -> entry. */
+  const pendingMessages = new Map()
+  /** child agent id -> abort controllers of its blocking job_output waits. */
+  const waits = new Map()
+
+  const liveStatus = status => status === 'running' || status === 'queued'
+
+  function track(record, message, senderKey) {
+    record.pending.add(message.id)
+    pendingMessages.set(message.id, { record, senderKey })
+  }
+
+  function forget(record, messageId) {
+    record.pending.delete(messageId)
+    pendingMessages.delete(messageId)
+  }
+
+  // dsh claims a message when its driver takes it into a turn.
+  ctx.on('agent/inbox/claimed', ({ message }) => {
+    const entry = message?.id === undefined ? undefined : pendingMessages.get(message.id)
+    if (entry) forget(entry.record, message.id)
+  })
+
+  /** Put one accepted message into the child's own dsh inbox. */
+  function place(record, message, delivery) {
+    const child = record.child
+    if (delivery === 'queue') {
+      child.followup(message)
+      return
+    }
+    if (delivery === 'interject') {
+      // Ahead of pending steers, and a blocking background wait ends now
+      // (only the wait: the job keeps running).
+      try {
+        child.inbox.prepend('next-step', message)
+      } catch {
+        child.steer(message)
+      }
+      for (const wait of waits.get(child.id) ?? []) wait.abort(new Error('interjected message'))
+      return
+    }
+    child.steer(message)
+  }
+
+  function deliverParked(record) {
+    for (const { message, delivery } of record.parked.splice(0)) {
+      try {
+        place(record, message, delivery)
+      } catch {
+        forget(record, message.id)
+      }
+    }
+  }
+
+  /** A run ended: nothing parked or unclaimed survives it; keep the child live if held. */
+  function settleMessages(record) {
+    for (const { message } of record.parked.splice(0)) forget(record, message.id)
+    for (const id of [...record.pending]) {
+      // A cancelled run cleared its inbox; a completed one claimed everything.
+      forget(record, id)
+    }
+    record.finalizing = false
+    if (!record.held) return
+    record.wakeEligible = record.status !== 'cancelled' && !record.cancelRequested
+    const index = resident.indexOf(record)
+    if (index >= 0) resident.splice(index, 1)
+    resident.push(record)
+    while (resident.filter(item => !liveStatus(item.status)).length > MAX_RESIDENT_CHILDREN) {
+      const victim = resident.find(item => !liveStatus(item.status) && item.pins === 0)
+      if (!victim) break
+      releaseHeld(victim, 'released')
+    }
+  }
+
+  function releaseHeld(record, reason) {
+    const held = record.held
+    const index = resident.indexOf(record)
+    if (index >= 0) resident.splice(index, 1)
+    if (!held) return
+    record.held = undefined
+    record.released = reason
+    record.wakeEligible = false
+    if (liveStatus(record.status)) record.controller.abort(new Error(`subagent ${reason}`))
+    held.dispose().catch(() => {})
+  }
+
+  // A parent session that goes away takes its live children with it.
+  ctx.on('agent/disposed', ({ agent }) => {
+    for (const record of records.values()) {
+      if (record.parentSession === agent?.id && record.held) releaseHeld(record, 'released with its parent session')
+    }
+  })
+  ctx.on('dispose', () => {
+    for (const record of [...resident]) releaseHeld(record, 'released at shutdown')
+  })
+
+  /** Whether `sender` (a top-level session) owns `record` through the child lineage. */
+  function ownedBy(record, sender) {
+    let current = record
+    for (let guard = 0; guard < 64 && current; guard += 1) {
+      if (current.parentSession === sender.id) return true
+      current = lineage.get(current.parentSession)
+    }
+    return false
+  }
+
+  /** The record a known id names: a subagent_id (call id) or a child agent id. */
+  function lookup(id) {
+    return records.get(id) ?? lineage.get(id)
+  }
+
+  const rejected = outcome => ({ outcome })
+
+  /**
+   * Route one message. Returns the reference outcome, plus the resolved
+   * target record when the sender owns it (for the transcript row).
+   */
+  function sendMessage(sender, targetId, text, delivery) {
+    const senderRecord = lineage.get(sender.id)
+    if (isChildAgent(sender) && (!senderRecord || senderRecord.origin !== 'tool')) return rejected('unsupported')
+    let target
+    if (targetId === 'parent') {
+      // Only a subagent has a parent it may message, and only an active
+      // parent subagent (a top-level session is never a target).
+      target = senderRecord ? lineage.get(senderRecord.parentSession) : undefined
+      if (!target || target.released) return rejected('not_found_or_not_owned')
+    } else {
+      target = lookup(targetId)
+      if (!target || target.released || target === senderRecord) return rejected('not_found_or_not_owned')
+      if (senderRecord ? target.root !== senderRecord.root : !ownedBy(target, sender)) return rejected('not_found_or_not_owned')
+    }
+    const size = sizeOutcome(text)
+    if (size) return { ...size, target }
+    const refuse = outcome => ({ outcome, target })
+    // Workflow agents, scheduled fires, and verifiers belong to their harness.
+    if (target.origin !== 'tool') return refuse('not_active_or_finalizing')
+    if (targetId === 'parent' && (target.status !== 'running' || target.finalizing)) return refuse('not_active_or_finalizing')
+    if (target.status === 'cancelled') return refuse('not_active_or_finalizing')
+    if (target.pending.size >= MAX_ADMISSIONS_PER_CHILD) return { outcome: 'saturated', max_in_flight: MAX_ADMISSIONS_PER_CHILD, target }
+    if (pendingMessages.size >= MAX_ADMISSIONS) return { outcome: 'saturated', max_in_flight: MAX_ADMISSIONS, target }
+    let senderKey
+    if (senderRecord) {
+      senderKey = `${senderRecord.id}#${senderRecord.attempt}`
+      if (senderRecord.outboundAttempt !== senderRecord.attempt) {
+        senderRecord.outboundAttempt = senderRecord.attempt
+        senderRecord.outbound = 0
+      }
+      if (senderRecord.outbound >= MAX_ATTEMPT_OUTBOUND) return { outcome: 'quota_exceeded', kind: 'AttemptOutbound', limit: MAX_ATTEMPT_OUTBOUND, target }
+      let inFlight = 0
+      for (const entry of pendingMessages.values()) if (entry.senderKey === senderKey && entry.record === target) inFlight += 1
+      if (inFlight >= MAX_SENDER_TARGET_IN_FLIGHT) return { outcome: 'quota_exceeded', kind: 'SenderTargetInFlight', limit: MAX_SENDER_TARGET_IN_FLIGHT, target }
+    }
+    const from = senderRecord ? `Subagent ${senderRecord.id}` : 'Your parent agent'
+    const message = createUserMessage({
+      content: [{ type: 'text', text: relayText(from, text) }],
+      source: { kind: 'agent-message', form: 'relay', senderSessionId: sender.id },
+    })
+    const accept = extra => {
+      if (senderRecord) senderRecord.outbound += 1
+      return { outcome: 'accepted', message_id: message.id, target, ...extra }
+    }
+    if (target.status === 'queued' || (target.status === 'running' && !target.child)) {
+      // Not started yet (waiting for a slot, or dsh is still publishing the
+      // child): it takes the message when it starts.
+      track(target, message, senderKey)
+      target.parked.push({ message, delivery })
+      return accept()
+    }
+    if (target.status === 'running') {
+      const child = target.child
+      if (target.finalizing || !child || child.status !== 'running') return refuse('not_active_or_finalizing')
+      track(target, message, senderKey)
+      try {
+        place(target, message, delivery)
+      } catch {
+        forget(target, message.id)
+        return refuse('channel_closed')
+      }
+      return accept()
+    }
+    // Completed or failed: an eligible child wakes with the message as its
+    // next turn. One that ran isolated, or was released, cannot.
+    if (!target.held || !target.wakeEligible) return refuse('not_active_or_finalizing')
+    const jobs = ctx.get('jobs')
+    if (!jobs) return refuse('unsupported')
+    if (policy.limitBehavior === 'fail' && admission.count(target.root) >= admission.limit) return refuse('not_active_or_finalizing')
+    track(target, message, senderKey)
+    let jobId
+    try {
+      jobId = wake(target, message, jobs)
+    } catch {
+      forget(target, message.id)
+      return refuse('channel_closed')
+    }
+    return accept({ job: jobId })
+  }
+
+  /** A new background attempt of the same child agent, as a dsh job owned by its parent. */
+  function wake(target, message, jobs) {
+    const controller = new AbortController()
+    target.attempt += 1
+    target.status = 'queued'
+    target.cancelRequested = false
+    target.controller = controller
+    target.wakeEligible = false
+    target.base.background = true
+    emit({ ...target.base, event: 'resume', attempt: target.attempt, child: target.childId })
+    const jobId = jobs.start({
+      kind: 'subagent',
+      label: target.label,
+      owner: target.parentAgent,
+      run: () => ({
+        cancel: reason => {
+          target.cancelRequested = true
+          controller.abort(new Error(String(reason ?? 'background subagent job killed')))
+        },
+        done: runWake(target, message, controller),
+      }),
+    })
+    target.jobId = jobId
+    emit({ ...target.base, event: 'job', job: jobId })
+    return jobId
+  }
+
+  async function runWake(target, message, controller) {
+    const admit = sessionAdmit(target.root)
+    let startedAt
+    let result
+    try {
+      await admit.acquire(controller.signal, () => {
+        emit({ ...target.base, event: 'queued', running: admit.count(), limit: admit.limit })
+      })
+    } catch (failure) {
+      const status = target.finish(undefined, undefined, failure)
+      return status === 'cancelled' ? { status: 'killed' } : { status: 'failed', detail: failure instanceof Error ? failure.message : String(failure) }
+    }
+    try {
+      startedAt = Date.now()
+      target.status = 'running'
+      target.finalizing = false
+      byChild.set(target.childId, target)
+      emit({ ...target.base, event: 'start', child: target.childId, attempt: target.attempt })
+      result = await continueChild(target.child, '', controller.signal, message, () => deliverParked(target))
+      target.finalizing = true
+    } catch (failure) {
+      const status = target.finish(undefined, startedAt, failure)
+      return status === 'cancelled' ? { status: 'killed' } : { status: 'failed', detail: failure instanceof Error ? failure.message : String(failure) }
+    } finally {
+      admit.release()
+    }
+    const status = target.finish(result, startedAt)
+    if (status === 'completed') return { status: 'completed', output: withSubagentId(outputText(result.output), target.id) }
+    if (status === 'cancelled') return { status: 'killed' }
+    return { status: 'failed', detail: [stopReasonError(result.stopReason), result.diagnostic].filter(Boolean).join('\nDiagnostic: ') }
+  }
+
+  if (activeMessages) {
+    // An interject ends a subagent's blocking job_output wait early. The
+    // wait's error becomes a plain note; the job keeps running.
+    ctx.on('tools/execute', async (exec, next) => {
+      const agent = exec.agent
+      if (exec.name !== 'job_output' || exec.arguments?.wait !== true || !agent || !lineage.has(agent.id)) return next()
+      const wait = new AbortController()
+      const original = exec.signal
+      const relay = () => wait.abort(original.reason)
+      if (original.aborted) relay()
+      else original.addEventListener('abort', relay, { once: true })
+      const set = waits.get(agent.id) ?? new Set()
+      set.add(wait)
+      waits.set(agent.id, set)
+      exec.signal = wait.signal
+      let result
+      try {
+        result = await next()
+      } finally {
+        exec.signal = original
+        original.removeEventListener('abort', relay)
+        set.delete(wait)
+        if (set.size === 0) waits.delete(agent.id)
+      }
+      if (result?.isError && wait.signal.aborted && !original.aborted) {
+        const note = 'The wait ended early because an interjected message arrived. The job is still running; read it again with job_output.'
+        return { ...result, content: [{ type: 'text', text: note }], error: { ...result.error, message: note } }
+      }
+      return result
+    })
+
+    ctx.tools.register(defineTool({
+      name: MESSAGE_TOOL,
+      description: MESSAGE_TOOL_DESCRIPTION,
+      parameters: {
+        subagent_id: { type: 'string', required: true, description: '`parent` or the durable agent ID of the target subagent.' },
+        text: { type: 'string', required: true, description: 'The message to deliver.' },
+        delivery: {
+          type: 'string',
+          enum: ['steer', 'queue', 'interject'],
+          description: 'How the message lands on an active subagent: steer (default), queue, or interject.',
+        },
+        queue: { type: 'boolean', description: 'Legacy form of delivery "queue"; delivery wins when both are set.' },
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, result) => [{ type: 'text', text: result }],
+      },
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        const sender = exec.agent
+        if (!sender) throw new Error(`${MESSAGE_TOOL} requires a calling agent`)
+        const targetId = validTarget(args.subagent_id)
+        if (!targetId) throw new Error(INVALID_TARGET)
+        const delivery = parseDelivery(args)
+        const text = typeof args.text === 'string' ? args.text : ''
+        const row = { event: 'message', id: exec.callId, target: targetId, delivery, text: text.slice(0, 4000) }
+        emit({ ...row, state: 'sending' })
+        const outcome = sendMessage(sender, targetId, text, delivery)
+        const shown = outcome.target
+        const reason = outcomeText(outcome)
+        emit({
+          ...row,
+          state: disposition(outcome),
+          outcome: outcome.outcome,
+          reason,
+          ...shown ? { subagent: shown.id, type: shown.type, label: shown.label, parent: targetId === 'parent' } : {},
+          ...outcome.job ? { job: outcome.job } : {},
+        })
+        if (outcome.job) {
+          return `${reason}\nThe subagent had completed, so it resumed with this message as its next turn in background job ${outcome.job}. Collect its answer with job_output and stop it with job_kill.`
+        }
+        return reason
+      },
+    }))
+
+    // One messaging path: dsh's send_message and interrupt_agent reach only
+    // continuable children, which this client never starts.
+    ctx.on('agent/created', ({ agent }) => {
+      const deny = registered(ctx, DSH_MESSAGE_TOOLS)
+      if (deny.length > 0) {
+        try {
+          agent.ctx.tools.restrict({ deny })
+        } catch {}
+      }
+    })
+    ctx.on('tools/pre-execute', async (exec, next) => {
+      if (DSH_MESSAGE_TOOLS.includes(exec.name)) return { kind: 'deny', reason: `use ${MESSAGE_TOOL} to message a subagent in this client` }
+      return next()
+    }, true)
+  }
+
   ctx.tools.register(defineTool({
     name: 'subagent',
-    description: `Delegate a self-contained task to a subagent: a separate dsh agent with its own context. It does not see this conversation, so give it a complete prompt. Choose subagent_type to limit what it may do. By default this call waits and returns the subagent's final answer. Set run_in_background: true to get a job id at once; collect the result with job_output and stop it with job_kill.\nAvailable types:\n${describeTypes(types)}`,
+    description: `Delegate a self-contained task to a subagent: a separate dsh agent with its own context. It does not see this conversation, so give it a complete prompt. Choose subagent_type to limit what it may do. By default this call waits and returns the subagent's final answer. Set run_in_background: true to get a job id at once; collect the result with job_output and stop it with job_kill. Every result names the subagent_id; pass it as resume_from to continue that subagent's conversation in a new subagent${activeMessages ? `, or to ${MESSAGE_TOOL} to message it` : ''}.\nAvailable types:\n${describeTypes(types)}`,
     parameters: {
       description: { type: 'string', required: true, description: 'A short (3-5 word) description of the task, for display.' },
       prompt: { type: 'string', required: true, description: 'The complete, self-contained task for the subagent.' },
@@ -820,6 +1289,10 @@ export function apply(ctx) {
         enum: ['worktree'],
         description: 'Set to "worktree" to run the subagent in a new git worktree of this repository. Its edits stay there and are not applied to this checkout; the result names the worktree so the user can review and apply it.',
       },
+      resume_from: {
+        type: 'string',
+        description: `${RESUME_FROM_DESCRIPTION} The new subagent inherits its transcript and model; the source must have finished, belong to this session, and use the same subagent_type.`,
+      },
     },
     output: {
       schema: { type: 'string' },
@@ -831,20 +1304,39 @@ export function apply(ctx) {
       if (!parent) throw new Error('subagent tool requires a calling agent')
       const background = args.run_in_background === true
       const id = typeof exec.callId === 'string' && exec.callId ? exec.callId : `subagent-${++seq}`
+      const resumeId = resumeSource(args.resume_from)
+      let source
+      if (resumeId !== undefined) {
+        // Ticket 173: only a finished child of this session, still live in
+        // this process, with the same type. Nothing is read from disk, so a
+        // restart or a released child cannot be resumed.
+        source = lookup(resumeId)
+        const senderRecord = lineage.get(parent.id)
+        const owned = source && !source.released && source.origin === 'tool'
+          && (senderRecord ? source.root === senderRecord.root && source !== senderRecord : ownedBy(source, parent))
+        if (!owned) throw new Error(RESUME_ERRORS.missing(resumeId))
+        if (liveStatus(source.status)) throw new Error(RESUME_ERRORS.running(resumeId))
+        if (source.isolated) throw new Error(RESUME_ERRORS.isolated(resumeId))
+        if (!source.held) throw new Error(RESUME_ERRORS.missing(resumeId))
+        const requested = typeof args.subagent_type === 'string' && args.subagent_type.trim() ? args.subagent_type.trim() : source.type
+        if (requested !== source.type) throw new Error(RESUME_ERRORS.type(requested, source.type))
+      }
       const plan = await planChild({
         parent,
         id: exec.callId,
-        typeName: args.subagent_type,
+        typeName: source ? source.type : args.subagent_type,
         prompt: args.prompt,
         label: args.description,
         isolation: args.isolation,
         background,
         signal: exec.signal,
+        ...source ? { resume: { id: source.id, options: source.child.options ?? {} } } : {},
       })
       plan.base.id = id
       exec.signal.throwIfAborted()
+      if (source && (!source.held || liveStatus(source.status))) throw new Error(RESUME_ERRORS.missing(resumeId))
       const root = rootSessionOf(ctx, parent)
-      const child = childRun(plan, sessionAdmit(root))
+      const child = childRun(plan, sessionAdmit(root), { retain: true, origin: 'tool', ...source ? { seedFrom: source } : {} })
       const { record, controller, run, finish, withWorktree } = child
       const { base, request, type } = plan
       if (background) {
@@ -866,7 +1358,7 @@ export function apply(ctx) {
             },
             done: run(controller.signal).then(({ result, startedAt }) => {
               const status = finish(result, startedAt)
-              if (status === 'completed') return { status: 'completed', output: withWorktree(outputText(result.output)) }
+              if (status === 'completed') return { status: 'completed', output: withSubagentId(withWorktree(outputText(result.output)), id) }
               if (status === 'cancelled') return record.settled ? { status: 'killed', detail: record.settled.note } : { status: 'killed' }
               return { status: 'failed', detail: withWorktree([stopReasonError(result.stopReason), result.diagnostic].filter(Boolean).join('\nDiagnostic: ')) }
             }, failure => {
@@ -877,14 +1369,14 @@ export function apply(ctx) {
         })
         record.jobId = jobId
         emit({ ...base, event: 'job', job: jobId })
-        return `started background subagent job ${jobId} (${type.name}). Collect the result with job_output and stop it with job_kill.`
+        return `started background subagent job ${jobId} (${type.name}). Collect the result with job_output and stop it with job_kill. Its subagent_id is ${id}.`
       }
       const settled = await runForeground(child, exec.signal)
       if (settled.failure !== undefined) {
         if (record.settled) throw new Error(settled.text)
         throw settled.failure
       }
-      if (settled.status === 'completed') return settled.text
+      if (settled.status === 'completed') return withSubagentId(settled.text, id)
       throw new Error(settled.text)
     },
   }))
@@ -897,13 +1389,13 @@ export function apply(ctx) {
     refusal: error ? `subagent policy refused: ${error}` : null,
     maxConcurrent: policy?.workflowMaxConcurrent,
     spawnChild: async spec => {
-      const plan = await planChild(spec)
+      const plan = await planChild({ ...spec, noMessaging: true })
       const child = childRun(plan, {
         acquire: () => Promise.resolve(),
         release: () => {},
         count: () => 0,
         limit: 0,
-      }, { keepOpen: spec.keepOpen === true })
+      }, { keepOpen: spec.keepOpen === true, origin: 'workflow' })
       const settled = await runForeground(child, spec.signal)
       if (settled.failure !== undefined && settled.status === 'failed' && !settled.record.childId && !settled.record.worktree) {
         // Nothing started (for example worktree creation failed): a host error.
@@ -924,7 +1416,7 @@ export function apply(ctx) {
         const jobs = ctx.get('jobs')
         if (!jobs) throw new Error('scheduled fires need the dsh jobs service')
         const id = `loop-${task.id.slice(-12)}-${task.fire}`
-        const plan = await planChild({ parent: owner, id, prompt, label, background: true, signal: new AbortController().signal })
+        const plan = await planChild({ parent: owner, id, prompt, label, background: true, signal: new AbortController().signal, noMessaging: true })
         plan.base.id = id
         plan.base.schedule = task.id
         if (live && !live()) throw new Error('the task was deleted before this fire started')
@@ -933,7 +1425,7 @@ export function apply(ctx) {
           emit({ ...plan.base, event: 'refused', detail: LIMIT_MESSAGE(admission.limit) })
           throw new Error(LIMIT_MESSAGE(admission.limit))
         }
-        const { record, controller, run, finish } = childRun(plan, sessionAdmit(root))
+        const { record, controller, run, finish } = childRun(plan, sessionAdmit(root), { origin: 'schedule' })
         let settle = () => {}
         const done = new Promise(resolve => {
           settle = resolve
@@ -991,8 +1483,8 @@ export function apply(ctx) {
   // `execute` capability, so a verifier can read and run checks, never write.
   publishVerifier(ctx, error ? { unavailable: `subagent policy refused: ${error}` } : {
     spawn: async spec => {
-      const plan = await planChild(spec)
-      const child = childRun(plan, { acquire: () => Promise.resolve(), release: () => {}, count: () => 0, limit: 0 })
+      const plan = await planChild({ ...spec, noMessaging: true })
+      const child = childRun(plan, { acquire: () => Promise.resolve(), release: () => {}, count: () => 0, limit: 0 }, { origin: 'verifier' })
       const settled = await runForeground(child, spec.signal)
       return { status: settled.status, text: settled.text, childId: settled.record.childId }
     },

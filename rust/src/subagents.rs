@@ -62,6 +62,10 @@ pub struct Policy {
     /// Live children per workflow run (ticket 182); separate from the run's
     /// agent budget and from `max_concurrent`.
     pub workflow_max_concurrent: u64,
+    /// Ticket 173: the flag-gated `send_subagent_message` tool
+    /// (`[features] active_agent_messages` / GROK_ACTIVE_AGENT_MESSAGES,
+    /// default off).
+    pub active_agent_messages: bool,
     pub types: Vec<SubagentType>,
     /// A fatal policy error. The plugin refuses every spawn with it.
     pub error: Option<String>,
@@ -236,6 +240,20 @@ pub fn resolve(
         }
     }
 
+    let mut active_agent_messages = table
+        .get("features")
+        .and_then(|value| value.get("active_agent_messages"))
+        .and_then(TomlValue::as_bool)
+        .unwrap_or(false);
+    if let Some(raw) = env.get("GROK_ACTIVE_AGENT_MESSAGES") {
+        match env_flag(raw) {
+            Some(value) => active_agent_messages = value,
+            None => warnings.push(format!(
+                "GROK_ACTIVE_AGENT_MESSAGES={raw} is not 0/1; ignored"
+            )),
+        }
+    }
+
     let mut types = builtin_types();
     let upsert = |types: &mut Vec<SubagentType>, entry: SubagentType| {
         if let Some(slot) = types.iter_mut().find(|item| item.name == entry.name) {
@@ -382,6 +400,7 @@ pub fn resolve(
         limit_behavior,
         max_depth,
         workflow_max_concurrent,
+        active_agent_messages,
         types,
         error,
         warnings,
@@ -396,6 +415,7 @@ impl Policy {
             "limitBehavior": self.limit_behavior,
             "maxDepth": self.max_depth,
             "workflowMaxConcurrent": self.workflow_max_concurrent,
+            "activeAgentMessages": self.active_agent_messages,
             "error": self.error,
             "types": self.types.iter().map(|item| json!({
                 "name": item.name,
@@ -412,7 +432,7 @@ impl Policy {
     /// `inspect` rows: key, value, source-free summary.
     pub fn inspect_lines(&self) -> Vec<String> {
         let mut lines = vec![format!(
-            "Subagents: {} · max_concurrent {} ({}) · max_depth {} · workflow_max_concurrent {} · types {}",
+            "Subagents: {} · max_concurrent {} ({}) · max_depth {} · workflow_max_concurrent {} · active_agent_messages {} · types {}",
             if self.enabled {
                 "on".to_string()
             } else {
@@ -425,6 +445,11 @@ impl Policy {
             self.limit_behavior,
             self.max_depth,
             self.workflow_max_concurrent,
+            if self.active_agent_messages {
+                "on"
+            } else {
+                "off"
+            },
             self.types
                 .iter()
                 .map(|item| format!("{}[{}]", item.name, item.capability))
@@ -542,6 +567,10 @@ pub struct Entry {
     pub worktree_kept: Option<bool>,
     /// Ticket 181: the workflow run (its name) that spawned this child.
     pub workflow: String,
+    /// Ticket 173: the run this child is on (1 until a message wakes it).
+    pub attempt: u64,
+    /// Ticket 173: the label of the child a `resume_from` child continues.
+    pub resumed_from: String,
 }
 
 impl Entry {
@@ -561,26 +590,48 @@ impl Entry {
                 "Subagent queued: \"{}\" {tag} · waiting for a slot",
                 self.label
             ),
+            Status::Running if self.attempt > 1 => format!(
+                "Subagent resumed: \"{}\" {tag}{}{}",
+                self.label,
+                activity(&self.activity),
+                self.continuation_note()
+            ),
             Status::Running if self.background => {
                 format!(
-                    "Subagent started: \"{}\" {tag}{}",
+                    "Subagent started: \"{}\" {tag}{}{}",
                     self.label,
-                    activity(&self.activity)
+                    activity(&self.activity),
+                    self.continuation_note()
                 )
             }
             Status::Running => format!(
-                "Subagent running: \"{}\" {tag}{}",
+                "Subagent running: \"{}\" {tag}{}{}",
                 self.label,
-                activity(&self.activity)
+                activity(&self.activity),
+                self.continuation_note()
             ),
             status => format!(
-                "Subagent {} in {}: \"{}\" {tag}{}",
+                "Subagent {} in {}: \"{}\" {tag}{}{}",
                 status.as_str(),
                 seconds(self.elapsed()),
                 self.label,
-                self.worktree_note()
+                self.worktree_note(),
+                self.continuation_note()
             ),
         }
+    }
+
+    /// ` · attempt 2` once a message woke the child, ` · continues "x"` for
+    /// a `resume_from` child (ticket 173).
+    pub fn continuation_note(&self) -> String {
+        let mut note = String::new();
+        if self.attempt > 1 {
+            note.push_str(&format!(" · attempt {}", self.attempt));
+        }
+        if !self.resumed_from.is_empty() {
+            note.push_str(&format!(" · continues \"{}\"", self.resumed_from));
+        }
+        note
     }
 
     /// ` · worktree kept: <path>` for an isolated child that changed files,
@@ -711,6 +762,106 @@ fn seconds(elapsed: Duration) -> String {
     }
 }
 
+/// One `send_subagent_message` call (ticket 173), keyed by its tool call id.
+/// Its row replaces the tool title: `Message sent to Explore “find callers”`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MessageRow {
+    pub id: String,
+    /// The subagent_id the model named (`parent` or an id).
+    pub target: String,
+    /// The resolved child, when this session owns it.
+    pub subagent: String,
+    pub type_name: String,
+    pub label: String,
+    pub parent: bool,
+    pub delivery: String,
+    /// sending, accepted, rejected, or unconfirmed.
+    pub state: String,
+    pub outcome: String,
+    pub reason: String,
+    pub text: String,
+    /// The background job a completed child woke in.
+    pub job: String,
+}
+
+impl MessageRow {
+    /// `Explore “find callers”`, `parent`, or `subagent …1a2b3c4d` for a
+    /// target this session does not own. The description is its first line,
+    /// at most 40 characters.
+    pub fn target_label(&self) -> String {
+        if self.parent {
+            return "parent".into();
+        }
+        if self.type_name.is_empty() {
+            let tail: String = {
+                let chars: Vec<char> = self.target.chars().collect();
+                chars[chars.len().saturating_sub(8)..].iter().collect()
+            };
+            return format!("subagent …{tail}");
+        }
+        let mut kind = self.type_name.clone();
+        if let Some(first) = kind.get(0..1) {
+            kind = format!("{}{}", first.to_uppercase(), &kind[1..]);
+        }
+        let line = self.label.lines().next().unwrap_or("").trim();
+        let clamped: String = if line.chars().count() > 40 {
+            format!("{}…", line.chars().take(39).collect::<String>())
+        } else {
+            line.to_string()
+        };
+        if clamped.is_empty() {
+            kind
+        } else {
+            format!("{kind} \u{201c}{clamped}\u{201d}")
+        }
+    }
+
+    /// The collapsed row. It never shows the message text or the reason.
+    pub fn title(&self) -> String {
+        let target = self.target_label();
+        match self.state.as_str() {
+            "sending" => format!("Message sending to {target}"),
+            "rejected" => format!("Message rejected · {target}"),
+            "unconfirmed" => format!("Message unconfirmed · {target}"),
+            _ => {
+                let verb = match self.delivery.as_str() {
+                    "queue" => "queued for",
+                    "interject" => "interjected to",
+                    _ => "sent to",
+                };
+                let woke = if self.job.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · resumed as {}", self.job)
+                };
+                format!("Message {verb} {target}{woke}")
+            }
+        }
+    }
+
+    /// The expanded body: delivery, full text, and the outcome.
+    pub fn details(&self) -> String {
+        let mut lines = vec![format!(
+            "delivery: {}",
+            if self.delivery.is_empty() {
+                "steer"
+            } else {
+                &self.delivery
+            }
+        )];
+        if !self.subagent.is_empty() {
+            lines.push(format!("subagent: {}", self.subagent));
+        } else if !self.target.is_empty() {
+            lines.push(format!("subagent_id: {}", self.target));
+        }
+        lines.push(format!("text: {}", self.text));
+        if !self.reason.is_empty() {
+            lines.push(format!("result: {}", self.reason));
+        }
+        lines.join("\n")
+    }
+}
+
 /// One process-wide board of children, fed by the plugin's lifecycle lines.
 #[derive(Clone, Debug, Default)]
 pub struct Board {
@@ -725,6 +876,8 @@ pub struct Board {
     pub goal: crate::goal::Track,
     /// The live session, so the wait hint names only this session's model.
     pub session: Option<String>,
+    /// Ticket 173: `send_subagent_message` rows by tool call id.
+    pub messages: Vec<MessageRow>,
 }
 
 /// A line the client shows once, e.g. a background child finishing.
@@ -750,6 +903,49 @@ fn text(value: &Value, key: &str) -> String {
 impl Board {
     pub fn get(&self, id: &str) -> Option<&Entry> {
         self.entries.iter().find(|entry| entry.id == id)
+    }
+
+    /// The message row of one `send_subagent_message` call.
+    pub fn message(&self, id: &str) -> Option<&MessageRow> {
+        self.messages.iter().find(|row| row.id == id)
+    }
+
+    fn apply_message(&mut self, event: &Value) {
+        let id = text(event, "id");
+        if id.is_empty() {
+            return;
+        }
+        let index = match self.messages.iter().position(|row| row.id == id) {
+            Some(index) => index,
+            None => {
+                self.messages.push(MessageRow {
+                    id,
+                    ..MessageRow::default()
+                });
+                self.messages.len() - 1
+            }
+        };
+        let row = &mut self.messages[index];
+        for (key, slot) in [
+            ("target", &mut row.target),
+            ("subagent", &mut row.subagent),
+            ("type", &mut row.type_name),
+            ("label", &mut row.label),
+            ("delivery", &mut row.delivery),
+            ("state", &mut row.state),
+            ("outcome", &mut row.outcome),
+            ("reason", &mut row.reason),
+            ("text", &mut row.text),
+            ("job", &mut row.job),
+        ] {
+            let value = text(event, key);
+            if !value.is_empty() {
+                *slot = value;
+            }
+        }
+        if let Some(parent) = event.get("parent").and_then(Value::as_bool) {
+            row.parent = parent;
+        }
     }
 
     /// The run by its id or by any tool call that launched or resumed it.
@@ -845,6 +1041,14 @@ impl Board {
         if let Some(index) = self.entries.iter().position(|entry| entry.id == id) {
             return self.entries.get_mut(index);
         }
+        let source = text(event, "resumedFrom");
+        let resumed_from = if source.is_empty() {
+            String::new()
+        } else {
+            self.get(&source)
+                .map(|entry| entry.label.clone())
+                .unwrap_or(source)
+        };
         self.entries.push(Entry {
             id,
             type_name: text(event, "type"),
@@ -864,6 +1068,8 @@ impl Board {
             worktree: None,
             worktree_kept: None,
             workflow: text(event, "workflow"),
+            attempt: 1,
+            resumed_from,
         });
         self.entries.last_mut()
     }
@@ -888,6 +1094,27 @@ impl Board {
                     let worktree = text(event, "worktree");
                     entry.worktree = (!worktree.is_empty()).then_some(worktree);
                 }
+                None
+            }
+            "resume" => {
+                // Ticket 173: a message woke a completed child. The same
+                // entry runs again, in the background, as a new attempt.
+                let id = text(event, "id");
+                let entry = self.entries.iter_mut().find(|entry| entry.id == id)?;
+                entry.status = Status::Queued;
+                entry.background = true;
+                entry.attempt = event
+                    .get("attempt")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(entry.attempt + 1);
+                entry.detail.clear();
+                entry.activity.clear();
+                entry.elapsed = None;
+                entry.started = Instant::now();
+                None
+            }
+            "message" => {
+                self.apply_message(event);
                 None
             }
             "job" => {
@@ -1108,7 +1335,7 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
     for (index, entry) in visible.iter().enumerate() {
         let mark = if index == modal.cursor { ">" } else { " " };
         lines.push(format!(
-            "{mark} [{}] {} · {} · {}{}{}{}",
+            "{mark} [{}] {} · {} · {}{}{}{}{}",
             entry.status.as_str(),
             entry.label,
             entry.type_name,
@@ -1123,7 +1350,8 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             } else {
                 format!(" · workflow {}", entry.workflow)
             },
-            activity(&entry.activity)
+            activity(&entry.activity),
+            entry.continuation_note()
         ));
         let note = entry.worktree_note();
         if !note.is_empty() {
@@ -1967,5 +2195,168 @@ mod tests {
         assert_eq!(modal.cursor, 1);
         assert!(modal.selected_loop(&board).is_none());
         assert!(!board.status_text().contains("loop"));
+    }
+
+    #[test]
+    fn active_agent_messages_is_off_by_default_and_follows_features_then_env() {
+        let grok_home = Path::new("/nonexistent-grok-home");
+        let off = resolve(
+            &table(""),
+            &env(&[]),
+            &CliSubagents::default(),
+            &[],
+            grok_home,
+        );
+        assert!(!off.active_agent_messages);
+        assert_eq!(off.to_json()["activeAgentMessages"], false);
+        assert!(off.inspect_lines()[0].contains("active_agent_messages off"));
+        let config = table("[features]\nactive_agent_messages = true\n");
+        let on = resolve(&config, &env(&[]), &CliSubagents::default(), &[], grok_home);
+        assert!(on.active_agent_messages);
+        assert_eq!(on.to_json()["activeAgentMessages"], true);
+        assert!(on.inspect_lines()[0].contains("active_agent_messages on"));
+        let env_off = resolve(
+            &config,
+            &env(&[("GROK_ACTIVE_AGENT_MESSAGES", "0")]),
+            &CliSubagents::default(),
+            &[],
+            grok_home,
+        );
+        assert!(!env_off.active_agent_messages);
+        let bogus = resolve(
+            &config,
+            &env(&[("GROK_ACTIVE_AGENT_MESSAGES", "maybe")]),
+            &CliSubagents::default(),
+            &[],
+            grok_home,
+        );
+        assert!(bogus.active_agent_messages);
+        assert!(
+            bogus
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("GROK_ACTIVE_AGENT_MESSAGES=maybe"))
+        );
+    }
+
+    #[test]
+    fn message_rows_name_the_target_and_outcome_but_never_the_text() {
+        let mut board = Board::default();
+        board.apply(&event(json!({"event": "message", "id": "m1", "target": "call-9", "delivery": "steer", "text": "look at b.rs", "state": "sending"})));
+        assert_eq!(
+            board.message("m1").unwrap().title(),
+            "Message sending to subagent …call-9"
+        );
+        board.apply(&event(json!({"event": "message", "id": "m1", "state": "accepted", "outcome": "accepted", "reason": "Message accepted (message_id: x).", "subagent": "call-9", "type": "explore", "label": "find callers of parse_line in the whole workspace\nsecond line", "parent": false})));
+        let row = board.message("m1").unwrap();
+        assert_eq!(
+            row.title(),
+            "Message sent to Explore \u{201c}find callers of parse_line in the whole…\u{201d}"
+        );
+        assert!(!row.title().contains("look at b.rs"));
+        assert_eq!(
+            row.details(),
+            "delivery: steer\nsubagent: call-9\ntext: look at b.rs\nresult: Message accepted (message_id: x)."
+        );
+        for (delivery, state, job, title) in [
+            (
+                "queue",
+                "accepted",
+                "",
+                "Message queued for Plan \u{201c}p\u{201d}",
+            ),
+            (
+                "interject",
+                "accepted",
+                "",
+                "Message interjected to Plan \u{201c}p\u{201d}",
+            ),
+            (
+                "steer",
+                "accepted",
+                "subagent-2",
+                "Message sent to Plan \u{201c}p\u{201d} · resumed as subagent-2",
+            ),
+            (
+                "steer",
+                "rejected",
+                "",
+                "Message rejected · Plan \u{201c}p\u{201d}",
+            ),
+            (
+                "steer",
+                "unconfirmed",
+                "",
+                "Message unconfirmed · Plan \u{201c}p\u{201d}",
+            ),
+        ] {
+            let row = MessageRow {
+                type_name: "plan".into(),
+                label: "p".into(),
+                delivery: delivery.into(),
+                state: state.into(),
+                job: job.into(),
+                ..MessageRow::default()
+            };
+            assert_eq!(row.title(), title);
+        }
+        let parent = MessageRow {
+            parent: true,
+            state: "accepted".into(),
+            ..MessageRow::default()
+        };
+        assert_eq!(parent.title(), "Message sent to parent");
+        let unknown = MessageRow {
+            target: "0192f0c4-1c2d-7abc-9def-0123456789ab".into(),
+            state: "rejected".into(),
+            ..MessageRow::default()
+        };
+        assert_eq!(unknown.title(), "Message rejected · subagent …456789ab");
+    }
+
+    #[test]
+    fn a_woken_child_runs_again_as_a_new_attempt_and_notices_its_end_once() {
+        let mut board = Board::default();
+        board.apply(&event(json!({"event": "start", "id": "c1", "type": "general-purpose", "label": "probe", "model": "p/m", "child": "s1"})));
+        assert_eq!(board.apply(&event(json!({"event": "end", "id": "c1", "status": "completed", "detail": "ok", "elapsedMs": 100}))), None);
+        board.apply(&event(
+            json!({"event": "resume", "id": "c1", "attempt": 2, "child": "s1"}),
+        ));
+        let entry = board.get("c1").unwrap();
+        assert_eq!(entry.status, Status::Queued);
+        assert!(entry.background);
+        board.apply(&event(
+            json!({"event": "start", "id": "c1", "child": "s1", "attempt": 2}),
+        ));
+        assert_eq!(
+            board.get("c1").unwrap().block_title(),
+            "Subagent resumed: \"probe\" (general-purpose · m) · attempt 2"
+        );
+        assert_eq!(board.running(), 1);
+        let notice = board.apply(&event(json!({"event": "end", "id": "c1", "status": "completed", "detail": "again", "elapsedMs": 1500, "attempt": 2})));
+        assert_eq!(
+            notice,
+            Some(Notice(
+                "Subagent completed in 1.5s: \"probe\" (general-purpose · m) · attempt 2".into()
+            ))
+        );
+        assert_eq!(
+            board.apply(&event(
+                json!({"event": "end", "id": "c1", "status": "completed"})
+            )),
+            None
+        );
+        board.apply(&event(json!({"event": "start", "id": "c2", "type": "general-purpose", "label": "recall", "model": "p/m", "resumedFrom": "c1"})));
+        assert_eq!(
+            board.get("c2").unwrap().block_title(),
+            "Subagent running: \"recall\" (general-purpose · m) · continues \"probe\""
+        );
+        let lines = list_lines(&board, &TasksModal::default());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("probe · general-purpose") && line.contains("attempt 2")),
+            "{lines:?}"
+        );
     }
 }

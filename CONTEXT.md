@@ -331,6 +331,30 @@ beside it. The source checkout is only read; apply is explicit and merges per
 file against the worktree base; an isolated child sees a parent whose session
 header cwd is the worktree, and the permission listener checks its calls under
 both the worktree and the mapped checkout path.
+Subagent messages and continuation (ticket 173) stay in the same plugin, with
+the pure pieces in `rust-acp-subagent-messages.mjs`. `[features]
+active_agent_messages` / `GROK_ACTIVE_AGENT_MESSAGES` (off by default) arrives as
+`activeAgentMessages` in the policy. With it on, the plugin registers
+`send_subagent_message` for the parent and for tool-started children, and it
+denies dsh's `send_message` / `interrupt_agent`, which reach only continuable
+children and this client never starts any. A message is a dsh `agent-message`
+user message. `steer` goes to `child.steer`, `queue` becomes a follow-up, and
+`interject` is prepended to the child's inbox and aborts its blocking
+`job_output` waits. A child not yet started takes parked messages when it
+starts. A completed, non-cancelled, non-isolated child keeps its dsh handle
+(at most 32 resident, oldest released, all released when the parent agent is
+disposed) and wakes as the same identity: `continueChild` runs the turn inside
+a dsh job owned by the parent agent, through admission, and the job's result
+ends with `[subagent_id: …]`. `resume_from` starts a new child through the
+`fork` provider seeded from the source's `snapshotEvents()`, pinned to the
+source's type, provider, model, and effort. Unclaimed messages are counted per
+child (8) and in total (64) until the target's driver emits
+`agent/inbox/claimed`. The Rust board receives `message` and `resume` events
+for the transcript row (`Message sent to …`, `Message rejected · …`),
+`· attempt N`, and `continues "…"`, and `rust-acp-session-read.mjs` renders an
+`agent-message` as the child view's `◎ Message from …` turn. Nothing touches
+disk and nothing survives a restart. Workflow, scheduler, and verifier children
+never get the tool and cannot be targeted.
 Plan mode, questions, and todos (ticket 179) stay dsh state: `ctx.planMode`
 logs the plan projection, `exit_plan_mode` asks through `ctx.userQuestions`, and
 `todo/write` feeds the `todos` projection. `rust-acp-plan.mjs` adds
