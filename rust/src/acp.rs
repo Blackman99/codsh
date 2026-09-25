@@ -373,6 +373,23 @@ pub struct AcpClient {
     /// session publishes its goal during session/resume); the next pump
     /// hands them on.
     held: Vec<AcpEvent>,
+    /// Remote transport (ticket 190). See [`SpawnSpec::remote`].
+    pub remote: bool,
+    /// Last stderr line of a remote transport, for the disconnect reason.
+    remote_stderr: Option<std::sync::Arc<std::sync::Mutex<String>>>,
+    /// `session/update` notifications collected during `session/load`.
+    replay_capture: Option<Vec<Value>>,
+}
+
+/// What `session/load` against a remote hub returned (ticket 190).
+pub struct RemoteLoad {
+    /// Saved turns, then the running turn so far, as `session/update` params.
+    pub updates: Vec<Value>,
+    /// The hub attached to a session it still runs (no second executor).
+    pub attached: bool,
+    /// A turn is still running there; its result arrives as
+    /// `_codsh/prompt_complete`.
+    pub running: bool,
 }
 
 enum Line {
@@ -399,6 +416,10 @@ pub struct SpawnSpec {
     pub env: Vec<(String, String)>,
     pub cwd: PathBuf,
     pub stderr_log: Option<PathBuf>,
+    /// The child is a transport to a remote codsh hub (ticket 190), not a
+    /// local dsh: no local control socket, no local path canonicalization,
+    /// and its stderr (ssh, remote notes) stays out of the transcript.
+    pub remote: bool,
 }
 
 const IDENTITY_CHILD_KEYS: &[&str] = &[
@@ -579,6 +600,7 @@ pub fn dsh_spawn_spec(
         env,
         cwd,
         stderr_log: Some(dsh_home.join("acp-stderr.log")),
+        remote: false,
     })
 }
 
@@ -605,14 +627,24 @@ impl AcpClient {
         // The path and token are added after the allowlist on purpose: they
         // are for the control plugin, which removes them from its own
         // environment before any tool child is built.
-        let (control, control_unavailable) = match crate::control::ControlChannel::listen() {
-            Ok((channel, env)) => {
-                for (key, value) in env {
-                    command.env(key, value);
+        let (control, control_unavailable) = if spec.remote {
+            (
+                None,
+                Some(
+                    "not available in a remote session: steer and /btw need the local dsh control plugin"
+                        .to_string(),
+                ),
+            )
+        } else {
+            match crate::control::ControlChannel::listen() {
+                Ok((channel, env)) => {
+                    for (key, value) in env {
+                        command.env(key, value);
+                    }
+                    (Some(channel), None)
                 }
-                (Some(channel), None)
+                Err(error) => (None, Some(error.to_string())),
             }
-            Err(error) => (None, Some(error.to_string())),
         };
         let mcp_plan = spec
             .env
@@ -627,9 +659,13 @@ impl AcpClient {
             .ok_or_else(|| io::Error::other("missing ACP stdout"))?;
         let stderr = child.stderr.take();
         let (tx, rx) = mpsc::channel();
+        let remote_stderr = spec
+            .remote
+            .then(|| std::sync::Arc::new(std::sync::Mutex::new(String::new())));
         if let Some(stderr) = stderr {
             let log_path = spec.stderr_log.clone();
             let stderr_tx = tx.clone();
+            let last = remote_stderr.clone();
             thread::spawn(move || {
                 let mut file = log_path.and_then(|path| std::fs::File::create(path).ok());
                 let reader = BufReader::new(stderr);
@@ -638,7 +674,19 @@ impl AcpClient {
                     if let Some(file) = file.as_mut() {
                         let _ = writeln!(file, "{text}");
                     }
-                    let _ = stderr_tx.send(Line::Stderr(text));
+                    match &last {
+                        // ssh and remote notes are diagnostics, not answer text.
+                        Some(last) => {
+                            if !text.trim().is_empty()
+                                && let Ok(mut slot) = last.lock()
+                            {
+                                *slot = text;
+                            }
+                        }
+                        None => {
+                            let _ = stderr_tx.send(Line::Stderr(text));
+                        }
+                    }
                 }
             });
         }
@@ -680,6 +728,9 @@ impl AcpClient {
             editor_mcp: Vec::new(),
             last_error_details: None,
             linger: false,
+            remote: spec.remote,
+            remote_stderr,
+            replay_capture: None,
         })
     }
 
@@ -896,6 +947,83 @@ impl AcpClient {
         ))
     }
 
+    /// The session directory as sent. A remote path is the remote host's
+    /// path: it is never resolved against this machine's filesystem.
+    fn wire_cwd(&self, cwd: &Path) -> String {
+        if self.remote {
+            return cwd.to_string_lossy().into_owned();
+        }
+        cwd.canonicalize()
+            .unwrap_or_else(|_| cwd.to_path_buf())
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn eof_detail(&self) -> String {
+        let Some(last) = &self.remote_stderr else {
+            return "ACP connection ended".into();
+        };
+        // ssh writes its reason to stderr as it exits; that reader may trail
+        // the stdout end-of-stream by a moment.
+        let mut text = String::new();
+        for _ in 0..30 {
+            text = last.lock().map(|text| text.clone()).unwrap_or_default();
+            if !text.is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let last = text;
+        if last.is_empty() {
+            "remote connection ended".into()
+        } else {
+            format!("remote connection ended: {last}")
+        }
+    }
+
+    /// `session/load` against a remote codsh hub (ticket 190). The hub sends
+    /// saved turns, the running turn so far, and then the answer; a session
+    /// it still runs is attached without a second executor, so nothing is
+    /// executed again. A pending permission request follows the answer and
+    /// reaches the next [`pump`](Self::pump).
+    pub fn load_session(
+        &mut self,
+        session_id: &str,
+        cwd: &Path,
+        timeout: Duration,
+    ) -> Result<RemoteLoad, AcpError> {
+        let cwd = self.wire_cwd(cwd);
+        self.replay_capture = Some(Vec::new());
+        let id = self.request(
+            "session/load",
+            json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
+            PendingKind::SessionResume,
+        );
+        let result = id.and_then(|id| self.wait_result(id, timeout));
+        let updates = self.replay_capture.take().unwrap_or_default();
+        let result = result?;
+        self.session_id = Some(session_id.to_string());
+        self.prepared_resume = None;
+        self.config_options =
+            parse_config_options(result.get("configOptions").unwrap_or(&Value::Null));
+        Ok(RemoteLoad {
+            updates,
+            attached: result
+                .pointer("/_meta/codsh~1attached")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            running: result
+                .pointer("/_meta/codsh~1turn/running")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        })
+    }
+
+    /// Events for one replayed `session/update` (ticket 190).
+    pub fn replay_events(&mut self, params: Value) -> Vec<AcpEvent> {
+        self.handle_notification("session/update", params)
+    }
+
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
         let id = self.request(
             "initialize",
@@ -929,11 +1057,7 @@ impl AcpClient {
     }
 
     pub fn new_session(&mut self, cwd: &Path, timeout: Duration) -> Result<String, AcpError> {
-        let cwd = cwd
-            .canonicalize()
-            .unwrap_or_else(|_| cwd.to_path_buf())
-            .to_string_lossy()
-            .into_owned();
+        let cwd = self.wire_cwd(cwd);
         let result = self.session_request(
             "session/new",
             json!({ "cwd": cwd, "mcpServers": [] }),
@@ -963,11 +1087,7 @@ impl AcpClient {
                 message: "ACP session/list is not available".into(),
             });
         }
-        let cwd = cwd
-            .canonicalize()
-            .unwrap_or_else(|_| cwd.to_path_buf())
-            .to_string_lossy()
-            .into_owned();
+        let cwd = self.wire_cwd(cwd);
         let id = self.request(
             "session/list",
             json!({ "cwd": cwd }),
@@ -1077,11 +1197,7 @@ impl AcpClient {
                 message: "ACP session/resume is not available".into(),
             });
         }
-        let cwd = cwd
-            .canonicalize()
-            .unwrap_or_else(|_| cwd.to_path_buf())
-            .to_string_lossy()
-            .into_owned();
+        let cwd = self.wire_cwd(cwd);
         let result = self.session_request(
             "session/resume",
             json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
@@ -1306,7 +1422,7 @@ impl AcpClient {
                     let detail = self
                         .disconnected
                         .clone()
-                        .unwrap_or_else(|| "ACP connection ended".into());
+                        .unwrap_or_else(|| self.eof_detail());
                     self.disconnected = Some(detail.clone());
                     events.push(AcpEvent::Disconnected { detail });
                     break;
@@ -1325,9 +1441,12 @@ impl AcpClient {
                         Line::Text(text) => events.extend(self.handle_line(&text)),
                         Line::Stderr(text) => events.push(stderr_event(text)),
                         Line::Eof => {
-                            events.push(AcpEvent::Disconnected {
-                                detail: "ACP connection ended".into(),
-                            });
+                            let detail = self
+                                .disconnected
+                                .clone()
+                                .unwrap_or_else(|| self.eof_detail());
+                            self.disconnected = Some(detail.clone());
+                            events.push(AcpEvent::Disconnected { detail });
                             return events;
                         }
                     }
@@ -1360,6 +1479,7 @@ impl AcpClient {
             env,
             cwd,
             stderr_log: None,
+            remote: false,
         })
         .expect("fake ACP agent")
     }
@@ -1446,7 +1566,9 @@ impl AcpClient {
             if let Some(result) = self.completed.remove(&id) {
                 return result;
             }
-            if self.disconnected.is_some() && !self.pending.contains_key(&id) {
+            // A closed remote transport answers nothing more: every line it
+            // sent was handled before its end-of-stream.
+            if self.disconnected.is_some() && (self.remote || !self.pending.contains_key(&id)) {
                 return Err(AcpError {
                     message: self
                         .disconnected
@@ -1557,8 +1679,79 @@ impl AcpClient {
         }]
     }
 
+    /// Hub notifications a remote session relies on (ticket 190). A turn
+    /// that was running when this client attached ends with
+    /// `_codsh/prompt_complete`, not with a response to a request of ours.
+    /// A stopped remote runtime or leader means the running turn has no
+    /// result and its external effects are unknown; nothing is retried.
+    fn remote_notification(&mut self, method: &str, params: Value) -> Vec<AcpEvent> {
+        let session = params
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let ours = self.session_id.as_deref() == Some(session.as_str());
+        match method {
+            "_codsh/prompt_complete" if ours => {
+                if let Some(message) = params.get("error").and_then(Value::as_str) {
+                    return vec![AcpEvent::RpcError {
+                        request_id: None,
+                        code: -32603,
+                        message: message.to_string(),
+                    }];
+                }
+                let stop_reason = params
+                    .get("stopReason")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                vec![AcpEvent::PromptFinished {
+                    request_id: 0,
+                    stop_reason,
+                    result: params,
+                }]
+            }
+            "_codsh/permission_resolved" if ours => {
+                self.pending_permission = None;
+                vec![AcpEvent::PermissionCancelled {
+                    session_id: session,
+                }]
+            }
+            "_codsh/runtime_exited" if ours => {
+                let detail = params.get("detail").and_then(Value::as_str).unwrap_or("");
+                let interrupted = params
+                    .get("turnInterrupted")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let message = if interrupted {
+                    format!(
+                        "remote dsh exited ({detail}); the running turn has no result, its external effects are unknown and were not retried"
+                    )
+                } else {
+                    format!("remote dsh exited ({detail}); no turn was running")
+                };
+                self.session_id = None;
+                self.disconnected = Some(message.clone());
+                vec![AcpEvent::Disconnected { detail: message }]
+            }
+            "_codsh/leader_disconnected" => {
+                let message = "remote codsh leader stopped or restarted; a running turn has no result, its external effects are unknown and were not retried".to_string();
+                self.disconnected = Some(message.clone());
+                vec![AcpEvent::Disconnected { detail: message }]
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn handle_notification(&mut self, method: &str, params: Value) -> Vec<AcpEvent> {
+        if self.remote && method != "session/update" {
+            return self.remote_notification(method, params);
+        }
         if method != "session/update" {
+            return Vec::new();
+        }
+        if let Some(capture) = self.replay_capture.as_mut() {
+            capture.push(params);
             return Vec::new();
         }
         let session_id = params
@@ -1891,6 +2084,7 @@ mod tests {
             env,
             cwd,
             stderr_log: None,
+            remote: false,
         })
         .expect("fake ACP agent")
     }

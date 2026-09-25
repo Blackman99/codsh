@@ -588,7 +588,22 @@ an approval followed by a reattach that answers it (the file is edited once),
 config broadcast, a killed dsh reported as `_codsh/runtime_exited`, and leader
 auto-start, `[cli] use_leader`, `leader list|info|kill`, idle exit, and a lost
 leader failing the waiting prompt. It needs Node 22 (dsh's engine) and a built
-`rust/target/debug/codsh-rust`. Local MCP is checked by
+`rust/target/debug/codsh-rust`. The remote workspace (`--remote ssh://…`,
+ticket 190) is checked by `scripts/rust-remote.spec.mjs` and
+`scripts/rust-remote-pty-test.py` against a local unprivileged OpenSSH server on
+127.0.0.1 (temp host key, one authorized key, no forwarding) and real dsh on
+the "remote" side: key and pinned-host-key auth (an unknown host key and a wrong
+key are refused), a remote turn that edits the remote file and not the local
+one, no local credential or env reaching the remote login, remote `--continue`
+and `--resume` prefixes, a stricter remote policy winning, refused local-policy
+flags and non-text prompts, a killed connection followed by `/reconnect` that
+attaches to the still-running turn (its command ran once), and a remote leader
+restart reported as unknown effects with no retry. Both need OpenSSH: set
+`CODSH_TEST_OPENSSH=<prefix>` to a tree with `usr/bin/ssh`, `usr/sbin/sshd`, and
+`usr/bin/ssh-keygen` (for example `apt-get download openssh-client
+openssh-server` plus `dpkg -x`; add `libwrap0` and `libwtmpdb0` when they are
+missing), or have ssh/sshd on PATH. Without them the spec is skipped and the PTY
+script prints SKIP with the reason. Local MCP is checked by
 `scripts/rust-mcp.spec.mjs` with the keyless stdio fixture
 `e2e/fixtures/rust-mcp-fixture.mjs` and real dsh: a configured server's tool
 writes its file exactly once after an ACP approval and not after a reject,

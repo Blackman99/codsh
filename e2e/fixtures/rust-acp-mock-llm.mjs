@@ -8,7 +8,7 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
+ * bash-git, shell-echo, shell-count (ticket 190), shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
  * steer-probe (three read steps, then reports the latest user text it saw),
  * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
  * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt),
@@ -256,6 +256,18 @@ function* fileToolTurn(options) {
       return
     }
     yield* mockText(`RUST_ACP_SHELL_DONE ${text}`)
+    return
+  }
+  if (MODE === 'shell-count') {
+    // Ticket 190: one appended line per real execution, so a reconnect that
+    // ran the command again would leave two lines.
+    if (done.length === 0) {
+      const seconds = Number(process.env.CODSH_SHELL_SLEEP ?? '4')
+      const command = `printf 'RAN\\n' >> shell-count.txt; sleep ${seconds}; printf 'DONE\\n' >> shell-done.txt`
+      yield* mockToolCall('rust-acp-shell', 'bash', { command, description: 'Run the counted command' })
+      return
+    }
+    yield* mockText(`RUST_ACP_COUNT_DONE ${resultText(done.at(-1))}`)
     return
   }
   if (MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny') {
@@ -1282,7 +1294,7 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_TODO_DONE TODO_KEEP turn=${turn} ${userTexts(options).join('\n')}`)
       return
     }
-    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret' || MODE === 'search-needle' || MODE === 'search-empty' || MODE === 'search-denied' || MODE === 'search-continue' || MODE === 'search-binary' || MODE === 'search-stale' || MODE === 'search-lsp' || MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny' || MODE === 'shell-env') {
+    if (MODE === 'file-edit' || MODE === 'file-write' || MODE === 'file-missing' || MODE === 'file-error' || MODE === 'bash-rm' || MODE === 'bash-timeout-rm' || MODE === 'bash-nice-rm' || MODE === 'bash-brace-rm' || MODE === 'bash-ansi-c-rm' || MODE === 'bash-quoted-rm' || MODE === 'bash-eval-rm' || MODE === 'bash-path-rm' || MODE === 'bash-sudo-rm' || MODE === 'bash-nohup-rm' || MODE === 'bash-xargs-rm' || MODE === 'bash-sort-prefix' || MODE === 'bash-sort-output' || MODE === 'bash-git-branch' || MODE === 'bash-git-upstream' || MODE === 'bash-git-track' || MODE === 'bash-time-rm' || MODE === 'bash-exec-rm' || MODE === 'bash-builtin-rm' || MODE === 'bash-shell-option-rm' || MODE === 'bash-expand-rm' || MODE === 'bash-positional-rm' || MODE === 'bash-glob-rm' || MODE === 'bash-git-long-track' || MODE === 'bash-git-cat' || MODE === 'bash-git' || MODE === 'file-secret' || MODE === 'search-needle' || MODE === 'search-empty' || MODE === 'search-denied' || MODE === 'search-continue' || MODE === 'search-binary' || MODE === 'search-stale' || MODE === 'search-lsp' || MODE === 'shell-echo' || MODE === 'shell-fail' || MODE === 'shell-long' || MODE === 'shell-deny' || MODE === 'shell-env' || MODE === 'shell-count') {
       yield* fileToolTurn(options)
       return
     }

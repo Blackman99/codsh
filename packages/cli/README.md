@@ -152,6 +152,11 @@ Interrupted tools are shown as unknown and not replayed.
 A second client is refused while this process holds write ownership.
 `agent serve` and `agent leader` are the opt-in shared forms: several clients
 attach to one live session run by one dsh process (see the root README).
+`--remote ssh://[user@]host[:port]/abs/path` drives a session on another host
+over SSH (public key, pinned host key, nothing forwarded); the remote config,
+policy, and sandbox execute, `/reconnect` attaches to a turn still running
+there, and `/remote` or `remote check` shows what the remote reports (see the
+root README).
 `mcp list|add|remove|enable|disable|doctor` and `/mcps` manage local MCP
 servers that dsh starts for each session; `search_tool`/`use_tool` and every
 direct `mcp__*` call go through the same permission, Hook, and cancellation

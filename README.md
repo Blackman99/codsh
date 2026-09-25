@@ -83,9 +83,38 @@ disconnect never cancels a turn. A dsh exit is reported as
 retried. A sandbox profile other than `off` keeps the session in the editor's own
 process instead of the leader, and a leader client cannot bring its own model or
 permission flags. `codsh --rust leader list|info|kill` inspects and stops
-leaders. `agent headless`, `--remote`, `--grok-ws-url`, and Cursor worker mode
-need official services and are refused. The leader is Unix-only; it was checked
-on Linux, not on macOS or Windows.
+leaders. `agent headless`, `agent serve --remote <url>`, `--grok-ws-url`, and
+Cursor worker mode need official services and are refused. The leader is
+Unix-only; it was checked on Linux, not on macOS or Windows.
+
+A remote workspace runs over SSH: `codsh --rust --remote
+ssh://[user@]host[:port]/abs/path` (interactive, `-p`, `--continue`,
+`--resume <id>`) starts `codsh --rust agent --leader stdio` on that host
+(`--remote-command` changes the remote start command) and drives its session
+from this terminal. Authentication is an SSH public key with a pinned host key:
+`BatchMode=yes` and `StrictHostKeyChecking=yes`, so an unknown host key or an
+unauthorized key is refused and nothing prompts for a password
+(`--remote-identity FILE`, `--remote-known-hosts FILE`, `--remote-ssh PROG`).
+The remote host's own config, credentials, permission policy, and sandbox run
+every turn. Nothing local is forwarded: no agent, X11, or port forwarding, no
+local environment or provider keys, no local MCP servers, rules, memory, or
+model selection. The session directory is a remote path. Local files are never
+sent as remote files: `@file` attachments and images are refused, and the client
+offers the remote no filesystem access. `--model`, `--permission-mode`,
+`--always-approve`, `--auto`, `--allow`, `--deny`, `--sandbox`, and other
+local-policy flags are refused with `--remote`. A lost connection leaves the
+turn running there; the transcript marks it interrupted, a prompt is not sent
+while disconnected, and `/reconnect` attaches to it again without re-running
+anything. After a remote restart the running turn has no result, its external
+effects are reported as unknown, and nothing is retried; `/reconnect` resumes the
+saved session. `/remote` and `codsh --rust remote check <url> [--json]` show
+what the real remote reports (leader, sandbox, whether reattach works) and the
+features a remote session does not have: steer, `/btw`, plan, subagents,
+background commands, goal, workflow, the `/resume` picker, fork, rewind, export,
+memory, and plugins. The official Computer Hub (`workspace start --hub-url`),
+cloud workspaces (`x.ai/cloud/*`), and the Cursor worker need private
+infrastructure and stay refused. Checked on Linux against a local OpenSSH
+server, not against another machine, macOS, or Windows.
 
 Local MCP servers run inside dsh's own MCP client; codsh does not start a
 second one. `codsh --rust mcp list|add|remove|enable|disable|doctor` edits and

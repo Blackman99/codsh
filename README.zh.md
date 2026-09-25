@@ -73,8 +73,28 @@ Zed 或其他图形编辑器；可重复检查是外部 ACP 客户端通过标�
 客户端断开不会取消轮次。dsh 退出会以 `_codsh/runtime_exited` 报告；正在运行的轮次效果
 未知，不会重试。沙箱配置不是 `off` 时，会话留在编辑器自己的进程里，不进入 leader；leader
 客户端也不能带自己的模型或权限参数。`codsh --rust leader list|info|kill` 查看并停止
-leader。`agent headless`、`--remote`、`--grok-ws-url` 和 Cursor worker 模式依赖官方服务，
-会被拒绝。leader 只支持 Unix；本次在 Linux 上验证，未在 macOS 或 Windows 上验证。
+leader。`agent headless`、`agent serve --remote <url>`、`--grok-ws-url` 和 Cursor worker
+模式依赖官方服务，会被拒绝。leader 只支持 Unix；本次在 Linux 上验证，未在 macOS 或 Windows 上验证。
+
+远程工作区通过 SSH 连接：`codsh --rust --remote ssh://[user@]host[:port]/abs/path`
+（交互、`-p`、`--continue`、`--resume <id>`）会在那台主机上启动
+`codsh --rust agent --leader stdio`（`--remote-command` 可改远端启动命令），并在本终端操作
+它的会话。认证方式是 SSH 公钥加固定的主机密钥：`BatchMode=yes`、
+`StrictHostKeyChecking=yes`，未知主机密钥或未授权的密钥都会被拒绝，也不会提示输入密码
+（`--remote-identity FILE`、`--remote-known-hosts FILE`、`--remote-ssh PROG`）。每一轮都由
+远端自己的配置、凭据、权限策略和沙箱执行。本机什么都不转发：不转发 agent、X11 和端口，
+不带本机环境变量或服务商密钥，也不带本机 MCP 服务器、规则、记忆或模型选择。会话目录是
+远端路径。本地文件不会被当作远端文件发送：`@file` 附件和图片会被拒绝，客户端也不向远端
+提供文件系统访问。`--model`、`--permission-mode`、`--always-approve`、`--auto`、`--allow`、
+`--deny`、`--sandbox` 等本机策略参数与 `--remote` 同用会被拒绝。连接断开时轮次仍在远端
+运行；转录把它标为中断，断线期间不会发送 prompt，`/reconnect` 重新接入这一轮，不会重跑
+任何东西。远端重启后，正在运行的轮次没有结果，外部效果报告为未知，也不会重试；
+`/reconnect` 会恢复已保存的会话。`/remote` 和 `codsh --rust remote check <url> [--json]`
+显示真实远端报告的内容（leader、沙箱、能否重新接入），以及远程会话没有的功能：steer、
+`/btw`、计划、子代理、后台命令、goal、workflow、`/resume` 选择器、fork、rewind、导出、
+记忆和插件。官方 Computer Hub（`workspace start --hub-url`）、云端工作区（`x.ai/cloud/*`）
+和 Cursor worker 需要私有基础设施，仍然拒绝。本次在 Linux 上对本机 OpenSSH 服务器验证，
+未对另一台机器、macOS 或 Windows 验证。
 
 本地 MCP 服务器运行在 dsh 自己的 MCP 客户端里，codsh 不另起一套。
 `codsh --rust mcp list|add|remove|enable|disable|doctor` 编辑并检查

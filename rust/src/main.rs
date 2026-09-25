@@ -29,6 +29,7 @@ mod privacy;
 mod privacy_cmd;
 mod prompt_edit;
 mod prompt_queue;
+mod remote;
 mod scheduler;
 mod screen_mode;
 mod session_catalog;
@@ -421,8 +422,15 @@ enum PlainTools {
 
 struct Connection {
     client: AcpClient,
-    owner: SessionOwner,
+    /// Local write-owner lease. None for a remote session: the remote hub
+    /// holds that session's owner lock on its own host (ticket 190).
+    owner: Option<SessionOwner>,
     resumed: bool,
+    /// A remote turn was still running when this client attached.
+    remote_running: bool,
+    /// The remote hub still ran the session (attach), rather than resuming
+    /// it from saved history after a remote restart.
+    remote_attached: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1708,7 +1716,7 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
 }
 
 fn short_help() -> &'static str {
-    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -w/--worktree [NAME], --worktree-ref <REF>, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory, worktree.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nRemote: --remote ssh://[user@]host[:port]/abs/path runs this client against codsh on another host over SSH (public key, pinned host key); see codsh --rust remote --help.\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -w/--worktree [NAME], --worktree-ref <REF>, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory, worktree.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -2116,7 +2124,8 @@ fn replace_if_plugin_runtime_changed(
     effective: &mut config::EffectiveConfig,
     extra_env: &[(String, String)],
 ) {
-    if client.is_none() {
+    // Local plugins do not run in a remote session.
+    if client.is_none() || remote::active().is_some() {
         return;
     }
     let home = std::env::var_os("HOME")
@@ -2143,6 +2152,10 @@ pub(crate) fn apply_saved_session_mode(
     effective: &mut config::EffectiveConfig,
     session_id: Option<&str>,
 ) -> Result<(), String> {
+    // A remote session's mode file is on the remote host.
+    if remote::active().is_some() {
+        return Ok(());
+    }
     let Some(session_id) = session_id.filter(|id| !id.is_empty()) else {
         return Ok(());
     };
@@ -2162,6 +2175,9 @@ pub(crate) fn apply_saved_session_mode(
 /// `--continue` that falls through to `session/list` is not, and stays on
 /// the policy already written by `runtime_apply`.
 fn known_resume_session(mode: &LaunchMode, effective: &config::EffectiveConfig) -> Option<String> {
+    if remote::active().is_some() {
+        return None;
+    }
     match mode {
         LaunchMode::Resume(id) => Some(id.clone()),
         LaunchMode::Continue => session_owner::read_last_session(&effective.dsh_home)
@@ -2270,7 +2286,8 @@ fn can_execute(effective: &config::EffectiveConfig, apply_failed: bool) -> bool 
     }) {
         return false;
     }
-    effective.ready || config::is_test_execution_seam()
+    // A remote session runs on the remote host's credentials and config.
+    effective.ready || config::is_test_execution_seam() || remote::active().is_some()
 }
 
 struct LiveSession<'a> {
@@ -2305,7 +2322,7 @@ fn open_live_session(
     )?;
     *live.resumed = connection.resumed;
     *live.previous_session = connection.client.session_id.clone();
-    *live.owner = Some(connection.owner);
+    *live.owner = connection.owner;
     if live.turns.is_empty() {
         *live.turns = restored;
     }
@@ -2391,6 +2408,13 @@ fn connect(
     fork_session: bool,
     child_id: Option<&str>,
 ) -> Result<(Connection, Vec<Turn>), String> {
+    if let Some(target) = remote::active() {
+        if fork_session {
+            return Err("--fork-session is not available in a remote session".into());
+        }
+        let _ = (extra_env, patch, child_id);
+        return connect_remote(target, mode, previous);
+    }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     let dsh_home = PathBuf::from(
         std::env::var_os("DSH_HOME").ok_or("missing isolated DSH_HOME; use codsh --rust")?,
@@ -2457,11 +2481,271 @@ fn connect(
     Ok((
         Connection {
             client,
-            owner,
+            owner: Some(owner),
             resumed,
+            remote_running: false,
+            remote_attached: false,
         },
         turns,
     ))
+}
+
+/// Connect to the remote hub over ssh (ticket 190). The session directory is
+/// the remote path; history comes from the remote hub's `session/load`
+/// replay, never from this machine's dsh home, and no local owner lease is
+/// taken (the remote hub holds the session's owner lock there).
+fn connect_remote(
+    target: &remote::Target,
+    mode: &LaunchMode,
+    previous: Option<&str>,
+) -> Result<(Connection, Vec<Turn>), String> {
+    let log = std::env::var_os("DSH_HOME").map(|home| PathBuf::from(home).join("remote-ssh.log"));
+    let mut client = AcpClient::spawn(target.spawn_spec(log)).map_err(|error| {
+        format!(
+            "remote {}: cannot start ssh ({}): {error}",
+            target.label(),
+            target.ssh.display()
+        )
+    })?;
+    let init = match client.initialize(Duration::from_secs(30)) {
+        Ok(init) => init,
+        Err(error) => {
+            client.shutdown();
+            return Err(format!(
+                "remote {} did not connect: {}",
+                target.label(),
+                error.message
+            ));
+        }
+    };
+    remote_remember_init(init);
+    let cwd = PathBuf::from(&target.path);
+    let resolved = match session_mode(mode) {
+        LaunchMode::Resume(id) => remote_resolve(&mut client, &cwd, &id).map(Some),
+        LaunchMode::Continue => client
+            .list_sessions(&cwd, Duration::from_secs(30))
+            .map_err(|error| error.message)
+            .and_then(|listed| {
+                listed
+                    .into_iter()
+                    .next()
+                    .map(|(id, _)| Some(id))
+                    .ok_or_else(|| {
+                        format!("no previous session in remote directory {}", target.path)
+                    })
+            }),
+        _ => Ok(previous.map(str::to_string)),
+    };
+    let resume_id = match resolved {
+        Ok(id) => id,
+        Err(error) => {
+            client.shutdown();
+            return Err(error);
+        }
+    };
+    let mut turns = Vec::new();
+    let mut remote_running = false;
+    let mut remote_attached = false;
+    let resumed = if let Some(session_id) = resume_id {
+        match client.load_session(&session_id, &cwd, Duration::from_secs(60)) {
+            Ok(loaded) => {
+                remote_running = loaded.running;
+                remote_attached = loaded.attached;
+                turns = remote_turns(&mut client, loaded.updates, loaded.running);
+            }
+            Err(error) => {
+                client.shutdown();
+                return Err(format!(
+                    "remote session {session_id} did not load: {}",
+                    error.message
+                ));
+            }
+        }
+        true
+    } else {
+        if let Err(error) = client.new_session(&cwd, Duration::from_secs(60)) {
+            client.shutdown();
+            return Err(format!(
+                "remote session in {} did not start: {}",
+                target.path, error.message
+            ));
+        }
+        false
+    };
+    Ok((
+        Connection {
+            client,
+            owner: None,
+            resumed,
+            remote_running,
+            remote_attached,
+        },
+        turns,
+    ))
+}
+
+/// A full id, or a unique prefix among the remote directory's sessions.
+fn remote_resolve(
+    client: &mut AcpClient,
+    cwd: &std::path::Path,
+    wanted: &str,
+) -> Result<String, String> {
+    if session_catalog::is_uuid(wanted) {
+        return Ok(wanted.to_string());
+    }
+    let listed = client
+        .list_sessions(cwd, Duration::from_secs(30))
+        .map_err(|error| error.message)?;
+    let matches: Vec<String> = listed
+        .into_iter()
+        .map(|(id, _)| id)
+        .filter(|id| id.starts_with(wanted))
+        .collect();
+    match matches.as_slice() {
+        [one] => Ok(one.clone()),
+        [] => Err(format!("no remote session matches {wanted:?}")),
+        _ => Err(format!(
+            "{wanted:?} matches {} remote sessions; give more of the id",
+            matches.len()
+        )),
+    }
+}
+
+/// Transcript rows from a remote hub's `session/load` replay. Saved turns
+/// are finished; a turn the hub still runs stays open, so its later updates
+/// and `_codsh/prompt_complete` land on it. Saved tool rows that never
+/// finished arrive as `unknown` and are not shown as resumed.
+fn remote_turns(client: &mut AcpClient, updates: Vec<Value>, running: bool) -> Vec<Turn> {
+    let mut turns: Vec<Turn> = Vec::new();
+    let mut meter = Meter {
+        used: None,
+        size: None,
+        cost: None,
+    };
+    let blank = |user: String| Turn {
+        user,
+        thought: String::new(),
+        answer: String::new(),
+        error: None,
+        message_id: None,
+        tools: Vec::new(),
+        permission: None,
+        done: false,
+        cancelling: false,
+        cancelled: false,
+        interrupted: false,
+        compacted: false,
+        compaction: None,
+        timestamp: None,
+        quiet_cancel: false,
+    };
+    for params in updates {
+        let kind = params
+            .pointer("/update/sessionUpdate")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if kind == "user_message_chunk" {
+            let text = params
+                .pointer("/update/content/text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            if let Some(last) = turns.last_mut() {
+                last.done = true;
+            }
+            turns.push(blank(text));
+            continue;
+        }
+        let events = client.replay_events(params);
+        let content = events.iter().any(|event| {
+            matches!(
+                event,
+                AcpEvent::Thought { .. }
+                    | AcpEvent::Answer { .. }
+                    | AcpEvent::ToolCall { .. }
+                    | AcpEvent::ToolCallUpdate { .. }
+            )
+        });
+        if turns.is_empty() {
+            if !content {
+                continue;
+            }
+            turns.push(blank(String::new()));
+        }
+        let mut inflight = true;
+        let mut inspect = false;
+        apply_events(
+            &mut turns,
+            &mut inflight,
+            &mut meter,
+            events,
+            false,
+            &mut inspect,
+        );
+    }
+    let count = turns.len();
+    for (index, turn) in turns.iter_mut().enumerate() {
+        if !(running && index + 1 == count) {
+            turn.done = true;
+        }
+    }
+    turns
+}
+
+static REMOTE_INIT: std::sync::Mutex<Option<Value>> = std::sync::Mutex::new(None);
+
+fn remote_remember_init(init: Value) {
+    if let Ok(mut slot) = REMOTE_INIT.lock() {
+        *slot = Some(init);
+    }
+}
+
+/// `/remote`: what the connected remote reported, and what it lacks.
+fn remote_status_text(client: Option<&AcpClient>) -> String {
+    let Some(target) = remote::active() else {
+        return "not a remote session".into();
+    };
+    let init = REMOTE_INIT
+        .lock()
+        .ok()
+        .and_then(|slot| slot.clone())
+        .unwrap_or(Value::Null);
+    let report = remote::capability_report(target, &init, None);
+    let field = |pointer: &str| {
+        report
+            .pointer(pointer)
+            .map(|value| match value {
+                Value::String(text) => text.clone(),
+                Value::Null => "unknown".into(),
+                other => other.to_string(),
+            })
+            .unwrap_or_else(|| "unknown".into())
+    };
+    let connected = match client.and_then(|active| active.session_id.as_deref()) {
+        Some(session) => format!("session {session}"),
+        None => "disconnected (use /reconnect)".into(),
+    };
+    let reattach = if report
+        .pointer("/server/shared")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        "reattach: yes"
+    } else {
+        "reattach: no (the remote session ends with the connection)"
+    };
+    format!(
+        "remote {} · {connected}\nauth: {}\nremote agent: {} {} · transport={} · sandbox={} · {reattach}\nnot in remote sessions: steer, /btw, plan, subagents, background, goal, workflow; /resume picker, fork, rewind, export; memory, rules, local MCP, plugins; @file and images; local policy flags\nofficial Computer Hub, cloud workspaces, Cursor worker: refused (private infrastructure)",
+        target.label(),
+        field("/auth"),
+        field("/agentInfo/name"),
+        field("/agentInfo/version"),
+        field("/server/transport"),
+        report
+            .pointer("/server/sandbox/profile")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown"),
+    )
 }
 
 fn apply_fork_model(client: &mut AcpClient, prefs: &UiPrefs) -> Result<(), String> {
@@ -3589,7 +3873,7 @@ fn connect_retained_session(
     match connect(&LaunchMode::New, None, extra_env, patch, false, None) {
         Ok((connection, _)) => {
             *previous_session = connection.client.session_id.clone();
-            *owner = Some(connection.owner);
+            *owner = connection.owner;
             let mut connected = connection.client;
             match apply_live_selection(&mut connected, effective) {
                 Ok(()) => {
@@ -4098,17 +4382,33 @@ fn status_line(view: StatusView<'_>) -> String {
         status_row,
         show_timestamps: _,
     } = view;
-    let header = format!(
+    let mut header = format!(
         "mode={} | {}",
         screen.as_str(),
         worktree_header(filesystem_sandbox::status_line(filesystem_sandbox::active()))
     );
+    if let Some(target) = remote::active() {
+        header.push_str(&format!(" | remote={}", target.label()));
+        if client.is_none() {
+            let detail = if last_error.is_empty() {
+                "not connected"
+            } else {
+                last_error
+            };
+            return format!(
+                "{header}\n{detail}\nRemote workspace disconnected. /reconnect attaches again; nothing is re-sent."
+            );
+        }
+    }
     if !last_error.is_empty() && client.is_none() {
         // A short screen scrolls to the latest notice lines. The unavailable
         // status has to stay among those lines, after the first-run tip.
         return format!("{header}\n{last_error}\n{UNAVAILABLE}");
     }
-    let tag = if resumed { " (resumed)" } else { "" };
+    let mut tag = if resumed { " (resumed)" } else { "" }.to_string();
+    if let Some(target) = remote::active() {
+        tag.push_str(&format!(" on remote {}", target.label()));
+    }
     let mut body = match client {
         Some(client) if cancelling => format!(
             "Connected to dsh ACP session {}{tag}.\nCancelling turn…",
@@ -6274,6 +6574,11 @@ pub(crate) fn apply_live_selection(
     client: &mut AcpClient,
     effective: &config::EffectiveConfig,
 ) -> Result<(), String> {
+    // A remote session runs the remote config's model; this machine's
+    // selection is not forwarded (ticket 190).
+    if client.remote {
+        return Ok(());
+    }
     // The mock seam skips catalog pinning, but a saved advertised pair is the
     // editor route the terminal must share. Leaving it unapplied is a silent
     // fallback to the catalog default.
@@ -6907,8 +7212,17 @@ fn run_plain_turn(
         let _ = io::stdout().flush();
         std::process::exit(signal);
     }
-    // Memory joins the first prompt of a new session, as in the TUI.
-    let blocks = blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none());
+    // Memory joins the first prompt of a new session, as in the TUI. A remote
+    // prompt is sent as typed: local memory, rules, and files stay here.
+    let blocks = if connection.client.remote {
+        if let Err(error) = remote_text_only(&blocks) {
+            connection.client.shutdown();
+            return Err(io::Error::other(error));
+        }
+        blocks
+    } else {
+        blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none())
+    };
     if let Err(error) = connection.client.submit_prompt_blocks(&blocks) {
         connection.client.shutdown();
         return Err(io::Error::other(error.message));
@@ -7233,9 +7547,140 @@ fn enter_worktree(launch: &mut Launch) -> io::Result<()> {
     Ok(())
 }
 
+/// `--remote` runs interactive and plain sessions only, and refuses flags
+/// that would carry this machine's policy to the remote (ticket 190).
+fn check_remote_launch(launch: &Launch) -> io::Result<()> {
+    let plain_filters = match &launch.mode {
+        LaunchMode::New | LaunchMode::Continue | LaunchMode::Resume(_) => false,
+        LaunchMode::Plain {
+            max_turns, tools, ..
+        } => max_turns.is_some() || tools.is_some(),
+        _ => {
+            return Err(usage_error(
+                "--remote works with interactive sessions, -p/--prompt-file/--prompt-json, --continue, and --resume; other commands run on this machine",
+            ));
+        }
+    };
+    remote::refused_flags(&[
+        ("--model", launch.model.is_some()),
+        ("--effort", launch.effort.is_some()),
+        ("--permission-mode", launch.permission_mode.is_some()),
+        ("--always-approve", launch.always_approve),
+        ("--auto", launch.auto),
+        ("--allow", !launch.allow.is_empty()),
+        ("--deny", !launch.deny.is_empty()),
+        ("--sandbox", launch.sandbox.is_some()),
+        (
+            "--rules/--system-prompt",
+            launch.session_rules.is_some() || launch.system_prompt_override.is_some(),
+        ),
+        ("--fork-session", launch.fork_session),
+        ("--worktree", launch.worktree.requested()),
+        ("--cwd", launch.cwd.is_some()),
+        ("--disable-web-search", launch.disable_web_search),
+        ("--max-turns/--tools/--disallowed-tools", plain_filters),
+    ])
+    .map_err(usage_error)
+}
+
+/// A remote prompt carries text only. Local file bodies, resource links to
+/// local paths, and images are refused rather than presented to the remote
+/// agent as if they were remote files (ticket 190).
+fn remote_text_only(blocks: &[Value]) -> Result<(), String> {
+    match blocks
+        .iter()
+        .find(|block| block.get("type").and_then(Value::as_str) != Some("text"))
+    {
+        None => Ok(()),
+        Some(block) => Err(format!(
+            "a remote session sends text only: this {} block (a local file or image) was not sent. Local files are not remote files; name a path on the remote host in the prompt instead",
+            block
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("non-text")
+        )),
+    }
+}
+
+/// `codsh --rust remote check <ssh-url>`: connect, initialize, and report.
+fn run_remote_command(args: &[String]) -> io::Result<()> {
+    let mut rest: Vec<String> = args.to_vec();
+    if rest.is_empty() || rest.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{}", remote::HELP);
+        return Ok(());
+    }
+    if rest[0] != "check" {
+        return Err(usage_error(format!(
+            "unknown remote command {:?}; use codsh --rust remote check ssh://host/abs/path",
+            rest[0]
+        )));
+    }
+    rest.remove(0);
+    let json = rest.iter().any(|arg| arg == "--json");
+    rest.retain(|arg| arg != "--json");
+    let Some(position) = rest.iter().position(|arg| arg.starts_with("ssh://")) else {
+        return Err(usage_error(
+            "remote check needs ssh://[user@]host[:port]/abs/path",
+        ));
+    };
+    let url = rest.remove(position);
+    rest.insert(0, url);
+    rest.insert(0, "--remote".into());
+    let target = remote::extract_flags(&mut rest)
+        .map_err(usage_error)?
+        .ok_or_else(|| usage_error("remote check needs ssh://host/abs/path"))?;
+    if let Some(extra) = rest.first() {
+        return Err(usage_error(format!(
+            "unexpected remote check argument {extra:?}"
+        )));
+    }
+    let mut client = AcpClient::spawn(target.spawn_spec(None))
+        .map_err(|error| io::Error::other(format!("cannot start ssh: {error}")))?;
+    let init = match client.initialize(Duration::from_secs(30)) {
+        Ok(init) => init,
+        Err(error) => {
+            client.shutdown();
+            return Err(io::Error::other(format!(
+                "remote {} did not connect: {}",
+                target.label(),
+                error.message
+            )));
+        }
+    };
+    let sessions = client
+        .list_sessions(std::path::Path::new(&target.path), Duration::from_secs(30))
+        .ok()
+        .map(|listed| listed.len());
+    client.shutdown();
+    let report = remote::capability_report(&target, &init, sessions);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).unwrap_or_default()
+        );
+    } else {
+        print!("{}", remote::report_text(&report));
+    }
+    Ok(())
+}
+
 fn run() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("remote") => return run_remote_command(&args[1..]),
+        Some(word @ ("workspace" | "cursor-worker")) => {
+            return Err(usage_error(format!(
+                "codsh --rust {word}: this needs the official Computer Hub or Cursor worker relay (private infrastructure), which this client does not have. For a remote workspace use --remote ssh://[user@]host[:port]/abs/path; see codsh --rust remote --help"
+            )));
+        }
+        _ => {}
+    }
+    let remote_target = remote::extract_flags(&mut args).map_err(usage_error)?;
     let mut launch = parse_launch(&args)?;
+    if let Some(target) = remote_target {
+        check_remote_launch(&launch)?;
+        remote::activate(target);
+    }
     // -w moves the process like --cwd, so the same paths stay anchored.
     if launch.cwd.is_some() || launch.worktree.requested() {
         let invoked = std::env::current_dir()?;
@@ -7455,7 +7900,7 @@ fn run() -> io::Result<()> {
                 return Ok(());
             }
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. `plugin enable|disable` (or Space in /plugins) adds or withdraws an installed, trusted plugin's rules, skills and commands (`/plugin:name`), agents, workflows (`/plugin:name`, see Saved workflows), and command hooks through the same discovery and hook runner; a project plugin also needs workspace trust, enabling never grants tool permissions, and a live session picks the change up on its next prompt. Plugin MCP servers are not started. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nBackground commands: dsh owns every shell job. Ctrl+B moves the running foreground command to the background and the turn goes on. A command still running after [toolset.bash] foreground_block_budget_ms (default 15000; 0 waits for the full timeout) moves on its own; auto_background_on_timeout = false keeps it in the foreground and kills it at its timeout instead. Send-now while a command runs moves it rather than killing it. The status line counts running commands and subagents; while the model blocks on job_output it adds \"send a message to interrupt\", and any message you send ends that wait. Ctrl+G or /tasks lists commands with their latest output; x stops the selected one and the model is told at its next step. A finished command wakes an idle session with a \u{25ce} Task completed turn (dsh allows 3 wakes in a row without a message from you; later notices reach the model with your next prompt). /new, switching sessions, and quitting stop that session's commands; a resumed history says its commands are no longer running. Plain -p and editor ACP keep dsh's own foreground bash.\nScheduled prompts: /loop [interval] <prompt> (e.g. /loop 30m check the deploy) asks the model to call scheduler_create; it derives the interval from your words and asks when none is given. Each fire runs the stored prompt as an independent background subagent (general-purpose type, same permissions and approvals), never in this conversation; its final status comes back once and wakes an idle session like a finished command. Intervals are s/m/h/d with a 60-second minimum; at most 50 loops per session; a loop expires after 7 days; a fire is skipped while the previous one still runs. Each fire starts fresh with the previous fire's final status. Ctrl+G or /tasks lists loops with their next fire and last status; x deletes the selected loop (a fire already running finishes). Loops are saved with their session in $DSH_HOME/codsh-schedules/<session>.json (durable: true is accepted and means the same saved loop; it is refused only when this dsh has no session owner to save it to): quitting, a dsh restart, or a switch stops them, and resuming the session (--continue, --resume, /resume) restores them. A loop whose fires were missed while nothing ran fires once promptly, however many intervals were missed; a loop past its 7-day expiry is removed without firing; a fire that was running when its process ended is shown as outcome unknown and is never replayed, and the next fire is told to check the current state first. Only the client holding the session's owner lock saves and fires its loops, so a second client on the same session is refused and two processes never fire one loop (fires are not exactly-once); a loop that cannot save its deletion or expiry stays paused instead of coming back. Rows show saved, durable, or not saved, paused, the last fire's outcome, and permissions changed when the permission mode differs from the one the loop was created under (fires run under the current mode). With subagents disabled, saved loops are listed as paused and can be deleted, and no new loops are offered. Plain -p, editor ACP, and the shared server offer no scheduler and leave saved loops untouched; a fork or rewind starts without the loops.\nWhile a turn runs, Enter queues the draft (the notice shows Queued N and the next row); Enter on an empty prompt sends the top row now. Ctrl+Enter or Ctrl+I sends the draft (or the selected row) now: the running turn is cancelled through dsh without a [cancelled] marker and that row runs next. Apple Terminal also takes Ctrl+O; VS Code-family terminals (vscode, cursor, windsurf, zed) use Ctrl+L instead; Ctrl+Enter/Ctrl+I need a terminal that reports them distinctly (kitty keyboard protocol). Ctrl+; or Ctrl+' (or ↑ on an empty prompt) opens the queue pane: ↑↓ select, e edits in place (Enter saves, empty save removes, Esc cancels), Enter sends now, x/Del/Backspace deletes, Shift+J/K reorders, Esc closes. Queued rows run in order, one per turn, after the turn ends or is cancelled with Ctrl+C; a pending approval, compaction, or a row being edited keeps them waiting. Slash commands typed while busy queue as their own rows. [ui] follow_up_behavior = \"steer\" sends plain text follow-ups into the running dsh turn at its next model step instead; a steer dsh did not use goes back to the queue. [ui] combine_queued_prompts = true joins consecutive plain rows into one turn. /queue lists the queue. /btw <question> (also typed mid-message) asks a side question from the current session context with no tools; the answer shows in a panel that Esc dismisses (minimal prints it to scrollback), a late answer to a dismissed question is dropped, and nothing enters the conversation.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. isolation: \"worktree\" runs the child in its own git worktree (see Worktrees); nothing is applied to the checkout. Messaging, resume_from, and --agent stay with later tickets. Workflows: the model's workflow tool runs a Rhai workflow script (inline, a <meta.name>.rhai file in this trusted project or $GROK_HOME/workflows, or a saved workflow by name) whose agent() and parallel() calls start dsh subagents with the script's model, effort, agent type, and capability; a run goes on in the background after the tool call returns, gets a session-unique display name (a repeated name becomes name-2, name-3), and its completion reaches the owning session once as a notice turn. Its block shows the run name, status, phase, and agent count; /tasks tags its children with the workflow name and lists the session's runs; the status line counts active workflows. /workflow [runs] lists runs with phases, agents, and results; /workflow pause|resume|stop <name> (or <name> pause) controls one by display name, and the model can do the same with the tool. A session holds at most 4 active runs. Pause and stop cancel the run's children; resume replays the run's journal (finished agent results are reused; a cancelled or failed step runs again, so side effects of an unfinished step are not exactly-once) from the original script and args, and a budget stop resumes only with a higher agent_budget. Runs resume only in the codsh process that started them: after a restart a run that was active is interrupted and none can be resumed. A plain -p prompt waits for its workflow run and returns the run's result block instead (no notice turn). Ctrl+C cancels the turn, not a background run. output_schema asks the child for a JSON block, validates it against the schema, and resumes the same child once to correct a miss; scratch files live under the session directory and git_diff_since runs git diff in it. A run keeps at most [subagents] workflow_max_concurrent (or GROK_WORKFLOW_MAX_CONCURRENT_AGENTS; default 32, clamped to the machine) children live, separately from its agent_budget. Saved workflows: /workflows lists the <meta.name>.rhai files of this trusted project's .grok/workflows (a project workflow hides a same-named personal one) and $GROK_HOME/workflows, with hidden, ambiguous, and skipped invalid files (/workflows <name> shows one workflow or why its file is not loaded); listing reads files and never runs them. An active plugin's workflows follow them: /<plugin>:<name> always runs one, and /<name> does too unless a project or personal workflow owns the name or two plugins offer it (then the name is refused and both qualified names are shown); a disabled, untrusted, removed, or shadowed plugin's workflows are refused with its state, and /workflows <name> shows a plugin workflow's version, license, trust, and source. Built-in workflows are not part of this catalog. /workflow <name> [--agent-budget N] [--effort LEVEL] [text or JSON args], or /<name> when no command or skill owns the name (slash completion offers it), launches one; the model sees the same list and can launch by name. A run keeps the script it read at launch, so editing the file or updating its plugin changes only later launches and resume never switches to the edited copy; a paused plugin run does not resume while its plugin is disabled or uninstalled. /workflow save <name> writes a run's script to the trusted project's .grok/workflows/<meta.name>.rhai and never replaces an existing file; an untrusted folder or an unwritable project is refused and names where the run's script is. resume_from is refused. The engine's operation and size limits bound a script; they are not a security sandbox.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, -w/--worktree [NAME], --worktree-ref/--ref <REF>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, worktree list|show|apply|rm|gc|db, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill, mcp list|add|remove|enable|disable|doctor. `mcp` manages local MCP servers from [mcp_servers] in $GROK_HOME/config.toml plus, in a trusted folder, .grok/config.toml and .mcp.json; dsh starts them for each session, and /mcps (alias /mcp) lists state, failures, and tools, and enables, disables, or restarts them. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork) and the workflow tool, Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Plan mode, questions, and todos: dsh owns plan mode (ctx.planMode), ask_user_question, and the todo list; this client shows what dsh asks and sends the answer back. /plan enters plan mode, /plan <task> enters it and sends the task, /plan off leaves, and Shift+Tab cycles normal, plan, and always-approve (skipped when requirements lock it off). In plan mode every edit is refused, even under always-approve or --yolo, except the session plan file $GROK_HOME/sessions/<encoded cwd>/<session id>/plan.md; bash is not inspected and subagents are not covered. The status line leads with plan. exit_plan_mode opens the plan review: a approves (comments ride along), s requests changes from the prompt, c comments on a line or Shift+arrow range, y copies, q abandons the plan and leaves plan mode, Tab switches preview and prompt; minimal prints the plan to scrollback and keeps a strip. /view-plan (/show-plan, /plan-view) shows the saved plan. The question card: arrows or j/k move, Tab/Shift+Tab wrap, left/right or h/l or [ ] change question, 1-9 then a-f pick, z types an answer, Space toggles a multi-select row, Enter selects or submits, Esc unselects then parks the keyboard (Tab or Space returns), y copies, Shift+X dismisses, Ctrl+F expands. A pending approval is answered first. [features] ask_user_question / GROK_ASK_USER_QUESTION and --no-ask-user remove the tool; --no-plan removes plan mode. [toolset.ask_user_question] timeout_enabled / timeout_secs (default 1800) and GROK_ASK_USER_QUESTION_TIMEOUT_ENABLED / _SECS close an unanswered card. A plain prompt or an editor session has no card: a question returns the no-operator text and a plan review is approved. Ctrl+T hides the todos pane. --todo-gate reminds dsh about unfinished todos at most twice per prompt. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nWorktrees: -w/--worktree [NAME] starts the session (interactive or plain) in a new git worktree at $GROK_HOME/worktrees/<repo>/<name> on branch codsh/<name>, created from the directory you are in (after --cwd) before config, trust, and the sandbox are read. Without --worktree-ref (alias --ref) the worktree starts from HEAD plus your uncommitted and untracked (not ignored) files, committed there as one snapshot; your checkout, index, and branch are not changed. With a ref it is a clean checkout. A name that is already a directory or branch gets a -2, -3 suffix; an existing branch is never reused or reset. A directory outside git is refused and nothing is created. -w -r <id> (or -w -c) copies that session under a new id into the new worktree and resumes the copy; the original session keeps its directory. The status line names the worktree and branch. The worktree is a separate workspace for folder trust and remembered grants, so both are asked again there. `codsh --rust worktree list|ls [--repo R] [--type session|subagent|untracked] [--all] [--json]`, `show <id>`, `apply <id> [--overwrite] [--dry-run]`, `rm <id>... [-f] [--dry-run]`, `gc|prune [--max-age 7d] [--dry-run] [-f]`, and `db path|stats|rebuild` manage them; /worktree [list|show|apply|rm|gc] does the same inside a session. apply merges by default: a file is written only when the checkout still holds what the worktree started from; anything else is reported as a conflict and left untouched, and --overwrite takes the worktree version. apply never commits or stages. rm refuses a worktree with uncommitted work unless -f and keeps the branch when it holds commits. gc expires nothing without --max-age and keeps worktrees with uncommitted, untracked, or non-cache ignored files, commits no branch holds, or a live owner. detach, salvage, and clean-artifacts are refused: there is no Grove projection. /fork --worktree is refused inside a running session; use -w -r. The new-session/fork worktree prompts (hints.*_worktree_mode) and automatic gc are not implemented. Under a filesystem sandbox, git in a worktree and subagent isolation can write only where the profile's write roots reach ($GROK_HOME/worktrees and the source repository's .git); otherwise git's own error is reported and nothing is applied.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nRemote: --remote ssh://[user@]host[:port]/abs/path runs this client against codsh on another host over SSH (public key, pinned host key); see codsh --rust remote --help.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. `plugin enable|disable` (or Space in /plugins) adds or withdraws an installed, trusted plugin's rules, skills and commands (`/plugin:name`), agents, workflows (`/plugin:name`, see Saved workflows), and command hooks through the same discovery and hook runner; a project plugin also needs workspace trust, enabling never grants tool permissions, and a live session picks the change up on its next prompt. Plugin MCP servers are not started. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nBackground commands: dsh owns every shell job. Ctrl+B moves the running foreground command to the background and the turn goes on. A command still running after [toolset.bash] foreground_block_budget_ms (default 15000; 0 waits for the full timeout) moves on its own; auto_background_on_timeout = false keeps it in the foreground and kills it at its timeout instead. Send-now while a command runs moves it rather than killing it. The status line counts running commands and subagents; while the model blocks on job_output it adds \"send a message to interrupt\", and any message you send ends that wait. Ctrl+G or /tasks lists commands with their latest output; x stops the selected one and the model is told at its next step. A finished command wakes an idle session with a \u{25ce} Task completed turn (dsh allows 3 wakes in a row without a message from you; later notices reach the model with your next prompt). /new, switching sessions, and quitting stop that session's commands; a resumed history says its commands are no longer running. Plain -p and editor ACP keep dsh's own foreground bash.\nScheduled prompts: /loop [interval] <prompt> (e.g. /loop 30m check the deploy) asks the model to call scheduler_create; it derives the interval from your words and asks when none is given. Each fire runs the stored prompt as an independent background subagent (general-purpose type, same permissions and approvals), never in this conversation; its final status comes back once and wakes an idle session like a finished command. Intervals are s/m/h/d with a 60-second minimum; at most 50 loops per session; a loop expires after 7 days; a fire is skipped while the previous one still runs. Each fire starts fresh with the previous fire's final status. Ctrl+G or /tasks lists loops with their next fire and last status; x deletes the selected loop (a fire already running finishes). Loops are saved with their session in $DSH_HOME/codsh-schedules/<session>.json (durable: true is accepted and means the same saved loop; it is refused only when this dsh has no session owner to save it to): quitting, a dsh restart, or a switch stops them, and resuming the session (--continue, --resume, /resume) restores them. A loop whose fires were missed while nothing ran fires once promptly, however many intervals were missed; a loop past its 7-day expiry is removed without firing; a fire that was running when its process ended is shown as outcome unknown and is never replayed, and the next fire is told to check the current state first. Only the client holding the session's owner lock saves and fires its loops, so a second client on the same session is refused and two processes never fire one loop (fires are not exactly-once); a loop that cannot save its deletion or expiry stays paused instead of coming back. Rows show saved, durable, or not saved, paused, the last fire's outcome, and permissions changed when the permission mode differs from the one the loop was created under (fires run under the current mode). With subagents disabled, saved loops are listed as paused and can be deleted, and no new loops are offered. Plain -p, editor ACP, and the shared server offer no scheduler and leave saved loops untouched; a fork or rewind starts without the loops.\nWhile a turn runs, Enter queues the draft (the notice shows Queued N and the next row); Enter on an empty prompt sends the top row now. Ctrl+Enter or Ctrl+I sends the draft (or the selected row) now: the running turn is cancelled through dsh without a [cancelled] marker and that row runs next. Apple Terminal also takes Ctrl+O; VS Code-family terminals (vscode, cursor, windsurf, zed) use Ctrl+L instead; Ctrl+Enter/Ctrl+I need a terminal that reports them distinctly (kitty keyboard protocol). Ctrl+; or Ctrl+' (or ↑ on an empty prompt) opens the queue pane: ↑↓ select, e edits in place (Enter saves, empty save removes, Esc cancels), Enter sends now, x/Del/Backspace deletes, Shift+J/K reorders, Esc closes. Queued rows run in order, one per turn, after the turn ends or is cancelled with Ctrl+C; a pending approval, compaction, or a row being edited keeps them waiting. Slash commands typed while busy queue as their own rows. [ui] follow_up_behavior = \"steer\" sends plain text follow-ups into the running dsh turn at its next model step instead; a steer dsh did not use goes back to the queue. [ui] combine_queued_prompts = true joins consecutive plain rows into one turn. /queue lists the queue. /btw <question> (also typed mid-message) asks a side question from the current session context with no tools; the answer shows in a panel that Esc dismisses (minimal prints it to scrollback), a late answer to a dismissed question is dropped, and nothing enters the conversation.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. isolation: \"worktree\" runs the child in its own git worktree (see Worktrees); nothing is applied to the checkout. Messaging, resume_from, and --agent stay with later tickets. Workflows: the model's workflow tool runs a Rhai workflow script (inline, a <meta.name>.rhai file in this trusted project or $GROK_HOME/workflows, or a saved workflow by name) whose agent() and parallel() calls start dsh subagents with the script's model, effort, agent type, and capability; a run goes on in the background after the tool call returns, gets a session-unique display name (a repeated name becomes name-2, name-3), and its completion reaches the owning session once as a notice turn. Its block shows the run name, status, phase, and agent count; /tasks tags its children with the workflow name and lists the session's runs; the status line counts active workflows. /workflow [runs] lists runs with phases, agents, and results; /workflow pause|resume|stop <name> (or <name> pause) controls one by display name, and the model can do the same with the tool. A session holds at most 4 active runs. Pause and stop cancel the run's children; resume replays the run's journal (finished agent results are reused; a cancelled or failed step runs again, so side effects of an unfinished step are not exactly-once) from the original script and args, and a budget stop resumes only with a higher agent_budget. Runs resume only in the codsh process that started them: after a restart a run that was active is interrupted and none can be resumed. A plain -p prompt waits for its workflow run and returns the run's result block instead (no notice turn). Ctrl+C cancels the turn, not a background run. output_schema asks the child for a JSON block, validates it against the schema, and resumes the same child once to correct a miss; scratch files live under the session directory and git_diff_since runs git diff in it. A run keeps at most [subagents] workflow_max_concurrent (or GROK_WORKFLOW_MAX_CONCURRENT_AGENTS; default 32, clamped to the machine) children live, separately from its agent_budget. Saved workflows: /workflows lists the <meta.name>.rhai files of this trusted project's .grok/workflows (a project workflow hides a same-named personal one) and $GROK_HOME/workflows, with hidden, ambiguous, and skipped invalid files (/workflows <name> shows one workflow or why its file is not loaded); listing reads files and never runs them. An active plugin's workflows follow them: /<plugin>:<name> always runs one, and /<name> does too unless a project or personal workflow owns the name or two plugins offer it (then the name is refused and both qualified names are shown); a disabled, untrusted, removed, or shadowed plugin's workflows are refused with its state, and /workflows <name> shows a plugin workflow's version, license, trust, and source. Built-in workflows are not part of this catalog. /workflow <name> [--agent-budget N] [--effort LEVEL] [text or JSON args], or /<name> when no command or skill owns the name (slash completion offers it), launches one; the model sees the same list and can launch by name. A run keeps the script it read at launch, so editing the file or updating its plugin changes only later launches and resume never switches to the edited copy; a paused plugin run does not resume while its plugin is disabled or uninstalled. /workflow save <name> writes a run's script to the trusted project's .grok/workflows/<meta.name>.rhai and never replaces an existing file; an untrusted folder or an unwritable project is refused and names where the run's script is. resume_from is refused. The engine's operation and size limits bound a script; they are not a security sandbox.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, -w/--worktree [NAME], --worktree-ref/--ref <REF>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, worktree list|show|apply|rm|gc|db, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill, mcp list|add|remove|enable|disable|doctor. `mcp` manages local MCP servers from [mcp_servers] in $GROK_HOME/config.toml plus, in a trusted folder, .grok/config.toml and .mcp.json; dsh starts them for each session, and /mcps (alias /mcp) lists state, failures, and tools, and enables, disables, or restarts them. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork) and the workflow tool, Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Plan mode, questions, and todos: dsh owns plan mode (ctx.planMode), ask_user_question, and the todo list; this client shows what dsh asks and sends the answer back. /plan enters plan mode, /plan <task> enters it and sends the task, /plan off leaves, and Shift+Tab cycles normal, plan, and always-approve (skipped when requirements lock it off). In plan mode every edit is refused, even under always-approve or --yolo, except the session plan file $GROK_HOME/sessions/<encoded cwd>/<session id>/plan.md; bash is not inspected and subagents are not covered. The status line leads with plan. exit_plan_mode opens the plan review: a approves (comments ride along), s requests changes from the prompt, c comments on a line or Shift+arrow range, y copies, q abandons the plan and leaves plan mode, Tab switches preview and prompt; minimal prints the plan to scrollback and keeps a strip. /view-plan (/show-plan, /plan-view) shows the saved plan. The question card: arrows or j/k move, Tab/Shift+Tab wrap, left/right or h/l or [ ] change question, 1-9 then a-f pick, z types an answer, Space toggles a multi-select row, Enter selects or submits, Esc unselects then parks the keyboard (Tab or Space returns), y copies, Shift+X dismisses, Ctrl+F expands. A pending approval is answered first. [features] ask_user_question / GROK_ASK_USER_QUESTION and --no-ask-user remove the tool; --no-plan removes plan mode. [toolset.ask_user_question] timeout_enabled / timeout_secs (default 1800) and GROK_ASK_USER_QUESTION_TIMEOUT_ENABLED / _SECS close an unanswered card. A plain prompt or an editor session has no card: a question returns the no-operator text and a plan review is approved. Ctrl+T hides the todos pane. --todo-gate reminds dsh about unfinished todos at most twice per prompt. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nWorktrees: -w/--worktree [NAME] starts the session (interactive or plain) in a new git worktree at $GROK_HOME/worktrees/<repo>/<name> on branch codsh/<name>, created from the directory you are in (after --cwd) before config, trust, and the sandbox are read. Without --worktree-ref (alias --ref) the worktree starts from HEAD plus your uncommitted and untracked (not ignored) files, committed there as one snapshot; your checkout, index, and branch are not changed. With a ref it is a clean checkout. A name that is already a directory or branch gets a -2, -3 suffix; an existing branch is never reused or reset. A directory outside git is refused and nothing is created. -w -r <id> (or -w -c) copies that session under a new id into the new worktree and resumes the copy; the original session keeps its directory. The status line names the worktree and branch. The worktree is a separate workspace for folder trust and remembered grants, so both are asked again there. `codsh --rust worktree list|ls [--repo R] [--type session|subagent|untracked] [--all] [--json]`, `show <id>`, `apply <id> [--overwrite] [--dry-run]`, `rm <id>... [-f] [--dry-run]`, `gc|prune [--max-age 7d] [--dry-run] [-f]`, and `db path|stats|rebuild` manage them; /worktree [list|show|apply|rm|gc] does the same inside a session. apply merges by default: a file is written only when the checkout still holds what the worktree started from; anything else is reported as a conflict and left untouched, and --overwrite takes the worktree version. apply never commits or stages. rm refuses a worktree with uncommitted work unless -f and keeps the branch when it holds commits. gc expires nothing without --max-age and keeps worktrees with uncommitted, untracked, or non-cache ignored files, commits no branch holds, or a live owner. detach, salvage, and clean-artifacts are refused: there is no Grove projection. /fork --worktree is refused inside a running session; use -w -r. The new-session/fork worktree prompts (hints.*_worktree_mode) and automatic gc are not implemented. Under a filesystem sandbox, git in a worktree and subagent isolation can write only where the profile's write roots reach ($GROK_HOME/worktrees and the source repository's .git); otherwise git's own error is reported and nothing is applied.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -7711,7 +8156,10 @@ fn run() -> io::Result<()> {
         LaunchMode::Plain { .. } => return run_plain(&launch, &mode),
         _ => {}
     }
-    if let LaunchMode::Resume(id) = &mode {
+    // A remote session id is checked by the remote hub, not this catalog.
+    if let LaunchMode::Resume(id) = &mode
+        && remote::active().is_none()
+    {
         let loaded = load_runtime_config(&launch);
         if !session_catalog::is_uuid(id) {
             let catalog = session_catalog::load_catalog(&loaded.dsh_home, &loaded.cwd);
@@ -7882,8 +8330,19 @@ fn run() -> io::Result<()> {
             Ok((connection, restored)) => {
                 resumed = connection.resumed;
                 previous_session = connection.client.session_id.clone();
-                owner = Some(connection.owner);
+                owner = connection.owner;
                 turns = restored;
+                if let Some(target) = remote::active() {
+                    inflight = connection.remote_running;
+                    hint = if connection.remote_running {
+                        format!(
+                            "remote {}: attached; its running turn continues there and was not sent again",
+                            target.label()
+                        )
+                    } else {
+                        format!("remote {} ({})", target.label(), target.auth_summary())
+                    };
+                }
                 let mut client = connection.client;
                 attach_worktree_session(&client);
                 if let Some(created) = worktree::active() {
@@ -8045,7 +8504,11 @@ fn run() -> io::Result<()> {
             // No suggestion provider is connected. Passing Some here would
             // paint ghost text that Tab/Right could accept without a real row.
             composer.on_turn_finished(None);
-            if let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone()) {
+            if let Some(session_id) = client
+                .as_ref()
+                .filter(|active| !active.remote)
+                .and_then(|active| active.session_id.clone())
+            {
                 let _ = session_catalog::note_turn(&effective.dsh_home, &session_id, false);
             }
             // The catalog route is what the next submit uses. Refresh it from
@@ -8090,7 +8553,10 @@ fn run() -> io::Result<()> {
             }
             compact_cancelled = false;
         } else if inspect_auto_compact
-            && let Some(session_id) = client.as_ref().and_then(|active| active.session_id.clone())
+            && let Some(session_id) = client
+                .as_ref()
+                .filter(|active| !active.remote)
+                .and_then(|active| active.session_id.clone())
         {
             match session_history::load_session(&effective.dsh_home, &session_id) {
                 Ok(restored) if restored.compaction.len() > last_compaction_count => {
@@ -10546,6 +11012,80 @@ fn dispatch_composer_command(
     side: &mut Intervene,
 ) -> io::Result<()> {
     let _ = guard;
+    if let Some(target) = remote::active() {
+        let trimmed = text.trim();
+        let name = trimmed.split_whitespace().next().unwrap_or("");
+        if trimmed.starts_with('/') {
+            match name {
+                "/remote" => {
+                    composer.set_text("");
+                    *hint = remote_status_text(client.as_ref());
+                    last_error.clear();
+                    return Ok(());
+                }
+                "/reconnect" => {
+                    composer.set_text("");
+                    if client.is_some() {
+                        *hint = format!("already connected to {}", target.label());
+                        return Ok(());
+                    }
+                    let previous = previous_session.clone();
+                    match connect(
+                        &LaunchMode::New,
+                        previous.as_deref(),
+                        &[],
+                        None,
+                        false,
+                        None,
+                    ) {
+                        Ok((connection, restored)) => {
+                            let running = connection.remote_running;
+                            *previous_session = connection.client.session_id.clone();
+                            *resumed = connection.resumed;
+                            *owner = None;
+                            *turns = restored;
+                            *inflight = running;
+                            *selection_ready = true;
+                            *committed = 0;
+                            history.clear();
+                            let _ = reset_native_history_after_switch(
+                                terminal, screen, committed, history,
+                            );
+                            let session = connection.client.session_id.clone().unwrap_or_default();
+                            *client = Some(connection.client);
+                            *hint = if !connection.resumed {
+                                format!("connected to {}: new session {session}", target.label())
+                            } else if running {
+                                format!(
+                                    "reattached to {} session {session}; its turn is still running there and was not sent again",
+                                    target.label()
+                                )
+                            } else if !connection.remote_attached {
+                                format!(
+                                    "{} no longer ran session {session} (remote restart or exit); resumed it from saved history there. A turn that was running has no result; its external effects are unknown and were not retried",
+                                    target.label()
+                                )
+                            } else {
+                                format!(
+                                    "reattached to {} session {session}; no turn is running there",
+                                    target.label()
+                                )
+                            };
+                            last_error.clear();
+                        }
+                        Err(error) => *last_error = error,
+                    }
+                    return Ok(());
+                }
+                _ if remote::slash_allowed(name) => {}
+                _ => {
+                    composer.restore_slash_draft();
+                    *last_error = format!("{name}: {}", remote::UNAVAILABLE_REASON);
+                    return Ok(());
+                }
+            }
+        }
+    }
     // `/loop [interval] <prompt>` (ticket 177): the model turns the request
     // into a scheduler_create call. The transcript shows what was typed.
     let loop_args = loop_command_args(text);
@@ -11860,6 +12400,13 @@ fn submit_composer_prompt(
     if *inflight {
         return;
     }
+    // A remote session never reconnects as a side effect of a prompt: the
+    // remote may still run the previous turn. /reconnect attaches first.
+    if remote::active().is_some() && client.is_none() {
+        *last_error =
+            "remote session is disconnected; /reconnect attaches again (nothing was sent)".into();
+        return;
+    }
     replace_if_plugin_runtime_changed(client, owner, effective, extra_env);
     if client.is_none() {
         *effective = load_runtime_config(launch);
@@ -11925,13 +12472,28 @@ fn submit_composer_prompt(
         let blocks = prepared
             .map(|item| item.blocks)
             .unwrap_or_else(|| vec![serde_json::json!({ "type": "text", "text": text })]);
-        let blocks = blocks_with_model_prompt(
-            launch,
-            effective,
-            blocks,
-            *memory_session_on,
-            !*memory_injected && turns.is_empty(),
-        );
+        let blocks = if active.remote {
+            // Sent as typed: local rules, memory, files, and images stay here.
+            if let Err(error) = remote_text_only(&blocks).and_then(|()| {
+                if blocks.len() > 1 {
+                    Err("a remote session sends the typed text only; local attachments were not sent".to_string())
+                } else {
+                    Ok(())
+                }
+            }) {
+                *last_error = error;
+                return;
+            }
+            blocks
+        } else {
+            blocks_with_model_prompt(
+                launch,
+                effective,
+                blocks,
+                *memory_session_on,
+                !*memory_injected && turns.is_empty(),
+            )
+        };
         match active.submit_prompt_blocks(&blocks) {
             Ok(_) => {
                 turns.push(Turn {

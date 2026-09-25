@@ -28,7 +28,16 @@ several clients on one hub: one dsh process per live session, `session/load`
 attaches to a live session instead of starting a second executor, the first
 approval answer wins, a concurrent prompt is refused, and a dsh exit is reported
 without retrying. Nothing listens unless one of those commands runs, and a
-non-off sandbox profile keeps a session out of the leader. Local MCP servers are
+non-off sandbox profile keeps a session out of the leader. `--remote
+ssh://host/abs/path` (ticket 190) makes the ACP child an OpenSSH client (public
+key, pinned host key, `BatchMode=yes`, no forwarding, allowlisted env) that runs
+`codsh --rust agent --leader stdio` there: the remote hub and its dsh execute,
+local policy flags and local context are refused, the client takes no local
+owner lease and reads no local history, `session/load` replay rebuilds the
+transcript, `_codsh/prompt_complete` finishes a turn that was running when it
+attached, and a stopped remote leader or dsh is an interrupted turn with unknown
+effects. The official Computer Hub, cloud workspaces, and the Cursor worker stay
+refused. Local MCP servers are
 mounted by dsh's own MCP client from a per-process plan codsh-rust writes
 (`$DSH_HOME/mcp/run-*/plan.json`, `CODSH_MCP_PLAN`); a server that fails to
 start is dropped by name and the session still starts. Grok's `search_tool` and
