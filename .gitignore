@@ -11,3 +11,4 @@ packages/cli/extensions/ship/hooks/ship-hook.mjs
 packages/cli/extensions/ship/commands/
 packages/cli/extensions/ship/hooks/ship-web.mjs
 packages/cli/extensions/ship/web/
+__pycache__/
