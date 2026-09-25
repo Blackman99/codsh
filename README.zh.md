@@ -360,6 +360,19 @@ agent 定义。
 `plugin list --json`、`inspect` 与 `/plugins` 展开行会显示每个插件的 `state`
 （`active`、`disabled`、`blocked`、`missing`、`shadowed`）、贡献与插件级问题；
 单个损坏文件不会影响其他插件。插件 MCP 服务器暂不启动。
+Ship 是 `codsh --rust` 的可选一方插件，不属于默认界面。
+`codsh --rust plugin install bundled:ship --trust` 从安装包复制它（`bundled:<名称>`
+只读取启动器自带的 `extensions/` 目录）；安装后仍是停用状态，`plugin enable ship`
+才会启用；`plugin disable ship` 或 `uninstall ship` 会再次移除 `/ship`。未安装或未启用时
+没有 `/ship` 命令、没有 Ship Hook，也不会产生任何 Ship 状态。启用后，`/ship <想法>`
+（或 `/ship:ship`）经 dsh 发送旧版首轮约定，原样执行预检与 wayfinder；裸 `/ship`
+会恢复 `docs/specs` 中唯一未完成的 spec。它的 Hook 沿用旧版记录（`<spec>.ship.json`
+保存封存的原始需求，`<spec>.ship.answers.json` 保存每张已回答的问题卡）和旧版保护
+（想法冲突、原始需求被改、多个未完成 spec、答案文件损坏）。被关闭或取消的问题卡
+不会留下记录，之后的 `/ship` 可以继续。已越过 wayfinding 的 spec 会被拒绝，并提示用
+旧版 `codsh`（`/ship`）继续，两者读取同一批文件：grill、规划、执行、Ship 图和阶段
+自动续跑尚未迁移。该插件不增加快捷键、不覆盖内置命令，也不使用 Goal 或 Rhai。
+旧版 `codsh` 的 `/ship` 保持不变。
 下载、校验、冲突、离线或取消失败不会留下成功安装。
 `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` 也会拒绝未钉死
 的远程更新并保留原安装。官方 marketplace 默认不

@@ -306,6 +306,7 @@ python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
 python3 scripts/rust-plugin-content-pty-test.py
+python3 scripts/rust-ship-pty-test.py
 python3 scripts/rust-prompt-pty-test.py
 python3 scripts/rust-voice-pty-test.py
 python3 scripts/rust-nav-pty-test.py
@@ -473,7 +474,19 @@ carry the skill, and the replaced dsh child must let the plugin hook deny a
 real bash call; Space again must withdraw both. `pnpm exec vitest run
 scripts/rust-plugin-content.spec.mjs` covers install, enable, update, disable,
 uninstall, a broken plugin beside a good one, and project plugins behind
-workspace trust with real dsh and the keyless mock. The assets test
+workspace trust with real dsh and the keyless mock.
+`python3 scripts/rust-ship-pty-test.py` runs on Linux and macOS after `pnpm run build:rust` (which also runs `scripts/build-ship-extension.mjs`
+to generate `packages/cli/extensions/ship/hooks/ship-hook.mjs` and
+`commands/ship.md`; both are gitignored): with the `ship-wayfinder` mock it
+checks that a fresh Home has no `/ship` and no Ship state, installs
+`bundled:ship --trust` (still disabled), enables it, answers the wayfinder
+question card and checks the sealed snapshot and answer records, cancels a
+card (nothing recorded), resumes with a bare `/ship`, refuses a conflicting
+idea and a spec past wayfinding in fresh sessions, checks Stop writes nothing,
+and checks `plugin disable ship` removes `/ship`. `pnpm exec vitest run
+scripts/rust-ship-extension.spec.mjs packages/bundle/tests/ship-extension.spec.ts`
+covers the generated plugin and the hook logic; the legacy `e2e/pty-ship*.e2e.ts`
+suites stay the reference for the full legacy flow. The assets test
 trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
 command change the dsh request, rescans an added skill, requires the deleted
 skill to be absent from the next dsh reply, checks `--rules`, and checks an

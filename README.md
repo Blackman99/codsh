@@ -657,6 +657,24 @@ update, disable, and uninstall withdraw the old content. `plugin list --json`,
 (`active`, `disabled`, `blocked`, `missing`, `shadowed`), its contributions,
 and per-plugin problems; one broken file does not stop other plugins. Plugin
 MCP servers are not started yet.
+Ship is an optional first-party plugin for `codsh --rust`, not part of the
+default interface. `codsh --rust plugin install bundled:ship --trust` copies it
+from the package (`bundled:<name>` reads only the launcher's own `extensions/`
+directory), install leaves it disabled, and `plugin enable ship` turns it on;
+`plugin disable ship` or `uninstall ship` removes `/ship` again. Without it
+there is no `/ship` command, no Ship hook, and no Ship state. When enabled,
+`/ship <idea>` (or `/ship:ship`) sends the legacy first-turn contract through
+dsh and runs pre-flight and wayfinder unchanged; a bare `/ship` resumes the one
+unfinished spec in `docs/specs`. Its hooks keep the legacy records
+(`<spec>.ship.json` with the sealed original requirement and
+`<spec>.ship.answers.json` with each answered question card) and the legacy
+guards (a conflicting idea, a changed original, several unfinished specs,
+corrupt answers). A dismissed or cancelled card records nothing, so a later
+`/ship` resumes. A spec past wayfinding is refused with a pointer to legacy
+`codsh` (`/ship`), which reads the same files: grill, planning, execution, the
+Ship graph, and automatic phase continuation are not migrated yet. The plugin
+adds no keybinding, overrides no built-in command, and does not use Goals or
+Rhai. Legacy `codsh` `/ship` is unchanged.
 Failed download, checksum, conflict, offline, or cancel leaves no success
 record. `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` also
 refuse unpinned remote updates and leave the previous install. Official marketplace auto-register stays off unless

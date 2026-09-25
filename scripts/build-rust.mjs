@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { buildShipExtension } from './build-ship-extension.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const manifest = join(root, 'rust/Cargo.toml')
@@ -47,4 +48,8 @@ writeFileSync(join(directory, 'artifact.json'), `${JSON.stringify({
   upstream: 'a28ee2b2063426e8816e380ccea528b9de95e5da',
   behaviorReference: '1.0.34 / 3736acbc8658; exact source correspondence unproven',
 }, null, 2)}\n`)
+// The optional Ship extension (`plugin install bundled:ship`) ships beside the
+// launcher; building it installs or enables nothing.
+const ship = await buildShipExtension()
 console.log(`Staged native candidate at ${directory}; no upload, install, or release performed.`)
+console.log(`Built the optional Ship extension at ${ship}; nothing was installed or enabled.`)

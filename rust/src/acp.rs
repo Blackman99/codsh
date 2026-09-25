@@ -429,6 +429,9 @@ pub const INHERITED_ENV: &[&str] = &[
     "FAKE_ACP_TRACE",
     "CODSH_SESSION_READ",
     "CODSH_SESSION_FORK",
+    // Command hooks (plugin hooks such as the Ship extension's) run their
+    // scripts with the launcher's Node as `${CODSH_NODE:-node}`.
+    "CODSH_NODE",
     "GROK_AUTO_COMPACT_THRESHOLD_PERCENT",
     "GROK_COMPACTION_WALL_CLOCK_SECS",
     "DSH_CODE_CLI_MOCK_CONTEXT_WINDOW",

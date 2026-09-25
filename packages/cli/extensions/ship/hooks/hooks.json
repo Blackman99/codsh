@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }] }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(ask_user_question|write|edit|multi_edit|bash)$",
+        "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }]
+      }
+    ]
+  }
+}

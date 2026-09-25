@@ -64,7 +64,12 @@ in `/plugins`) adds or withdraws an installed, trusted plugin's rules, skills an
 commands (`/plugin:name`), agents, and command hooks through the normal
 discovery and hook runner; project plugins also need workspace trust, enabling
 never grants tool permissions, and `plugin list --json` shows each plugin's
-state and contributions. A present
+state and contributions.
+Ship is optional here: `plugin install bundled:ship --trust` then
+`plugin enable ship` adds `/ship`, which runs the legacy pre-flight and
+wayfinder phase through dsh and keeps the legacy spec, snapshot, and answer
+files (a bare `/ship` resumes). Specs past wayfinding are pointed at legacy
+`codsh`; nothing Ship-related exists until you install and enable it. A present
 `strict_known_marketplaces` list binds catalog load, named install, the
 catalog clone URL, and later git update. Layers are strictest-wins. URL
 comparison folds scheme and host only, including GitHub, and strips one

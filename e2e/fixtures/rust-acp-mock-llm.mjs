@@ -18,7 +18,8 @@
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
-import { appendFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
@@ -1126,6 +1127,86 @@ class RustAcpMockAdapter extends LlmAdapter {
       }
       const summary = turnDone.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${resultText(result).slice(0, 400)}`).join(' | ')
       yield* mockText(`RUST_ACP_MCP_DONE ${summary || '(no calls)'}`)
+      return
+    }
+    if (MODE === 'ship-wayfinder') {
+      // The legacy ship-wayfinder scenario (e2e/fixtures/mock-llm.src.ts)
+      // driven by the Ship extension's /ship contract (ticket 195). The model
+      // follows the injected text: a typed idea asks the route question and
+      // writes the ledger; a bare /ship reads the unfinished spec and asks
+      // before resuming, as the BOOT contract says.
+      const isShip = message => message.role === 'user'
+        && message.content.some(block => block.type === 'text' && block.text.includes('Throughout /ship'))
+      const at = options.messages.findLastIndex(isShip)
+      const prompt = at < 0 ? '' : options.messages[at].content
+        .filter(block => block.type === 'text').map(block => block.text).join('\n')
+      if (!prompt.includes('This turn is wayfinder only')) {
+        yield* mockText(`SHIP_NOT_WAYFINDER ${echoUserText(latestUserText(options)).slice(0, 200)}`)
+        return
+      }
+      const idea = (/Arguments:([\s\S]*?)\n\nThroughout \/ship/.exec(prompt)?.[1] ?? '').trim()
+      const done = toolResults({ messages: options.messages.slice(at + 1) })
+      const ledger = join(process.cwd(), 'docs', 'specs', 'wayfinder-e2e.md')
+      const last = done.at(-1)
+      const answer = last === undefined ? '' : resultText(last)
+      if (idea === '') {
+        if (done.length === 0) {
+          if (!existsSync(ledger)) {
+            yield* mockText('WAYFINDER_NEEDS_IDEA')
+            return
+          }
+          yield* mockToolCall(`ship-resume-read-${Date.now().toString(36)}`, 'read', { file_path: ledger })
+          return
+        }
+        const read = resultText(done[0])
+        const lines = read.split('\n').map(line => line.replace(/^\s*\d+[\t→|:]\s?/, ''))
+        const heading = lines.findIndex(line => line.trim() === '## Original Requirement')
+        const recovered = heading < 0 ? 'missing' : (lines.slice(heading + 1).find(line => line.trim() !== '') ?? 'missing').trim()
+        if (done.length === 1) {
+          yield* mockToolCall(`ship-resume-ask-${Date.now().toString(36)}`, 'ask_user_question', { questions: [{
+            id: 'resume', header: 'ship · wayfinder', question: 'Resume the pending research?',
+            options: [{ label: 'Continue', description: 'Recommended.' }, { label: 'Stop' }],
+          }] })
+          return
+        }
+        if (last?.isError === true) {
+          yield* mockText(`WAYFINDER_PAUSED original=${recovered}`)
+          return
+        }
+        yield* mockText(`${answer.includes('Continue') ? 'WAYFINDER_RESUMED' : 'WAYFINDER_STOPPED'} original=${recovered}`)
+        return
+      }
+      const pending = idea.includes('PENDING_WAYFINDER')
+      if (done.length === 0) {
+        yield* mockToolCall(`ship-wayfinder-question-${Date.now().toString(36)}`, 'ask_user_question', { questions: [{
+          id: 'route', header: 'ship · wayfinder', question: 'Is the route clear?',
+          options: [{ label: 'Continue', description: 'Recommended.' }, { label: 'Stop' }],
+        }] })
+        return
+      }
+      if (done.length === 1) {
+        if (last?.isError === true) {
+          yield* mockText(`SHIP_FIXTURE_ERROR ${answer.slice(0, 200)}`)
+          return
+        }
+        if (!answer.includes('Continue')) {
+          yield* mockText('WAYFINDER_STOPPED')
+          return
+        }
+        const content = [
+          '# Wayfinder fixture', '', `Status: ${pending ? 'wayfinding' : 'grilling'}`, '',
+          '## Original Requirement', '', idea, '',
+          '## Main Track', '', `**Idea.** ${idea}`, '**Track-1.** Keep the original wording.', '',
+          '## Wayfinder', '', pending ? 'Pending research remains.' : 'Small route confirmed; no map needed.', '',
+        ].join('\n')
+        yield* mockToolCall(`ship-wayfinder-ledger-${Date.now().toString(36)}`, 'write', { file_path: ledger, content })
+        return
+      }
+      if (last?.isError === true) {
+        yield* mockText(`SHIP_LEDGER_REFUSED ${answer.replaceAll('\n', ' ').slice(0, 400)}`)
+        return
+      }
+      yield* mockText(`${pending ? 'WAYFINDER_WAITING' : 'WAYFINDER_READY'} original=${idea}`)
       return
     }
     if (MODE === 'empty') {

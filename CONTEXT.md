@@ -252,6 +252,26 @@ strictest-wins, so a later user or workspace list cannot widen an earlier
 lockdown. Git URL comparison folds scheme and host only, including GitHub,
 and strips one trailing `.git`. The repository path stays case-sensitive.
 `/plugins` and `/marketplace` open the directory; Ctrl+L is not bound here.
+Ship for `codsh --rust` (ticket 195) is an ordinary first-party plugin, so the
+Rust core has no Ship logic. `packages/cli/extensions/ship` holds the manifest,
+`hooks/hooks.json`, and README; `scripts/build-ship-extension.mjs` (called by
+`pnpm run build:rust`) bundles `packages/bundle/src/ship-extension*.ts` into
+`hooks/ship-hook.mjs` and writes `commands/ship.md`, the legacy
+`shipPromptFor(undefined)` contract with `$ARGUMENTS` pointing at the
+`Arguments:` line of the command expansion. The launcher sets
+`CODSH_BUNDLED_EXTENSIONS` to its `extensions/` directory and
+`plugin install bundled:<name> --trust` installs from there as a local source;
+nothing installs or enables it implicitly, and it binds no key. The
+UserPromptSubmit/PostToolUse hook reuses the legacy `ship-answers`,
+`ship-snapshot`, and `plan` modules: a `/ship` prompt opens a run for the
+workspace in `$GROK_PLUGIN_DATA/runs/`, answered `ask_user_question` results
+are encoded as legacy answer records (held until wayfinder writes the spec,
+then flushed after the snapshot is sealed), later tool calls recheck the
+frozen original, and any other prompt ends the run. Plan mode and subagent
+sessions are ignored. Specs past wayfinding are refused. Spec, snapshot, and
+answers files stay the source of truth and are the same files legacy `codsh`
+reads; there is no Goal (`Goal-Id` stays blank), Rhai, graph, or automatic
+phase continuation.
 `codsh --rust login` / `logout` / `setup` use configured substitute identity
 or management services. Independent API-key use does not require login unless
 `GROK_DISABLE_API_KEY_AUTH` or a team pin (`auth.force_login_team_uuid` or

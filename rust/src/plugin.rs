@@ -360,7 +360,8 @@ Options:\n      --debug                 Enable debug logging\n      \
   --debug-file <FILE>     Write debug logs to FILE\n  \
   -h, --help                  Print help\n\n\
 Leader sockets are unused; dsh owns execution. Install records files and provenance only.\n\
-An enabled, trusted plugin adds its rules, skills (/plugin:name), commands, agents, and command hooks to the normal discovery; disable or uninstall withdraws them. Enabling never grants tool permissions, and plugin MCP servers are not started."
+An enabled, trusted plugin adds its rules, skills (/plugin:name), commands, agents, and command hooks to the normal discovery; disable or uninstall withdraws them. Enabling never grants tool permissions, and plugin MCP servers are not started.\n\
+`install bundled:<name>` copies an optional extension shipped with codsh (bundled:ship is the Ship workflow); it is never installed or enabled by default."
 }
 
 pub fn marketplace_help() -> &'static str {
@@ -1151,10 +1152,27 @@ fn cmd_marketplace_update(ctx: &Context, name: Option<&str>) -> Result<String, P
 }
 
 fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, PluginError> {
-    if let Some(plugin_ref) = parse_marketplace_plugin_ref(source) {
+    let bundled = match source.strip_prefix(BUNDLED_PREFIX) {
+        Some(name) => Some(bundled_extension(ctx, name)?),
+        None => None,
+    };
+    if bundled.is_none()
+        && let Some(plugin_ref) = parse_marketplace_plugin_ref(source)
+    {
         return install_from_marketplace(ctx, &plugin_ref, trust);
     }
-    let parsed = parse_install_source(source, &ctx.cwd)?;
+    let parsed = match &bundled {
+        Some(dir) => ParsedSource {
+            identity: dir.display().to_string(),
+            subject: format!("the bundled extension {source} ({})", dir.display()),
+            local: true,
+            source_path: Some(dir.clone()),
+            git_url: None,
+            git_ref: None,
+            subdir: None,
+        },
+        None => parse_install_source(source, &ctx.cwd)?,
+    };
     if !trust {
         return Err(PluginError {
             code: 1,
@@ -1184,6 +1202,40 @@ fn cmd_install(ctx: &Context, source: &str, trust: bool) -> Result<String, Plugi
         outcome.names.len(),
         outcome.names.join(", ")
     ))
+}
+
+/// `bundled:<name>` names an optional extension shipped inside the codsh
+/// package (`CODSH_BUNDLED_EXTENSIONS/<name>`, set by the launcher). It is an
+/// ordinary local install: trust, enable, disable, update, and uninstall are
+/// the same as for any directory.
+pub const BUNDLED_PREFIX: &str = "bundled:";
+pub const BUNDLED_EXTENSIONS_ENV: &str = "CODSH_BUNDLED_EXTENSIONS";
+
+fn bundled_extension(ctx: &Context, name: &str) -> Result<PathBuf, PluginError> {
+    if !is_valid_plugin_name(name) {
+        return Err(PluginError::fail(format!(
+            "invalid bundled extension name {name:?}: must be 1-64 chars, lowercase alphanumeric + hyphens"
+        )));
+    }
+    let root = ctx
+        .env
+        .get(BUNDLED_EXTENSIONS_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| {
+            PluginError::fail(format!(
+                "Bundled extensions are unavailable: {BUNDLED_EXTENSIONS_ENV} is not set. Run through the codsh launcher (codsh --rust)."
+            ))
+        })?;
+    let dir = root.join(name);
+    if !dir.is_dir() {
+        return Err(PluginError::fail(format!(
+            "Bundled extension '{name}' is not in this codsh install ({}). Build it with pnpm run build:rust in a checkout.",
+            dir.display()
+        )));
+    }
+    Ok(dir)
 }
 
 fn install_from_marketplace(
@@ -5518,6 +5570,104 @@ mod tests {
         let (key, value) = hook_env(&env.grok_home, &env.cwd, trusted);
         assert_eq!(key, PLUGIN_HOOKS_ENV);
         serde_json::from_str::<Vec<JsonValue>>(&value).unwrap()
+    }
+
+    #[test]
+    fn bundled_ship_installs_only_on_request_and_stays_off_until_enabled() {
+        let dir = TempDir::new().unwrap();
+        let mut env = ctx(&dir);
+        let install = |env: &Context, source: &str, trust: bool| {
+            run(
+                &env.grok_home,
+                &env.cwd,
+                &env.env,
+                true,
+                &PluginCommand::Install {
+                    source: source.into(),
+                    trust,
+                },
+            )
+        };
+        // Without the launcher there is no bundled directory to copy from.
+        let unset = install(&env, "bundled:ship", true).unwrap_err();
+        assert!(
+            unset.message.contains(BUNDLED_EXTENSIONS_ENV),
+            "{}",
+            unset.message
+        );
+        // The checked-in extension (manifest and hooks; the build adds the command).
+        let extensions = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../packages/cli/extensions")
+            .canonicalize()
+            .unwrap();
+        env.env.insert(
+            BUNDLED_EXTENSIONS_ENV.into(),
+            extensions.display().to_string(),
+        );
+        let bad = install(&env, "bundled:../ship", true).unwrap_err();
+        assert!(
+            bad.message.contains("invalid bundled extension name"),
+            "{}",
+            bad.message
+        );
+        let missing = install(&env, "bundled:nope", true).unwrap_err();
+        assert!(
+            missing.message.contains("not in this codsh install"),
+            "{}",
+            missing.message
+        );
+        let untrusted = install(&env, "bundled:ship", false).unwrap_err();
+        assert!(
+            untrusted.message.contains("--trust"),
+            "{}",
+            untrusted.message
+        );
+        assert!(
+            inspect(&env.grok_home, &env.cwd, &env.env, true)
+                .installed
+                .is_empty()
+        );
+
+        let done = install(&env, "bundled:ship", true).unwrap();
+        assert!(
+            done.contains("Installed 1 plugin(s) from bundled:ship: ship"),
+            "{done}"
+        );
+        // Installing copies files only: no command, rule, or hook is active.
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(
+            (row.name.as_str(), row.status.as_str()),
+            ("ship", "disabled")
+        );
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
+        assert!(hook_entries(&env, true).is_empty());
+        assert!(
+            row.contributions.problems.is_empty(),
+            "{:?}",
+            row.contributions.problems
+        );
+        assert_eq!(
+            row.contributions.hooks,
+            vec![
+                "UserPromptSubmit".to_string(),
+                "PostToolUse(^(ask_user_question|write|edit|multi_edit|bash)$)".to_string()
+            ]
+        );
+
+        set_enabled(&env, "ship", true);
+        let hooks = hook_entries(&env, true);
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0]["plugin"], "ship");
+        assert!(
+            hooks[0]["data"]
+                .as_str()
+                .unwrap()
+                .ends_with("plugin-data/ship")
+        );
+        assert_eq!(active_roots(&env.grok_home, &env.cwd, true).len(), 1);
+        set_enabled(&env, "ship", false);
+        assert!(hook_entries(&env, true).is_empty());
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
     }
 
     #[test]

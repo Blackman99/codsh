@@ -346,6 +346,9 @@ export async function launchRust(args) {
     if (env.CODSH_SESSION_FORK === undefined) {
       env.CODSH_SESSION_FORK = fileURLToPath(new URL('./rust-acp-session-fork.mjs', import.meta.url))
     }
+    // Optional extensions shipped in this package (`plugin install bundled:<name>`).
+    // Only the path is passed; nothing is installed or enabled here.
+    env.CODSH_BUNDLED_EXTENSIONS = fileURLToPath(new URL('../extensions/', import.meta.url))
     if (env.CODSH_WORKTREE === undefined) {
       env.CODSH_WORKTREE = fileURLToPath(new URL('./rust-worktree.mjs', import.meta.url))
     }
