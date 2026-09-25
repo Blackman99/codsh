@@ -875,7 +875,8 @@ when a provider is ready, without submitting a prompt. Inherited parent
 `GROK_HOME` is ignored; the preview pins `GROK_HOME` to `~/.codsh-rust/.grok`.
 
 The preview uses `~/.codsh-rust/dsh` and Profile `rust`, ignores inherited
-`DSH_HOME` and Grok settings files, and never migrates legacy sessions.
+`DSH_HOME` and Grok settings files, and never migrates legacy sessions on its
+own (see `codsh --rust import sessions` below).
 Configured `env_key` values such as `XAI_API_KEY` (and other `*_API_KEY`
 variables) are passed through to dsh; `~/.dsh` and `~/.grok` credential files
 are not imported automatically. Use `codsh --rust import` for an explicit, reversible copy. A symlinked preview Home/Profile or overlap with `DSH_HOME`/`GROK_HOME`
@@ -883,6 +884,31 @@ is refused before writes, including differently cased aliases on case-insensitiv
 filesystems. Overlap checks compare device/inode ancestry, including existing
 ancestors of missing paths, so macOS firmlink aliases cannot hide behind different
 realpath strings. Separate Homes reached through those aliases remain supported.
+
+Legacy sessions are copied only on request. `codsh --rust import sessions`
+lists the old client's sessions (from `$DSH_HOME`, default `~/.dsh`) with what
+a copy keeps and loses; `import sessions <id>...` (or `--all`) previews, and
+`--apply` copies. The old dsh Home is opened read-only and is never written,
+locked, or migrated, so plain `codsh` keeps resuming its original,
+byte-identical sessions and returning to it needs nothing from the new format.
+Each copy is a new session under `~/.codsh-rust/dsh` with a new id (resume it
+with `codsh --rust --resume <id>`); the two clients never write the same
+session and there is no live sync, so work continued on either side stays
+there. Messages, tool calls and results, titles, image and file attachments
+(copied by content address), and subagent sessions come along; session ids
+inside the copy are renamed to the copies, and the legacy agent preset is
+dropped (this client continues with its own agent and tools). Events this
+build does not read (marked skippable by the old client), content blocks it
+does not display, a turn that never finished, and missing attachments or
+subagent logs are reported, never hidden; missing data blocks `--apply`
+unless `--allow-partial`. A damaged log, an unsupported log format, or an
+unknown required event is refused. Each copy is re-read and compared before
+it counts; a failed or interrupted copy is removed. Provenance (legacy Home,
+session id, log file, byte digest, report) is kept in
+`~/.codsh-rust/dsh/session-migrations/<copy id>.json` and shown by
+`/session-info`. Importing an unchanged session again reports the existing
+copy; a legacy session that changed since is a conflict until `--again`
+makes another copy (the earlier copy is kept).
 Unavailable directory identity fails closed before writes.
 If either Home is missing, a case-only potential overlap is refused
 conservatively on every platform, without creating paths to test filesystem rules.

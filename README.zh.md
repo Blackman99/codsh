@@ -519,7 +519,7 @@ key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
 `GROK_HOME` 固定为 `~/.codsh-rust/.grok`。
 
 预览使用 `~/.codsh-rust/dsh` 与 `rust` Profile，忽略继承的 `DSH_HOME`
-和 Grok 设置文件，不迁移旧会话。已配置的 `env_key`（例如 `XAI_API_KEY`
+和 Grok 设置文件，不会自行迁移旧会话（见下文 `codsh --rust import sessions`）。已配置的 `env_key`（例如 `XAI_API_KEY`
 以及其他 `*_API_KEY`）会传给 dsh；不会自动导入 `~/.dsh` 或 `~/.grok` 中的凭据文件。
 显式、可逆的复制请使用 `codsh --rust import`。如果预览 Home/Profile 是符号链接，
 或与 `DSH_HOME`/`GROK_HOME` 重叠（包括大小写不敏感文件系统上的大小写别名），
@@ -528,6 +528,23 @@ key 时不必登录，除非 `GROK_DISABLE_API_KEY_AUTH` 或团队限制
 通过这些别名访问的独立 Home 仍受支持；无法取得目录身份时会在写入前拒绝。
 如果任一 Home 尚不存在，仅大小写不同的潜在重叠会在
 所有平台保守拒绝，不会通过创建路径来探测文件系统规则。
+
+旧会话只在明确要求时复制。`codsh --rust import sessions` 列出旧客户端的会话
+（来自 `$DSH_HOME`，默认 `~/.dsh`），并说明副本会保留和丢失什么；
+`import sessions <id>...`（或 `--all`）只预览，加 `--apply` 才复制。旧 dsh Home
+以只读方式打开，不写入、不加锁、不迁移，所以普通 `codsh` 仍能恢复原来字节不变的
+会话，回到旧程序也不需要它理解新格式。每个副本都是 `~/.codsh-rust/dsh` 下的新会话、
+使用新 id（用 `codsh --rust --resume <id>` 恢复）；新旧程序从不写同一个会话，也没有
+实时同步，在任一边继续的工作只留在那一边。消息、工具调用与结果、标题、图片和文件附件
+（按内容地址复制）以及子代理会话都会带过来；副本内的会话 id 会改成副本的 id，旧的
+agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本版本不读取的事件（旧客户端
+标记为可跳过）、不显示的内容块、未完成的回合、缺失的附件或子代理日志都会明确报告，
+不会隐藏；缺失数据默认阻止 `--apply`，需 `--allow-partial` 才复制其余部分。损坏的日志、
+不支持的日志格式或未知的必需事件会被拒绝。每个副本写入后都会重读比对，通过后才算完成；
+失败或中断的复制会被清除。来源信息（旧 Home、会话 id、日志文件、字节摘要、报告）保存在
+`~/.codsh-rust/dsh/session-migrations/<副本 id>.json`，`/session-info` 会显示。
+再次导入未变化的会话会指出已有副本；旧会话之后有变化则报告冲突，需 `--again` 才生成
+新副本（旧副本保留）。
 任何尚不存在且含非 ASCII 字符的路径分量也会在写入前被拒绝，即使它属于
 独立 Home：Unicode 小写转换或规范化不能可靠判断文件系统身份。请使用
 已存在的独立 Unicode 目录，或仅缺少 ASCII 分量的路径。已存在的 Unicode

@@ -129,7 +129,13 @@ and lists `coding-cli-runner` bell/notify/bang preferences as unsupported.
 A multi-model route imports the `agent-default-model` selection; inline `apiKey`
 values, missing `apiKeyEnv`, and `headers`/`compat` stay out of the isolated
 file. Existing nested settings are preserved. It does not treat outdated `code-cli-settings.json` as a provider source and never
-copies tokens, credential files, or original trust/execution grants. Configured
+copies tokens, credential files, or original trust/execution grants.
+`codsh --rust import sessions [ID]... [--all] [--apply]` copies selected legacy
+codsh sessions (read-only from the old dsh Home) into the isolated Home under
+new ids with a provenance record in `session-migrations/`; the old Home is
+never written, there is no dual-writer sync, and gaps, skipped events, and
+refusals (damaged, unsupported format, unknown required event) are reported.
+Configured
 `env_key` values are passed through. Nonessential telemetry, trace upload,
 session tracking, and content sharing default off. Opt-in uploads require a
 substitute `endpoints.telemetry_url`, `endpoints.feedback_base_url`, or
