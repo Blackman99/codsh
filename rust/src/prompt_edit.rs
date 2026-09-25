@@ -32,6 +32,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "find",
         "fork",
         "fullscreen",
+        "goal",
         "history",
         "jump",
         "login",
@@ -86,6 +87,7 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("find", &[], "Search the transcript", true),
     SlashCommand::new("fork", &[], "Fork conversation history", false),
     SlashCommand::new("fullscreen", &["full"], "Switch to fullscreen", true),
+    SlashCommand::new("goal", &[], crate::goal::DESCRIPTION, false),
     SlashCommand::new("history", &[], "Search prompt history", true),
     SlashCommand::new("jump", &[], "Jump to a turn", true),
     SlashCommand::new(

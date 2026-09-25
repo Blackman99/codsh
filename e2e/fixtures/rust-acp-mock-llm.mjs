@@ -657,6 +657,146 @@ function * backgroundTurn(options) {
   yield* mockText(`${label} job=${jobIdOf(first)} ${resultSummary(resultText(since.at(-1)))}`)
 }
 
+// Goal rounds (ticket 180). The objective's markers pick the behavior.
+//   Round turns (`<goal_round>` prompts from dsh's round driver):
+//     CLAIM_FROM_<k>  from round k on, read the goal and claim completion
+//                     with update_goal (default: round 1).
+//     NEVER_CLAIM     never claims; every round only reports progress.
+//     PACE            a round that does not claim waits 300 ms (abortable), so
+//                     the round cap is far away while a test acts.
+//     WRITE_ROUND_<k> in round k, write goal-done.txt before any claim.
+//     BURN            every response reports 5000 tokens and never claims.
+//     SLOWROUND       each round waits 60 s (abortable) before answering.
+//     BGJOB           round 1 starts a 30 s background command before the claim.
+//   Verifier turns (`<goal_verification>` briefs from rust-acp-goal):
+//     VERIFY_PASS / VERIFY_FAIL / VERIFY_SILENT (no verdict line) /
+//     VERIFY_SPLIT (skeptic 1 passes, the others refuse) /
+//     VERIFY_FILE (passes only when goal-done.txt exists) / VERIFY_SLOW.
+//   A human turn answers GOAL_HUMAN with its text; SLOWHUMAN holds it 1.5 s.
+const GOAL_BURN_USAGE = { inputTokens: 4000, outputTokens: 1000 }
+
+function * goalText(reply, usage = { inputTokens: 2, outputTokens: 2 }) {
+  yield { type: 'block-start', index: 0, blockType: 'text' }
+  yield { type: 'text-delta', index: 0, text: reply }
+  yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+  yield { type: 'usage', usage }
+  yield { type: 'finish', reason: { kind: 'stop' } }
+}
+
+async function * goalVerifierTurn(options, brief) {
+  const objective = /Objective: ("(?:[^"\\]|\\.)*")/.exec(brief)?.[1] ?? '""'
+  const skeptic = Number(/You are skeptic (\d+) of (\d+)/.exec(brief)?.[1] ?? '1')
+  const has = marker => objective.includes(marker)
+  if (has('VERIFY_SLOW')) {
+    try {
+      await sleep(60000, options.signal)
+    } catch {
+      return
+    }
+  }
+  if (has('VERIFY_SILENT')) {
+    yield* goalText(`VERIFIER_${skeptic} looked around and has no opinion.`)
+    return
+  }
+  let achieved = has('VERIFY_PASS')
+  let gap = `skeptic ${skeptic}: the objective is not met`
+  if (has('VERIFY_SPLIT')) achieved = skeptic === 1
+  if (has('VERIFY_FILE')) {
+    achieved = existsSync(join(process.cwd(), 'goal-done.txt'))
+    gap = `skeptic ${skeptic}: goal-done.txt is missing`
+  }
+  yield* goalText(achieved
+    ? `VERIFIER_${skeptic} checked the workspace.\nGAPS:\n- none\nVERDICT: ACHIEVED`
+    : `VERIFIER_${skeptic} checked the workspace.\nGAPS:\n- ${gap}\nVERDICT: NOT_ACHIEVED`)
+}
+
+async function * goalTurn(options) {
+  const texts = rawUserTexts(options).filter(text => !/Current runtime context|This snapshot supersedes/i.test(text))
+  const brief = texts.find(text => text.includes('<goal_verification>'))
+  if (brief !== undefined) {
+    yield* goalVerifierTurn(options, brief)
+    return
+  }
+  const latest = texts.at(-1) ?? ''
+  if (latest.includes('<goal_complete>') || latest.includes('<goal_blocked>')) {
+    yield* goalText(`GOAL_CLOSING ${latest.includes('<goal_complete>') ? 'complete' : 'blocked'}`)
+    return
+  }
+  const roundText = [...texts].reverse().find(text => text.includes('<goal_round>'))
+  const lastHuman = [...texts].reverse().find(text => !text.startsWith('<'))
+  const roundAt = roundText === undefined ? -1 : texts.lastIndexOf(roundText)
+  const humanAt = lastHuman === undefined ? -1 : texts.lastIndexOf(lastHuman)
+  if (roundText === undefined || humanAt > roundAt) {
+    if ((lastHuman ?? '').includes('SLOWHUMAN')) {
+      try {
+        await sleep(1500, options.signal)
+      } catch {
+        return
+      }
+    }
+    const offered = (Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : [])
+      .filter(name => name.endsWith('_goal')).sort().join(',')
+    yield* goalText(`GOAL_HUMAN tools=${offered || '(none)'} ${echoUserText(lastHuman ?? '')}`)
+    return
+  }
+  const objective = /Objective: ("(?:[^"\\]|\\.)*")/.exec(roundText)?.[1] ?? '""'
+  const round = Number(/Round: (\d+)\//.exec(roundText)?.[1] ?? '0')
+  const has = marker => objective.includes(marker)
+  const done = turnToolResults(options, '<goal_round>')
+  const byId = prefix => done.filter(result => String(result.toolCallId ?? '').startsWith(prefix))
+  if (has('BURN')) {
+    yield* goalText(`GOAL_BURN round=${round}`, GOAL_BURN_USAGE)
+    return
+  }
+  if (has('SLOWROUND')) {
+    try {
+      await sleep(60000, options.signal)
+    } catch {
+      return
+    }
+    yield* goalText(`GOAL_SLOW_DONE round=${round}`)
+    return
+  }
+  if (has('BGJOB') && round === 1 && byId('goal-bg-').length === 0) {
+    yield* mockToolCall(`goal-bg-${round}`, 'bash', { command: "printf 'GOAL_BG_START\\n'; sleep 30.180", description: 'goal probe', run_in_background: true })
+    return
+  }
+  const writeRound = Number(/WRITE_ROUND_(\d+)/.exec(objective)?.[1] ?? '0')
+  if (writeRound === round && byId('goal-write-').length === 0) {
+    yield* mockToolCall(`goal-write-${round}`, 'write', { file_path: 'goal-done.txt', content: `done in round ${round}\n` })
+    return
+  }
+  const claimFrom = Number(/CLAIM_FROM_(\d+)/.exec(objective)?.[1] ?? '1')
+  if (has('NEVER_CLAIM') || round < claimFrom) {
+    if (has('PACE')) {
+      try {
+        await sleep(300, options.signal)
+      } catch {
+        return
+      }
+    }
+    yield* goalText(`GOAL_WORKING round=${round}`)
+    return
+  }
+  const got = byId('goal-get-')
+  if (got.length === 0) {
+    yield* mockToolCall(`goal-get-${round}`, 'get_goal', {})
+    return
+  }
+  const claimed = byId('goal-claim-')
+  if (claimed.length === 0) {
+    let goal = {}
+    try {
+      goal = JSON.parse(resultText(got.at(-1))).goal ?? {}
+    } catch {}
+    yield* mockToolCall(`goal-claim-${round}`, 'update_goal', { goal_id: goal.id ?? '', revision: goal.revision ?? 0, action: 'complete' })
+    return
+  }
+  const last = claimed.at(-1)
+  const verdict = last.isError === true ? 'refused' : 'accepted'
+  yield* goalText(`GOAL_ROUND_END round=${round} claim=${verdict}: ${oneLine(resultText(last))}`)
+}
+
 const HOLD = { live: 0, peak: 0 }
 const ONCE = new Set()
 
@@ -1100,6 +1240,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'scheduler') {
       yield* schedulerTurn(options)
+      return
+    }
+    if (MODE === 'goal') {
+      yield* goalTurn(options)
       return
     }
     if (MODE === 'steer-probe') {

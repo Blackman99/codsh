@@ -231,9 +231,25 @@ export const JOB_NOTICE_PREFIX = '◎ Task completed'
  * that nobody typed. The transcript shows it as its own marked turn, the way
  * the live client does, and never as a prompt.
  */
+/** The line a goal round shows as (ticket 180). */
+export const GOAL_ROUND_PREFIX = '◎ Goal round'
+
+/**
+ * A dsh goal round (`<goal_round>` from the round driver) is a turn nobody
+ * typed either: it shows as `◎ Goal round N/M`, like the live client.
+ */
+function goalRound(event, source) {
+  if (source?.kind !== 'goal' || !(source.round > 0)) return undefined
+  const message = event.data?.message ?? event.data ?? {}
+  const max = /Round: \d+\/(\d+)/.exec(textBlocks(message.content))?.[1]
+  return `${GOAL_ROUND_PREFIX} ${source.round}${max ? `/${max}` : ''}`
+}
+
 function jobNotice(event) {
   if (event?.type !== 'user/message') return undefined
   const source = eventSource(event)
+  const round = goalRound(event, source)
+  if (round !== undefined) return round
   if (source?.kind !== 'plugin' || source?.plugin !== 'tool-jobs') return undefined
   const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
   return summary === '' ? JOB_NOTICE_PREFIX : `${JOB_NOTICE_PREFIX} · ${summary}`
@@ -637,6 +653,9 @@ function promptLines(events) {
     // A completion notice and the runtime snapshot a wake turn records were
     // never typed; the picker lists prompts only.
     if (jobNotice(event) !== undefined) continue
+    // dsh's goal wrap-up context (`<goal_complete>`) is not a prompt either.
+    const source = eventSource(event)
+    if (source?.kind === 'plugin' && source?.plugin === 'tool-goal') continue
     const message = event.data?.message ?? event.data ?? {}
     const content = Array.isArray(message.content) ? message.content : Array.isArray(event.data?.content) ? event.data.content : []
     const text = content.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('\n')

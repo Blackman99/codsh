@@ -721,6 +721,8 @@ pub struct Board {
     pub jobs: crate::background::Jobs,
     /// Scheduled prompts (ticket 177) share them too.
     pub schedules: crate::scheduler::Schedules,
+    /// The goal line of the status area (ticket 180).
+    pub goal: crate::goal::Track,
     /// The live session, so the wait hint names only this session's model.
     pub session: Option<String>,
 }

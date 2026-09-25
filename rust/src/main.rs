@@ -12,6 +12,7 @@ mod editor_acp;
 mod extra_ca;
 mod feedback_ui;
 mod filesystem_sandbox;
+mod goal;
 mod headless;
 mod images;
 mod import;
@@ -2203,6 +2204,7 @@ fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
     // Scheduled prompts (ticket 177): the interactive client only. The
     // plain path removes it again.
     extra_env.extend(scheduler::dsh_env());
+    extra_env.extend(config::goal_env(effective));
     match config::apply_to_dsh(effective, &env) {
         Ok(patch) => RuntimeApply {
             extra_env,
@@ -4430,7 +4432,8 @@ fn apply_events(
             AcpEvent::ConfigOptions { .. }
             | AcpEvent::Subagent { .. }
             | AcpEvent::Job { .. }
-            | AcpEvent::Schedule { .. } => {}
+            | AcpEvent::Schedule { .. }
+            | AcpEvent::Goal { .. } => {}
         }
     }
     disconnect
@@ -6134,6 +6137,11 @@ fn apply_control_events(
                     }
                 }
             }
+            ControlEvent::GoalResult { message, .. } => {
+                if !message.is_empty() {
+                    *hint = message;
+                }
+            }
             ControlEvent::JobKillResult { job, outcome, .. } => {
                 side.kill_notice = Some(match outcome {
                     Ok(outcome) if outcome == "already-finished" => {
@@ -6945,6 +6953,7 @@ fn run_plain_turn(
                 | AcpEvent::Subagent { .. }
                 | AcpEvent::Job { .. }
                 | AcpEvent::Schedule { .. }
+                | AcpEvent::Goal { .. }
                 | AcpEvent::Stderr { .. } => {}
                 AcpEvent::PermissionRequest {
                     request_id,
@@ -8456,6 +8465,11 @@ fn run() -> io::Result<()> {
             notice.push('\n');
             notice.push_str(&still_running);
         }
+        let goal_line = board.goal.status_text(board.session.as_deref());
+        if !goal_line.is_empty() {
+            notice.push('\n');
+            notice.push_str(&goal_line);
+        }
         // Plan mode is dsh's state; the flag leads the status notice.
         if let Some(flag) = side.ask.plan.flag() {
             notice = format!("{flag} | {notice}");
@@ -9930,6 +9944,46 @@ fn turn_is_empty(turn: &Turn) -> bool {
         && turn.thought.is_empty()
 }
 
+/// A message dsh gave the model on its own (a finished command, a goal
+/// round) opens its own transcript turn: mid-turn after the current one,
+/// renaming a generic wake turn that has nothing yet, or as a wake turn on
+/// an idle agent. During compaction it is only a hint.
+fn open_notice_turn(
+    turns: &mut Vec<Turn>,
+    inflight: &mut bool,
+    wake: &mut Option<Wake>,
+    hint: &mut String,
+    compacting: bool,
+    line: String,
+) {
+    if compacting {
+        *hint = line;
+    } else if !*inflight {
+        turns.push(background_turn(line));
+        *inflight = true;
+        *wake = Some(Wake {
+            idle_at: None,
+            generic: false,
+        });
+    } else if let Some(open) = wake.as_mut().filter(|open| open.generic)
+        && let Some(turn) = turns.last_mut().filter(|turn| turn_is_empty(turn))
+    {
+        turn.user = line;
+        open.generic = false;
+    } else {
+        // dsh took the message into the running turn at a step boundary;
+        // what follows answers it.
+        if let Some(previous) = turns.last_mut() {
+            previous.done = true;
+            previous.permission = None;
+        }
+        turns.push(background_turn(line));
+        if let Some(open) = wake.as_mut() {
+            open.generic = false;
+        }
+    }
+}
+
 /// Apply ACP events and background-command lines in arrival order. A
 /// completion notice that reaches the model opens its own transcript turn:
 /// mid-turn like a claimed steer, or, on an idle agent, a wake turn that
@@ -9970,9 +10024,37 @@ fn apply_event_stream(
         }
     };
     for event in events {
-        let AcpEvent::Job { event } = event else {
-            batch.push(event);
-            continue;
+        let event = match event {
+            AcpEvent::Job { event } => event,
+            AcpEvent::Goal { event } => {
+                flush(
+                    &mut batch,
+                    turns,
+                    inflight,
+                    meter,
+                    inspect_auto_compact,
+                    &mut disconnect,
+                );
+                let live = board.session.clone();
+                match board.goal.apply(&event) {
+                    Some(goal::Signal::Round { line, session })
+                        if live.as_deref() == Some(session.as_str()) =>
+                    {
+                        open_notice_turn(turns, inflight, wake, hint, compacting, line);
+                    }
+                    Some(goal::Signal::Notice { text, session })
+                        if !text.is_empty() && live.as_deref() == Some(session.as_str()) =>
+                    {
+                        *hint = text;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            other => {
+                batch.push(other);
+                continue;
+            }
         };
         flush(
             &mut batch,
@@ -10007,32 +10089,7 @@ fn apply_event_stream(
             }
             Some(background::Signal::Notice { session, summary }) if ours(&session) => {
                 let line = background::notice_line(&summary);
-                if compacting {
-                    *hint = line;
-                } else if !*inflight {
-                    turns.push(background_turn(line));
-                    *inflight = true;
-                    *wake = Some(Wake {
-                        idle_at: None,
-                        generic: false,
-                    });
-                } else if let Some(open) = wake.as_mut().filter(|open| open.generic)
-                    && let Some(turn) = turns.last_mut().filter(|turn| turn_is_empty(turn))
-                {
-                    turn.user = line;
-                    open.generic = false;
-                } else {
-                    // dsh took the notice into the running turn at a step
-                    // boundary; what follows answers it.
-                    if let Some(previous) = turns.last_mut() {
-                        previous.done = true;
-                        previous.permission = None;
-                    }
-                    turns.push(background_turn(line));
-                    if let Some(open) = wake.as_mut() {
-                        open.generic = false;
-                    }
-                }
+                open_notice_turn(turns, inflight, wake, hint, compacting, line);
             }
             Some(_) => {}
         }
@@ -10418,6 +10475,24 @@ fn dispatch_composer_command(
                 composer.restore_slash_draft();
                 *last_error = format!("/btw unavailable: {error}");
             }
+        }
+        return Ok(());
+    }
+    let trimmed_goal = text.trim();
+    if trimmed_goal == "/goal" || trimmed_goal.starts_with("/goal ") {
+        composer.restore_slash_draft();
+        let command = goal::parse(&trimmed_goal["/goal".len()..]);
+        let Some(active) = client.as_ref() else {
+            *last_error = "/goal needs a live dsh session; send a prompt first".into();
+            return Ok(());
+        };
+        if !active.control_ready() {
+            *last_error = format!("/goal unavailable: {}", active.control_unavailable());
+            return Ok(());
+        }
+        match active.send_goal(&goal::next_id(), &command) {
+            Ok(()) => last_error.clear(),
+            Err(error) => *last_error = format!("/goal unavailable: {error}"),
         }
         return Ok(());
     }

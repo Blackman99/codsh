@@ -22,6 +22,8 @@
  * - workflow: `/workflow [runs | pause | resume | stop | save] [name]`,
  *   answered by the workflow run manager of rust-acp-subagents (ticket 183)
  *   with the reference reply text.
+ * - goal: `/goal` set, status, pause, resume, and clear, handed to the
+ *   rust-acp-goal plugin (ticket 180). The answer is one `goal_result`.
  *
  * The client passes a Unix socket path and a one-time token in the
  * environment. Both are removed from `process.env` before anything else runs,
@@ -53,6 +55,8 @@ function backgroundPlugin() {
 
 /** rust-acp-scheduler registers itself here when the scheduler is enabled. */
 const SCHEDULER = Symbol.for('codsh.rust.scheduler')
+/** rust-acp-goal registers itself here; see that plugin. */
+const GOAL = Symbol.for('codsh.rust.goal')
 
 /**
  * Keep only complete tool exchanges. A tool call without its result (the turn
@@ -222,6 +226,22 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  const goal = (request) => {
+    const plugin = globalThis[GOAL]
+    const agent = agents.get(request.sessionId)
+    let result
+    if (plugin === undefined) result = { ok: false, message: 'goal mode is unavailable in this dsh' }
+    else if (agent === undefined) result = { ok: false, message: '/goal needs a live dsh session' }
+    else {
+      try {
+        result = plugin.command(agent, request)
+      } catch (error) {
+        result = { ok: false, message: String(error?.message ?? error) }
+      }
+    }
+    send({ type: 'goal_result', id: request.id, action: String(request.action ?? 'status'), ok: result.ok === true, message: String(result.message ?? '') })
+  }
+
   const btw = async (request) => {
     const id = request.id
     const agent = agents.get(request.sessionId)
@@ -309,6 +329,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'job_kill') jobKill(request)
       else if (request.type === 'schedule_delete') scheduleDelete(request)
       else if (request.type === 'workflow') void workflow(request)
+      else if (request.type === 'goal') goal(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()

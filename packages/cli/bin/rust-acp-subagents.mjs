@@ -58,6 +58,8 @@ import { DEFAULT_MAX_CONCURRENT_AGENTS, DEPTH_MESSAGE, WORKFLOW_TOOL, registerWo
 import { registerScheduler } from './rust-acp-scheduler.mjs'
 
 export const MARK = '\u241esubagent\u241e'
+/** rust-acp-goal (ticket 180) takes its completion verifiers from here. */
+export const GOAL_VERIFIER = Symbol.for('codsh.rust.goal-verifier')
 export const DEFAULT_MAX_CONCURRENT = 32
 export const LIMIT_MESSAGE = limit =>
   `Concurrent subagent limit reached: ${limit} subagents are already running for this session. Do not retry; spawning succeeds again when a running subagent finishes.`
@@ -432,7 +434,8 @@ export function apply(ctx) {
   const { policy, error } = readPolicy(process.env.CODSH_SUBAGENT_POLICY)
   if (policy && !policy.enabled) {
     // Disabled: no spawn tool reaches any agent, and a call that still
-    // arrives is refused before dsh runs it.
+    // arrives is refused before dsh runs it. A goal has no verifier either.
+    publishVerifier(ctx, { unavailable: 'subagents are disabled for this session' })
     ctx.on('tools/pre-execute', async (exec, next) => {
       if (SPAWN_TOOLS.includes(exec.name) || exec.name === WORKFLOW_TOOL) return { kind: 'deny', reason: 'subagents are disabled for this session' }
       return next()
@@ -978,4 +981,22 @@ export function apply(ctx) {
       },
     })
   }
+  // Goal completion verifiers (ticket 180): real dsh children of the goal's
+  // agent, shown on the board like any other child. The goal plugin asks for
+  // `execute` capability, so a verifier can read and run checks, never write.
+  publishVerifier(ctx, error ? { unavailable: `subagent policy refused: ${error}` } : {
+    spawn: async spec => {
+      const plan = await planChild(spec)
+      const child = childRun(plan, { acquire: () => Promise.resolve(), release: () => {}, count: () => 0, limit: 0 })
+      const settled = await runForeground(child, spec.signal)
+      return { status: settled.status, text: settled.text, childId: settled.record.childId }
+    },
+  })
+}
+
+function publishVerifier(ctx, verifier) {
+  globalThis[GOAL_VERIFIER] = verifier
+  ctx.on('dispose', () => {
+    if (globalThis[GOAL_VERIFIER] === verifier) delete globalThis[GOAL_VERIFIER]
+  })
 }

@@ -139,6 +139,8 @@ pub struct EffectiveConfig {
     pub subagent_cli: crate::subagents::CliSubagents,
     /// Environment the client passed to config (for the subagent knobs).
     pub subagent_env: BTreeMap<String, String>,
+    /// GROK_GOAL* from the environment (ticket 180).
+    pub goal_env: BTreeMap<String, String>,
     /// `features.ask_user_question` and `[toolset.ask_user_question]`.
     pub ask: crate::interaction::AskSettings,
     /// `--no-plan`, `--no-ask-user`, `--todo-gate` for this process.
@@ -2006,6 +2008,12 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             })
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),
+        goal_env: input
+            .env
+            .iter()
+            .filter(|(key, _)| key.starts_with("GROK_GOAL"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
         ask,
         interaction_cli: input.cli_interaction,
     }
@@ -2039,6 +2047,16 @@ pub fn bash_policy(config: &EffectiveConfig) -> crate::background::Policy {
 /// CODSH_BASH_POLICY for an interactive dsh child.
 pub fn bash_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     crate::background::dsh_env(&bash_policy(config), false)
+}
+
+/// `[goal] enabled` and GROK_GOAL* for the goal plugin (ticket 180).
+pub fn goal_policy(config: &EffectiveConfig) -> crate::goal::Policy {
+    crate::goal::resolve(&config.merged_table, &config.goal_env)
+}
+
+/// CODSH_GOAL_POLICY for dsh.
+pub fn goal_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    crate::goal::dsh_env(&goal_policy(config))
 }
 
 /// CODSH_SUBAGENT_POLICY and the control directory for dsh.

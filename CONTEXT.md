@@ -392,7 +392,28 @@ the loop rows for the status line and the tasks pane, whose `x` sends
 `schedule_delete` through the control channel. Plain `-p`, editor ACP (the
 `x.ai/scheduled_task_*` and `x.ai/scheduler/delete` extensions are listed as
 unsupported), the shared server, and subagent-less sessions have no scheduler.
-Deny and hook blocks have
+Goals (ticket 180) are dsh's own goal driver plus `rust-acp-goal.mjs`; the
+Rust client runs no loop of its own. `/goal` parses like the reference
+(`status`, `pause`, `resume`, `clear` as the whole input, otherwise an
+objective with an optional trailing `--budget <digits>`) and goes to the plugin
+over the control channel; `CODSH_GOAL_POLICY` carries `[goal] enabled`,
+`GROK_GOAL`, `GROK_GOAL_VERIFIER_N`, and `GROK_GOAL_CLASSIFIER_MAX`. The plugin
+prepends a `tools/pre-execute` gate on `update_goal complete`: it refuses while
+a dsh job still runs, otherwise it runs N verifier subagents (execute
+capability, through the subagent plugin) and applies the panel rule; a refusal
+denies the call with the gaps and keeps the goal active, too many refusals block
+it as `verification-limit`, and no verifier (subagents off, policy error, spawn
+failure) blocks it as `verification-unavailable` (fail closed; the reference
+fails open). The token budget is a sidecar under `$DSH_HOME/codsh-goals/`
+counting provider usage of the root session and its subagents while the goal is
+active; it is checked when the agent goes idle and before each goal round's
+step, and blocks the goal as `budget-limited`. It is separate from the workflow
+agent-count budget. The plugin records why a goal paused (`/goal pause`, an
+interrupted round, the model), marks a user turn during an active goal as a
+takeover, and reports state, rounds, and stop notices on stderr; the client
+shows them in the status line, names wake turns `◎ Goal round N/M`, and keeps
+goal lines that arrive during session/resume. Session replay shows goal rounds
+the same way. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

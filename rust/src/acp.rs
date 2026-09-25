@@ -91,6 +91,10 @@ pub enum AcpEvent {
     Schedule {
         event: Value,
     },
+    /// A goal state, round, or notice line from rust-acp-goal (ticket 180).
+    Goal {
+        event: Value,
+    },
     Usage {
         used: Option<u64>,
         size: Option<u64>,
@@ -365,6 +369,10 @@ pub struct AcpClient {
     /// Background commands are running: shutdown lets dsh stop them before
     /// its process group is killed (dsh starts each command in its own group).
     linger: bool,
+    /// Goal lines that arrived while a request was awaited (a resumed
+    /// session publishes its goal during session/resume); the next pump
+    /// hands them on.
+    held: Vec<AcpEvent>,
 }
 
 enum Line {
@@ -467,6 +475,9 @@ fn stderr_event(text: String) -> AcpEvent {
     }
     if let Some(event) = crate::scheduler::parse_line(&text) {
         return AcpEvent::Schedule { event };
+    }
+    if let Some(event) = crate::goal::parse_line(&text) {
+        return AcpEvent::Goal { event };
     }
     match crate::background::parse_line(&text) {
         Some(event) => AcpEvent::Job { event },
@@ -655,6 +666,7 @@ impl AcpClient {
             pending_permission: None,
             answered_permissions: HashSet::new(),
             prompt_cancelled: false,
+            held: Vec::new(),
             can_list: false,
             can_resume: false,
             config_options: Vec::new(),
@@ -729,6 +741,15 @@ impl AcpClient {
     /// Send one ticket-179 control message (answers, dismissals, plan quit).
     pub fn send_control(&self, message: &Value) -> Result<(), String> {
         self.control_send(message)
+    }
+
+    /// Hand one `/goal` command to dsh's goal plugin (ticket 180).
+    pub fn send_goal(&self, id: &str, command: &crate::goal::Command) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::goal::message(id, session, command))
     }
 
     /// Ask dsh to enter or leave plan mode for this session.
@@ -1245,7 +1266,7 @@ impl AcpClient {
     }
 
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
-        let mut events = Vec::new();
+        let mut events = std::mem::take(&mut self.held);
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1396,7 +1417,11 @@ impl AcpClient {
                     message: "ACP request timed out".into(),
                 });
             }
-            let _ = self.pump(Duration::from_millis(50));
+            let goal_lines = self
+                .pump(Duration::from_millis(50))
+                .into_iter()
+                .filter(|event| matches!(event, AcpEvent::Goal { .. }));
+            self.held.extend(goal_lines);
             if let Some(result) = self.completed.remove(&id) {
                 return result;
             }

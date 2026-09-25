@@ -89,6 +89,13 @@ pub enum ControlEvent {
         id: String,
         outcome: Result<String, String>,
     },
+    /// dsh's answer to one `/goal` command (ticket 180).
+    GoalResult {
+        id: String,
+        action: String,
+        ok: bool,
+        message: String,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -166,6 +173,12 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
         "background_result" => ControlEvent::BackgroundResult {
             id: id()?,
             count: value.get("count").and_then(Value::as_u64).unwrap_or(0),
+        },
+        "goal_result" => ControlEvent::GoalResult {
+            id: id()?,
+            action: text("action"),
+            ok: value.get("ok").and_then(Value::as_bool) == Some(true),
+            message: text("message"),
         },
         "job_kill_result" => ControlEvent::JobKillResult {
             id: id()?,
@@ -565,6 +578,17 @@ mod tests {
             Some(ControlEvent::BtwAnswer {
                 id: "b1".into(),
                 text: "hi".into()
+            })
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"goal_result","id":"goal-1","action":"pause","ok":true,"message":"Goal paused"}"#
+            ),
+            Some(ControlEvent::GoalResult {
+                id: "goal-1".into(),
+                action: "pause".into(),
+                ok: true,
+                message: "Goal paused".into()
             })
         );
         assert_eq!(
