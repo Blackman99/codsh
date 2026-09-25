@@ -311,7 +311,11 @@ python3 scripts/rust-nav-pty-test.py
 python3 scripts/rust-content-pty-test.py
 pnpm exec vitest run scripts/rust-subagents.spec.mjs
 python3 scripts/rust-subagent-pty-test.py
+pnpm exec vitest run scripts/rust-worktree.spec.mjs
+python3 scripts/rust-worktree-pty-test.py
 ```
+
+Worktrees (ticket 174) use temporary real git repositories only. `scripts/rust-worktree.spec.mjs` covers `rust-worktree.mjs` directly (dirty carry, clean `--worktree-ref`, suffixes for a taken branch or directory, non-git and unborn refusals, merge/overwrite/conflict/delete/binary/exec-bit apply, symlink and symlinked-directory refusals, `rm` and `gc` safety, `db rebuild`, and the two-view permission check) and drives released dsh with the `subagents` mock for `isolation: "worktree"`: the child's edit stays in its worktree until applied, an unchanged worktree is removed after completion and after cancel, a checkout deny rule covers the worktree copy, and a non-git parent starts no child. `scripts/rust-worktree-pty-test.py` needs `pnpm run build:rust` and runs `-w`, `/worktree list|apply`, an isolated child in the TUI, a CLI conflict, `-w -r`, a subdirectory offset, a non-git refusal, `rm`, and `gc` through the repo launcher. It was run on Linux only.
 
 Subagents (ticket 172) have two layers of evidence. `scripts/rust-subagents.spec.mjs` drives released dsh over ACP with the keyless `subagents` mock mode: type capability allow-lists, permission inheritance in ask mode, depth, disabled and unknown types, a model override and a missing model, cancel through the control directory, parent `session/cancel`, the `fail` and `queue` limits, and one background delivery through `job_output`. `scripts/rust-subagent-pty-test.py` runs the Rust client in a PTY against the repo launcher and the staged binary (`pnpm run build:rust` first): an explore child that loses `write`, a general-purpose child that writes, the Ctrl+G and `/tasks` list, a read-only child view, Ctrl+C cancelling only the child, `x` cancelling a background child, `/compact`, `--resume`, child sessions kept out of `sessions list`, and the headless `--no-subagents` and `Agent(type)` flags. It does not require macOS; it has been run on Linux only.
 

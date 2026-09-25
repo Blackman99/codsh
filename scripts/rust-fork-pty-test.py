@@ -204,7 +204,7 @@ def main():
             forker.write('/fork --worktree')
             forker.wait_visible('/fork --worktree', 10)
             forker.write('\r')
-            shown = forker.wait_visible('omit --worktree', 20)
+            shown = forker.wait_visible('codsh --rust -w -r', 20)
             assert forker.session_id() == parent
             assert 'forked · now on' not in shown
             forker.write('/fork --no-worktree')

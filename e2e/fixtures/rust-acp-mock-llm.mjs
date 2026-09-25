@@ -543,6 +543,10 @@ async function * sandboxSessionTurn(options) {
 //   ECHO   answers at once.
 //   SLOW   waits until dsh aborts it (cancel), up to 60s.
 //   NEST   calls the subagent tool itself (refused when depth-capped).
+//   PWD    runs bash `pwd` and reports the directory (ticket 174).
+//   EDIT   writes shared.txt (a tracked file in the worktree tests).
+//   SECRET writes secret.txt (denied by a checkout rule in the tests).
+// A `:wt` suffix sets isolation: "worktree" (ticket 174).
 // COLLECT in the parent prompt then reads each background job with job_output.
 function rawUserTexts(options) {
   return options.messages
@@ -569,6 +573,21 @@ async function * subagentChildTurn(options, kind, signal) {
     }
     const last = done.at(-1)
     yield* mockText(`CHILD_DONE tools=${tools} write=${last?.isError ? 'denied' : 'allowed'}:${resultText(last).replaceAll('\n', ' ').slice(0, 160)}`)
+    return
+  }
+  if (kind === 'PWD' || kind === 'EDIT' || kind === 'SECRET') {
+    // EDIT reads shared.txt first: dsh refuses to modify an unread file.
+    if (kind === 'EDIT' && done.length === 0) {
+      yield* mockToolCall('rust-acp-child-edit-read', 'read', { file_path: 'shared.txt' })
+      return
+    }
+    if (done.length === (kind === 'EDIT' ? 1 : 0)) {
+      if (kind === 'PWD') yield* mockToolCall('rust-acp-child-pwd', 'bash', { command: 'pwd', description: 'print the directory' })
+      else yield* mockToolCall(`rust-acp-child-${kind.toLowerCase()}`, 'write', { file_path: kind === 'EDIT' ? 'shared.txt' : 'secret.txt', content: `CHILD_${kind}_CONTENT\n` })
+      return
+    }
+    const last = done.at(-1)
+    yield* mockText(`CHILD_${kind}_DONE ${last?.isError ? 'error' : 'ok'}:${resultText(last).replaceAll('\n', ' ').slice(0, 200)}`)
     return
   }
   if (kind === 'NEST') {
@@ -599,15 +618,17 @@ async function * subagentsTurn(options) {
     return
   }
   const prompt = [...texts].reverse().find(text => text.includes('SPAWN:')) ?? ''
-  const steps = [...prompt.matchAll(/SPAWN:([a-z0-9_-]+):([A-Z]+)(:bg)?/g)]
+  const steps = [...prompt.matchAll(/SPAWN:([a-z0-9_-]+):([A-Z]+)((?::bg|:wt)*)/g)]
   const done = turnToolResults(options, 'SPAWN:')
   if (done.length < steps.length) {
-    const [, type, kind, bg] = steps[done.length]
+    const [, type, kind, flags] = steps[done.length]
+    const bg = flags.includes(':bg')
     yield* mockToolCall(`rust-acp-spawn-${done.length}-${Date.now().toString(36)}`, 'subagent', {
       description: `${type} ${kind.toLowerCase()} probe`,
       prompt: `CHILD_${kind}: run the ${kind.toLowerCase()} probe and report.`,
       subagent_type: type,
       ...bg ? { run_in_background: true } : {},
+      ...flags.includes(':wt') ? { isolation: 'worktree' } : {},
     })
     return
   }
@@ -618,7 +639,7 @@ async function * subagentsTurn(options) {
     yield* mockToolCall(`rust-acp-collect-${done.length}-${Date.now().toString(36)}`, 'job_output', { job_id: job, wait: true })
     return
   }
-  const report = done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 400)}`).join(' ')
+  const report = done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 1200)}`).join(' ')
   yield* mockText(`PARENT_DONE ${report}`)
 }
 

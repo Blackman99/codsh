@@ -199,7 +199,23 @@ pub fn fork_conversation(
     boundary: Option<u64>,
     child_id: Option<&str>,
 ) -> Result<ForkResult, HistoryError> {
+    fork_conversation_in(dsh_home, session_id, boundary, child_id, None)
+}
+
+/// Fork, with the new session's directory set to `cwd` when given
+/// (`-w -r`, ticket 174). The source session keeps its own directory.
+pub fn fork_conversation_in(
+    dsh_home: &Path,
+    session_id: &str,
+    boundary: Option<u64>,
+    child_id: Option<&str>,
+    cwd: Option<&Path>,
+) -> Result<ForkResult, HistoryError> {
     let mut args = vec!["--session-id".to_string(), session_id.to_string()];
+    if let Some(cwd) = cwd {
+        args.push("--cwd".into());
+        args.push(cwd.to_string_lossy().into_owned());
+    }
     let boundary_text = boundary.map(|value| value.to_string());
     if let Some(value) = boundary_text.as_deref() {
         args.push("--boundary".into());
@@ -242,7 +258,7 @@ pub fn restore_code_error() -> String {
 }
 
 pub fn worktree_error() -> String {
-    "Isolated directory / worktree fork is not part of this slice; omit --worktree.".into()
+    "/fork --worktree cannot move this running session into a worktree; start a worktree fork with codsh --rust -w -r <session-id> (the session is copied under a new id into a new worktree).".into()
 }
 
 pub fn running_turn_error() -> String {
@@ -309,9 +325,9 @@ mod tests {
             }
         );
         let err = parse_fork_slash("/fork --worktree").unwrap_err();
-        assert!(err.contains("omit --worktree"));
+        assert!(err.contains("codsh --rust -w -r"));
         let err = parse_fork_slash("/fork --no-worktree --worktree later").unwrap_err();
-        assert!(err.contains("omit --worktree"));
+        assert!(err.contains("codsh --rust -w -r"));
         assert!(is_conversation_slash("/rewind 2"));
         assert!(is_conversation_slash("/fork --no-worktree"));
         assert!(!is_conversation_slash("/help"));

@@ -27,6 +27,14 @@
  * - run_in_background starts the child as a dsh job. The model collects the
  *   result with job_output and can stop it with job_kill.
  *
+ * - isolation: "worktree" (ticket 174) runs the child in a new git worktree
+ *   of the parent's repository (rust-worktree.mjs, type `subagent`). The
+ *   child's session cwd is the worktree, so its tools and the permission
+ *   listener see the worktree. Nothing is applied to the parent checkout:
+ *   the result names the worktree and the explicit apply command. A worktree
+ *   with no change is removed when the child ends; one with changes is kept,
+ *   whatever the outcome (completed, failed, cancelled).
+ *
  * Lifecycle lines go to stderr as `\u241esubagent\u241e{json}` so the Rust
  * client can keep one board. CODSH_SUBAGENT_CONTROL names a private directory
  * where the client drops `<n>.json` files ({"action":"cancel","id":callId}).
@@ -37,6 +45,7 @@ export const inject = ['tools', 'subagents']
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
 
 export const MARK = '\u241esubagent\u241e'
 export const DEFAULT_MAX_CONCURRENT = 32
@@ -285,6 +294,47 @@ export class Admission {
   }
 }
 
+const bindGet = (target, key) => {
+  const value = Reflect.get(target, key, target)
+  return typeof value === 'function' ? value.bind(target) : value
+}
+
+/**
+ * The parent as dsh's spawn sees it, with the session header cwd moved into
+ * the worktree. dsh builds the child session from the parent header, so the
+ * child starts (and persists) with the worktree cwd. Everything else,
+ * including methods, is the real parent.
+ */
+export function parentInWorktree(parent, cwd) {
+  const header = Object.freeze({ ...parent.session.header, cwd })
+  const session = new Proxy(parent.session, { get: (target, key) => (key === 'header' ? header : bindGet(target, key)) })
+  return new Proxy(parent, { get: (target, key) => (key === 'session' ? session : bindGet(target, key)) })
+}
+
+/** Remove an isolated worktree that holds no change; describe one that does. */
+export function settleWorktree(worktree) {
+  let changed
+  try {
+    changed = changedPaths(worktree)
+  } catch (cause) {
+    return { kept: true, changed: null, note: `worktree ${worktree.path} was kept (its changes could not be read: ${cause instanceof Error ? cause.message : cause})` }
+  }
+  if (changed.length === 0 && workAtRisk(worktree).filter(reason => !reason.startsWith('commit ')).length === 0) {
+    try {
+      removeWorktree({ id: worktree.id, dropSnapshot: true })
+      return { kept: false, changed: [], note: `The subagent changed no file; its worktree ${worktree.path} was removed.` }
+    } catch (cause) {
+      return { kept: true, changed: [], note: `The subagent changed no file; its worktree ${worktree.path} was kept (${cause instanceof Error ? cause.message : cause}).` }
+    }
+  }
+  const list = changed.slice(0, 20).map(path => `  ${path}`).join('\n')
+  return {
+    kept: true,
+    changed,
+    note: `Worktree isolation: the subagent's changes stay in ${worktree.path} (branch ${worktree.branch}, ${changed.length} changed file(s) since its base). Nothing was applied to ${worktree.sourceRoot}.\n${list}${changed.length > 20 ? `\n  ... ${changed.length - 20} more` : ''}\nThe user applies them with /worktree apply ${worktree.id} (or codsh --rust worktree apply ${worktree.id}) and removes the worktree with /worktree rm ${worktree.id}.`,
+  }
+}
+
 function describeTypes(types) {
   return types.map(type => `- ${type.name}: ${type.description || '(no description)'} [${type.capability}]`).join('\n')
 }
@@ -392,6 +442,11 @@ export function apply(ctx) {
         type: 'boolean',
         description: 'Run as a background job and return its id. Defaults to false.',
       },
+      isolation: {
+        type: 'string',
+        enum: ['worktree'],
+        description: 'Set to "worktree" to run the subagent in a new git worktree of this repository. Its edits stay there and are not applied to this checkout; the result names the worktree so the user can review and apply it.',
+      },
     },
     output: {
       schema: { type: 'string' },
@@ -428,6 +483,15 @@ export function apply(ctx) {
           throw new Error(`subagent type "${type.name}" model ${provider}/${model} is not available: ${detail}`)
         }
       }
+      const isolation = args.isolation === undefined || args.isolation === null || args.isolation === '' ? null : String(args.isolation)
+      if (isolation !== null && isolation !== 'worktree') throw new Error(`unknown isolation "${isolation}"; the only isolation is "worktree"`)
+      if (isolation) {
+        try {
+          poolDir()
+        } catch (cause) {
+          throw new Error(`worktree isolation is unavailable: ${cause instanceof Error ? cause.message : cause}`)
+        }
+      }
       exec.signal.throwIfAborted()
       const background = args.run_in_background === true
       const id = typeof exec.callId === 'string' && exec.callId ? exec.callId : `subagent-${++seq}`
@@ -461,6 +525,7 @@ export function apply(ctx) {
         parentSession: parent.id,
         depth,
         tools: type.capability === 'all' && !type.tools && !lastLevel ? null : allow,
+        ...isolation ? { isolation } : {},
       }
       const run = async signal => {
         await admission.acquire(root, signal, () => {
@@ -470,7 +535,25 @@ export function apply(ctx) {
         const startedAt = Date.now()
         try {
           record.status = 'running'
-          started = await ctx.subagents.start('spawn', { ...request, signal })
+          let spawnRequest = request
+          if (isolation) {
+            // Created after admission so a queued child holds no directory.
+            try {
+              record.worktree = createWorktree({
+                source: parent.session.header.cwd,
+                label: `${String(request.label).slice(0, 24)} ${id.slice(-8)}`,
+                type: 'subagent',
+                parentSessionId: parent.id,
+                ownerPid: process.pid,
+              })
+            } catch (cause) {
+              throw new Error(`worktree isolation failed, so the subagent did not start: ${cause instanceof Error ? cause.message : cause}`)
+            }
+            base.worktree = record.worktree.path
+            base.branch = record.worktree.branch
+            spawnRequest = { ...request, parent: parentInWorktree(parent, record.worktree.sessionCwd) }
+          }
+          started = await ctx.subagents.start('spawn', { ...spawnRequest, signal })
           const child = started.localAgent
           if (child?.id) {
             record.childId = child.id
@@ -510,9 +593,14 @@ export function apply(ctx) {
         }
         record.status = status
         if (record.childId) byChild.delete(record.childId)
-        emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId })
+        if (record.worktree) {
+          record.settled = settleWorktree(record.worktree)
+          if (!record.settled.kept) delete base.worktree
+        }
+        emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId, ...record.settled ? { worktreeKept: record.settled.kept, changedFiles: record.settled.changed?.length ?? null } : {} })
         return status
       }
+      const withWorktree = text => (record.settled ? `${text}${text ? '\n\n' : ''}${record.settled.note}` : text)
       if (background) {
         const jobs = ctx.get('jobs')
         if (!jobs) throw new Error('background subagents need the dsh jobs service')
@@ -532,12 +620,12 @@ export function apply(ctx) {
             },
             done: run(controller.signal).then(({ result, startedAt }) => {
               const status = finish(result, startedAt)
-              if (status === 'completed') return { status: 'completed', output: outputText(result.output) }
-              if (status === 'cancelled') return { status: 'killed' }
-              return { status: 'failed', detail: [stopReasonError(result.stopReason), result.diagnostic].filter(Boolean).join('\nDiagnostic: ') }
+              if (status === 'completed') return { status: 'completed', output: withWorktree(outputText(result.output)) }
+              if (status === 'cancelled') return record.settled ? { status: 'killed', detail: record.settled.note } : { status: 'killed' }
+              return { status: 'failed', detail: withWorktree([stopReasonError(result.stopReason), result.diagnostic].filter(Boolean).join('\nDiagnostic: ')) }
             }, failure => {
               const status = finish(undefined, undefined, failure)
-              return status === 'cancelled' ? { status: 'killed' } : { status: 'failed', detail: String(failure instanceof Error ? failure.message : failure) }
+              return status === 'cancelled' ? (record.settled ? { status: 'killed', detail: record.settled.note } : { status: 'killed' }) : { status: 'failed', detail: withWorktree(String(failure instanceof Error ? failure.message : failure)) }
             }),
           }),
         })
@@ -554,16 +642,17 @@ export function apply(ctx) {
           settled = await run(controller.signal)
         } catch (failure) {
           finish(undefined, undefined, failure)
+          if (record.settled) throw new Error(withWorktree(failure instanceof Error ? failure.message : String(failure)))
           throw failure
         }
         const { result, startedAt } = settled
         const status = finish(result, startedAt)
-        if (status === 'completed') return outputText(result.output)
+        if (status === 'completed') return withWorktree(outputText(result.output))
         const headline = record.cancelRequested && !exec.signal.aborted
           ? 'subagent run was cancelled by the user'
           : stopReasonError(result.stopReason) ?? 'subagent run was cancelled'
         const partial = outputText(result.output)
-        throw new Error(`${headline}${result.diagnostic ? `\nDiagnostic: ${result.diagnostic}` : ''}${partial ? `\nPartial output before the run ended:\n${partial}` : ''}`)
+        throw new Error(withWorktree(`${headline}${result.diagnostic ? `\nDiagnostic: ${result.diagnostic}` : ''}${partial ? `\nPartial output before the run ended:\n${partial}` : ''}`))
       } finally {
         exec.signal.removeEventListener('abort', onParentAbort)
       }

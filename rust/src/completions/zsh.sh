@@ -22,6 +22,7 @@ _codsh_rust() {
     'du:Show isolated-home disk usage'
     'disk-usage:Show isolated-home disk usage'
     'memory:Manage local memory notes'
+    'worktree:Manage git worktrees'
   )
   flags=(
     '--help[Print help]' '-h[Print a short summary]'
@@ -52,6 +53,8 @@ _codsh_rust() {
     '--minimal[Minimal screen]' '--fullscreen[Fullscreen screen]'
     '--sandbox[Filesystem sandbox profile]' '--no-memory[Hide memory for this process]'
     '--disable-web-search[Disable web search and web fetch tools]'
+    '--worktree[Start in a new git worktree]' '-w[Start in a new git worktree]'
+    '--worktree-ref[Base ref for --worktree]' '--ref[Base ref for --worktree]'
   )
   formats=(plain json streaming-json streaming-messages-json)
   modes=(ask auto always-approve dontAsk acceptEdits)
@@ -62,7 +65,7 @@ _codsh_rust() {
   case ${words[CURRENT-1]} in
     --output-format) _values 'format' $formats; return ;;
     --permission-mode) _values 'mode' $modes; return ;;
-    --resume|-r|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json|--sandbox)
+    --resume|-r|--session-id|-s|--model|-m|--effort|--reasoning-effort|--cwd|--prompt-file|--max-turns|--tools|--disallowed-tools|--rules|--append-system-prompt|--system-prompt-override|--system-prompt|--allow|--deny|--allowedTools|--disallowedTools|-p|--single|--prompt-json|--sandbox|--worktree-ref|--ref)
       return
       ;;
   esac

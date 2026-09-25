@@ -61,6 +61,7 @@ export async function forkConversation(options) {
     childId,
     restoreCode = false,
     listOnly = false,
+    cwd,
   } = options
   if (restoreCode) {
     throw Object.assign(new Error('Conversation fork does not restore files; --restore-code is unavailable on the dsh execution core (no repository snapshot).'), { code: 4 })
@@ -107,7 +108,10 @@ export async function forkConversation(options) {
       createdAt: Date.now(),
       isSeeded: true,
     }
-    if (typeof header.cwd === 'string' && header.cwd !== '') meta.cwd = header.cwd
+    // `--cwd` (ticket 174: `-w -r`) moves the fork into a worktree; the
+    // source session keeps its own directory.
+    if (typeof cwd === 'string' && cwd !== '') meta.cwd = cwd
+    else if (typeof header.cwd === 'string' && header.cwd !== '') meta.cwd = header.cwd
     const cloned = JSON.parse(JSON.stringify(seed))
     const child = Session.create(SessionId(nextId), cloned, meta, SessionLogOffset(cloned.length))
     const writer = await persistence.create(child.header, {
@@ -168,6 +172,7 @@ async function main() {
       childId: argValue('--child-id'),
       restoreCode: hasFlag('--restore-code'),
       listOnly: hasFlag('--list'),
+      cwd: argValue('--cwd'),
     })
     process.stdout.write(`${JSON.stringify(result)}\n`)
   } catch (error) {

@@ -41,6 +41,7 @@ mod trust;
 mod voice;
 mod web;
 mod welcome;
+mod worktree;
 mod ws;
 
 use acp::{AcpClient, AcpEvent, PendingPermission};
@@ -362,6 +363,8 @@ enum LaunchMode {
     Export(session_data::ExportRequest),
     Share(session_data::ShareRequest),
     ShareHelp,
+    /// `codsh --rust worktree ...` (ticket 174): the words after `worktree`.
+    Worktree(Vec<String>),
     DiskUsage {
         json: bool,
     },
@@ -507,6 +510,8 @@ struct Launch {
     /// `--no-subagents` (any mode) and `--disallowed-tools Agent(type)`
     /// (plain prompts only; interactive sessions ignore headless flags).
     subagents: subagents::CliSubagents,
+    /// `-w/--worktree [NAME]` and `--worktree-ref/--ref <REF>` (ticket 174).
+    worktree: worktree::WorktreeFlags,
 }
 
 /// Flags the frozen client accepts, but a later ticket owns their behavior.
@@ -525,9 +530,6 @@ fn deferred_plain_flag(arg: &str) -> Option<String> {
         }
         "--no-plan" | "--no-ask-user" | "--todo-gate" => {
             named("plan controls are not available in this client; a later ticket owns them")
-        }
-        "--worktree" | "-w" | "--worktree-ref" | "--ref" => {
-            named("worktrees are not available in this client; a later ticket owns them")
         }
         "--experimental-memory" | "--memory-flush" => {
             named("memory controls are not available in this client; a later ticket owns them")
@@ -596,6 +598,7 @@ fn is_subcommand(arg: &str) -> bool {
             | "agent"
             | "leader"
             | "mcp"
+            | "worktree"
     )
 }
 
@@ -760,6 +763,7 @@ fn parse_launch_inner(args: &[String]) -> io::Result<Launch> {
     let mut disable_web_search = false;
     let mut output_format = headless::OutputFormat::Plain;
     let mut include_partial_messages = false;
+    let mut worktree_flags = worktree::WorktreeFlags::default();
     let mut index = 0;
     let note_prompt = |current: &mut Option<PlainPrompt>, next: PlainPrompt| -> io::Result<()> {
         if current.is_some() {
@@ -854,6 +858,38 @@ fn parse_launch_inner(args: &[String]) -> io::Result<Launch> {
             let (names, types) = plain_tool_list("--disallowed-tools", &value)?;
             plain_deny.get_or_insert_with(Vec::new).extend(names);
             plain_deny_types.extend(types);
+        } else if !rest.iter().any(|item| is_subcommand(item))
+            && (args[index] == "-w"
+                || args[index] == "--worktree"
+                || args[index].starts_with("--worktree="))
+        {
+            // `-w [NAME]`: the name is optional, so only a following word
+            // that is neither a flag nor a command is taken as the name.
+            let name = if let Some(value) = args[index].strip_prefix("--worktree=") {
+                value.to_string()
+            } else if let Some(next) = args.get(index + 1)
+                && !next.starts_with('-')
+                && !is_subcommand(next)
+            {
+                index += 1;
+                next.clone()
+            } else {
+                String::new()
+            };
+            if worktree_flags.name.is_some() {
+                return Err(usage_error(
+                    "the argument '--worktree [<NAME>]' cannot be used multiple times",
+                ));
+            }
+            worktree_flags.name = Some(name);
+        } else if !rest.iter().any(|item| is_subcommand(item))
+            && let Some(value) = plain_flag_value(args, &mut index, "--worktree-ref")?
+        {
+            worktree_flags.reference = Some(value);
+        } else if !rest.iter().any(|item| is_subcommand(item))
+            && let Some(value) = plain_flag_value(args, &mut index, "--ref")?
+        {
+            worktree_flags.reference = Some(value);
         } else if args[index] == "--no-subagents" {
             no_subagents = true;
         } else if args[index] == "--verbatim" {
@@ -1132,6 +1168,9 @@ fn parse_launch_inner(args: &[String]) -> io::Result<Launch> {
             LaunchMode::ShareHelp
         }
         ["share", flags @ ..] => LaunchMode::Share(session_data::parse_share(flags)?),
+        ["worktree", flags @ ..] => {
+            LaunchMode::Worktree(flags.iter().map(|flag| (*flag).to_string()).collect())
+        }
         ["du"] | ["disk-usage"] => LaunchMode::DiskUsage { json: false },
         ["du", flags @ ..] | ["disk-usage", flags @ ..] => LaunchMode::DiskUsage {
             json: parse_disk_flags(flags)?,
@@ -1282,6 +1321,26 @@ fn parse_launch_inner(args: &[String]) -> io::Result<Launch> {
         fork_session = false;
         child_id = None;
     }
+    if worktree_flags.reference.is_some() && !worktree_flags.requested() {
+        return Err(usage_error(
+            "the argument '--worktree-ref <REF>' requires '--worktree [<NAME>]'",
+        ));
+    }
+    if worktree_flags.requested()
+        && !matches!(
+            mode,
+            LaunchMode::New
+                | LaunchMode::Resume(_)
+                | LaunchMode::Continue
+                | LaunchMode::Help
+                | LaunchMode::Version
+                | LaunchMode::Plain { .. }
+        )
+    {
+        return Err(io::Error::other(
+            "-w/--worktree starts an interactive or plain session in a new worktree; it cannot be combined with that command",
+        ));
+    }
     Ok(Launch {
         mode,
         model,
@@ -1314,6 +1373,7 @@ fn parse_launch_inner(args: &[String]) -> io::Result<Launch> {
             disabled: no_subagents,
             denied_types: plain_deny_types,
         },
+        worktree: worktree_flags,
     })
 }
 
@@ -1634,7 +1694,7 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
 }
 
 fn short_help() -> &'static str {
-    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -w/--worktree [NAME], --worktree-ref <REF>, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory, worktree.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -2102,6 +2162,7 @@ fn runtime_apply(effective: &config::EffectiveConfig) -> RuntimeApply {
     if let Ok(pair) = mcp::plan_env(effective, &env, "main") {
         extra_env.push(pair);
     }
+    extra_env.extend(worktree::dsh_env(&effective.grok_home));
     match config::apply_to_dsh(effective, &env) {
         Ok(patch) => RuntimeApply {
             extra_env,
@@ -3939,6 +4000,22 @@ struct Meter {
     cost: Option<String>,
 }
 
+/// The sandbox status segment, followed by the worktree this session runs in.
+fn worktree_header(sandbox: String) -> String {
+    match worktree::status_segment() {
+        Some(segment) => format!("{sandbox} | {segment}"),
+        None => sandbox,
+    }
+}
+
+/// Record the session that owns this process's worktree (ticket 174).
+fn attach_worktree_session(client: &AcpClient) {
+    if let (Some(created), Some(session_id)) = (worktree::active(), client.session_id.as_deref()) {
+        let pool = worktree::pool(&worktree::early_grok_home());
+        let _ = worktree::attach(&pool, &created.id, session_id);
+    }
+}
+
 struct StatusView<'a> {
     client: Option<&'a AcpClient>,
     inflight: bool,
@@ -3972,7 +4049,7 @@ fn status_line(view: StatusView<'_>) -> String {
     let header = format!(
         "mode={} | {}",
         screen.as_str(),
-        filesystem_sandbox::status_line(filesystem_sandbox::active())
+        worktree_header(filesystem_sandbox::status_line(filesystem_sandbox::active()))
     );
     if !last_error.is_empty() && client.is_none() {
         // A short screen scrolls to the latest notice lines. The unavailable
@@ -6097,6 +6174,10 @@ fn run_plain_turn(
         launch.child_id.as_deref(),
     )
     .map_err(io::Error::other)?;
+    attach_worktree_session(&connection.client);
+    if let Some(created) = worktree::active() {
+        eprintln!("{}", worktree::start_notice(created));
+    }
     if let Err(error) = apply_live_selection(&mut connection.client, &effective) {
         connection.client.shutdown();
         return Err(io::Error::other(error));
@@ -6342,14 +6423,109 @@ fn kill_group(pid: u32) {
     }
 }
 
+/// The session id `-w -r/-c` forks, resolved in the source directory.
+fn worktree_resume_source(mode: &LaunchMode, dsh_home: &Path) -> io::Result<Option<String>> {
+    let cwd = std::env::current_dir()?;
+    let wanted = match mode {
+        LaunchMode::Resume(id)
+        | LaunchMode::Plain {
+            resume: Some(PlainResume::Id(id)),
+            ..
+        } => Some(id.clone()),
+        LaunchMode::Continue
+        | LaunchMode::Plain {
+            resume: Some(PlainResume::Continue),
+            ..
+        } => {
+            let last = session_owner::read_last_session(dsh_home).filter(|(_, last_cwd)| {
+                last_cwd.canonicalize().unwrap_or_else(|_| last_cwd.clone())
+                    == cwd.canonicalize().unwrap_or_else(|_| cwd.clone())
+            });
+            return match last {
+                Some((id, _)) => Ok(Some(id)),
+                None => Err(io::Error::other(
+                    "-w --continue found no previous session in this directory; use -w -r <session-id>",
+                )),
+            };
+        }
+        _ => None,
+    };
+    let Some(wanted) = wanted else {
+        return Ok(None);
+    };
+    if session_catalog::is_uuid(&wanted) {
+        return Ok(Some(wanted));
+    }
+    let catalog = session_catalog::load_catalog(dsh_home, &cwd);
+    session_catalog::resolve_resume(&catalog.sessions, &wanted, &cwd)
+        .map(|found| Some(found.session.id))
+        .map_err(|error| io::Error::other(error.message))
+}
+
+/// `-w [NAME]` (ticket 174): create the worktree, fork a resumed session
+/// into it under a new id, and enter it. Nothing is created when the
+/// source is not a git checkout; a failed fork removes the new worktree.
+fn enter_worktree(launch: &mut Launch) -> io::Result<()> {
+    if matches!(launch.mode, LaunchMode::Help | LaunchMode::Version) {
+        return Ok(());
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+    let dsh_home =
+        PathBuf::from(std::env::var_os("DSH_HOME").unwrap_or_else(|| home.join("dsh").into()));
+    let source_session = worktree_resume_source(&launch.mode, &dsh_home)?;
+    let pool = worktree::pool(&worktree::early_grok_home());
+    let source = std::env::current_dir()?;
+    let created = worktree::create(&pool, &source, &launch.worktree)
+        .map_err(|error| io::Error::other(format!("-w/--worktree: {error}")))?;
+    if let Some(source_session) = source_session {
+        let forked = session_fork::fork_conversation_in(
+            &dsh_home,
+            &source_session,
+            None,
+            launch.child_id.as_deref(),
+            Some(&created.session_cwd),
+        );
+        let forked = match forked {
+            Ok(forked) => forked,
+            Err(error) => {
+                worktree::discard(&pool, &created.id);
+                return Err(io::Error::other(format!(
+                    "-w/--worktree: cannot fork session {source_session} into the worktree ({}); the new worktree was removed",
+                    error.message
+                )));
+            }
+        };
+        launch.mode = match std::mem::replace(&mut launch.mode, LaunchMode::New) {
+            LaunchMode::Plain {
+                prompt,
+                max_turns,
+                tools,
+                ..
+            } => LaunchMode::Plain {
+                prompt,
+                max_turns,
+                tools,
+                resume: Some(PlainResume::Id(forked.session_id.clone())),
+            },
+            _ => LaunchMode::Resume(forked.session_id.clone()),
+        };
+        launch.fork_session = false;
+        launch.child_id = None;
+    }
+    enter_cwd(&created.session_cwd)?;
+    worktree::set_active(created);
+    Ok(())
+}
+
 fn run() -> io::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut launch = parse_launch(&args)?;
-    if launch.cwd.is_some() {
+    // -w moves the process like --cwd, so the same paths stay anchored.
+    if launch.cwd.is_some() || launch.worktree.requested() {
         let invoked = std::env::current_dir()?;
         anchor_input_paths(&mut launch, &invoked);
     }
-    let mode = launch.mode.clone();
+    let mut mode = launch.mode.clone();
     let help_like = matches!(
         mode,
         LaunchMode::Help
@@ -6375,6 +6551,13 @@ fn run() -> io::Result<()> {
         // session catalog, and dsh all read the process directory.
         if let Some(path) = &launch.cwd {
             enter_cwd(path)?;
+        }
+        // -w comes next: the worktree is created from the directory the user
+        // is in (after --cwd), then entered the same way, so config, trust,
+        // the sandbox, sessions, and dsh all see the worktree.
+        if launch.worktree.requested() {
+            enter_worktree(&mut launch)?;
+            mode = launch.mode.clone();
         }
     }
     // inspect reads config and prints every diagnostic. It starts no dsh child
@@ -6527,6 +6710,20 @@ fn run() -> io::Result<()> {
         LaunchMode::AgentShared(command) => {
             return run_agent(&launch, command.clone());
         }
+        LaunchMode::Worktree(words) => {
+            let loaded = load_runtime_config(&launch);
+            if !worktree::public_command(words.first().map(String::as_str)) {
+                return Err(usage_error(format!(
+                    "unrecognized subcommand '{}'; use codsh --rust worktree help",
+                    words.first().map(String::as_str).unwrap_or_default()
+                )));
+            }
+            let code = worktree::run_cli(&worktree::pool(&loaded.grok_home), words)?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
         LaunchMode::Leader(command) => {
             let loaded = load_runtime_config(&launch);
             let code = shared_server::run_leader_command(command.clone(), &loaded.grok_home)?;
@@ -6542,7 +6739,7 @@ fn run() -> io::Result<()> {
                 return Ok(());
             }
             println!(
-                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nWhile a turn runs, Enter queues the draft (the notice shows Queued N and the next row); Enter on an empty prompt sends the top row now. Ctrl+Enter or Ctrl+I sends the draft (or the selected row) now: the running turn is cancelled through dsh without a [cancelled] marker and that row runs next. Apple Terminal also takes Ctrl+O; VS Code-family terminals (vscode, cursor, windsurf, zed) use Ctrl+L instead; Ctrl+Enter/Ctrl+I need a terminal that reports them distinctly (kitty keyboard protocol). Ctrl+; or Ctrl+' (or ↑ on an empty prompt) opens the queue pane: ↑↓ select, e edits in place (Enter saves, empty save removes, Esc cancels), Enter sends now, x/Del/Backspace deletes, Shift+J/K reorders, Esc closes. Queued rows run in order, one per turn, after the turn ends or is cancelled with Ctrl+C; a pending approval, compaction, or a row being edited keeps them waiting. Slash commands typed while busy queue as their own rows. [ui] follow_up_behavior = \"steer\" sends plain text follow-ups into the running dsh turn at its next model step instead; a steer dsh did not use goes back to the queue. [ui] combine_queued_prompts = true joins consecutive plain rows into one turn. /queue lists the queue. /btw <question> (also typed mid-message) asks a side question from the current session context with no tools; the answer shows in a panel that Esc dismisses (minimal prints it to scrollback), a late answer to a dismissed question is dropped, and nothing enters the conversation.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. Messaging, resume_from, worktree isolation, and --agent stay with later tickets.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill, mcp list|add|remove|enable|disable|doctor. `mcp` manages local MCP servers from [mcp_servers] in $GROK_HOME/config.toml plus, in a trusted folder, .grok/config.toml and .mcp.json; dsh starts them for each session, and /mcps (alias /mcp) lists state, failures, and tools, and enables, disables, or restarts them. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork), Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, plan, worktrees, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
+                "codsh --rust\n\nIsolated Rust client. Real dsh executes turns over ACP/JSON-RPC stdio.\nHome: ~/.codsh-rust/dsh; Profile: rust. Legacy codsh is unchanged.\nUser config: $GROK_HOME/config.toml (default ~/.codsh-rust/.grok/config.toml), mapped into isolated dsh settings.yaml.\nManaged defaults: $GROK_HOME/managed_config.toml. Locked requirements: $GROK_HOME/requirements.toml (cannot be bypassed by later CLI, environment, overlay, workspace, or user values).\n`codsh --rust inspect` / `inspect --json` shows effective values, origins, folder trust, appearance/theme/status-line, marketplace sources, installed plugin provenance, and whether project assets are active. It does not apply a filesystem sandbox, so every config error is printed (including the resolved sandbox profile) instead of stopping at the first one. Invalid config.toml is left unchanged and reports its path. Unknown security fields and invalid policies are diagnosed with valid values, sources, and limits.\n`codsh --rust import --preview` lists conversions, conflicts, and unsupported items from current dsh `$DSH_HOME/settings.yaml`, `code-cli-thinking.json`, and `code-cli-ui.json`. It does not treat outdated `code-cli-settings.json` as a provider source. `--apply` copies selected providers/preferences into the isolated Home. Official tokens, `.credentials.yaml`, `.env`, and original trust/execution grants are never copied. Preview, cancel, and failed apply leave source files and existing isolated settings unchanged. Model credentials stay in the host environment (`--authorize-env`) or must be exported after import.\nWorkspace trust: untrusted folders prompt before applying project config, Hooks, plugins, or instructions; `--trust` / `--trust-folder [path]` saves a grant, `--revoke-trust` withdraws it. A read-only $GROK_HOME reports save failure without pretending the grant is durable. Untrusted Hooks/plugins/project capabilities do not execute.\nPlugin lifecycle: `codsh --rust plugin marketplace add|list|update|remove` and `plugin install|update|uninstall|list` record sources, versions, licenses, and files under the isolated Home. Install does not grant execution. Failed download/checksum/conflict/offline/cancel leave no success record. Official marketplace auto-register is off unless GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER is enabled. `/plugins` and `/marketplace` open the plugins directory. Uninstall does not delete unrelated user files.\nFirst-run missing credentials stay local: no grok.com login, no default official telemetry, no automatic import of ~/.dsh or ~/.grok credentials. `login` / `logout` / `setup` use configured substitute identity or management services; official grok.com / auth.x.ai login, subscription billing, auto-topup, and team entitlements are not reproduced. Session tokens stay in $GROK_HOME/auth.json (0600) and are not transferred to model providers, MCP, Grove, or other services. Independent API-key use does not require login unless GROK_DISABLE_API_KEY_AUTH or a team pin (GROK_FORCE_LOGIN_TEAM_ID / requirements force_login_team_uuid) requires a matching identity session. Unsigned or unverifiable managed policy is refused.  /login and /logout reuse that contract.\nFile read/edit/write and other dsh tools honour allow/ask/deny rules, remembered project grants, and permission modes. y allows once; a remembers this project only and is not a permanent global rule; n rejects with no write. /revoke-approvals forgets this project's remembered grants. Deny, hooks, and locked always-approve survive --always-approve/--yolo. Trust prompt: y=allow, n=deny.\nCtrl+Q: quit. Ctrl+D quits except in fullscreen scrollback, where it half-pages. Ctrl+C: clear a draft; empty draft cancels a running turn via dsh, or quits when idle before any turn.\nEsc never cancels a turn or a pending approval; it dismisses selection and reminds you to use Ctrl+C.\nWhile a turn runs, Enter queues the draft (the notice shows Queued N and the next row); Enter on an empty prompt sends the top row now. Ctrl+Enter or Ctrl+I sends the draft (or the selected row) now: the running turn is cancelled through dsh without a [cancelled] marker and that row runs next. Apple Terminal also takes Ctrl+O; VS Code-family terminals (vscode, cursor, windsurf, zed) use Ctrl+L instead; Ctrl+Enter/Ctrl+I need a terminal that reports them distinctly (kitty keyboard protocol). Ctrl+; or Ctrl+' (or ↑ on an empty prompt) opens the queue pane: ↑↓ select, e edits in place (Enter saves, empty save removes, Esc cancels), Enter sends now, x/Del/Backspace deletes, Shift+J/K reorders, Esc closes. Queued rows run in order, one per turn, after the turn ends or is cancelled with Ctrl+C; a pending approval, compaction, or a row being edited keeps them waiting. Slash commands typed while busy queue as their own rows. [ui] follow_up_behavior = \"steer\" sends plain text follow-ups into the running dsh turn at its next model step instead; a steer dsh did not use goes back to the queue. [ui] combine_queued_prompts = true joins consecutive plain rows into one turn. /queue lists the queue. /btw <question> (also typed mid-message) asks a side question from the current session context with no tools; the answer shows in a panel that Esc dismisses (minimal prints it to scrollback), a late answer to a dismissed question is dropped, and nothing enters the conversation.\nEnter: submit prompt. Tab focuses scrollback in fullscreen when turns exist. /find searches the transcript, /jump lists turns, /vim-mode toggles scrollback Vim keys, and /toggle-mouse-reporting flips mouse capture when `[ui] mouse_reporting_toggle` is on in $GROK_HOME/config.toml. Esc closes search/jump/viewer and restores the prior reading position. Click selects or folds; drag copies and does not fold. Fullscreen-only /find and /jump refuse in minimal with the /fullscreen remedy. Shift+Enter or Alt+Enter inserts a newline; /multiline (alias /ml) or Ctrl+M swaps those chords. /history searches submitted prompts; empty ↑ browses them. Tab/Esc drive slash and HISTFILE completion. Typing / in a nonempty draft stashes that draft, runs the slash command, and restores it. /edit-prompt opens $VISUAL then $EDITOR then vi for an empty draft; Ctrl+G in minimal preserves the current draft. Saving an empty file clears without submitting. [ui] simple_mode=false enables prompt Vim (i/Esc/h/l/x). Next-prompt ghost text is not wired: the host does not call a suggestion provider, so Tab/Right do not accept ghost text. Suggestion rows stay blocked (PARITY-150-suggestions). chips=false does not mean an attachment was refused. /memory (alias /mem) browses local notes under $GROK_HOME/memory. Global notes apply to every project; workspace notes follow the Git origin (org/repo), so clones and worktrees of that repository share one directory and a different origin does not. The list is separate from the generated index. Enter previews a note read-only, / filters names and contents, y copies the path, x then x deletes only a session file, and t toggles memory for this session without rewriting config.toml; once this session's first prompt is already sent, toggling on reaches no prompt here, and /new drops the toggle and follows config.toml again rather than carrying it forward. MEMORY.md cannot be deleted, including a human note and a generated index. /new and a dashboard dispatch keep the configured provider, model, effort, permissions, and settings patch; they do not fall back to another provider. /remember [text] asks for confirmation before appending a note; n or Esc writes nothing. Empty /remember takes the next line as the note. Enabled memory injects those human notes into a session's first dsh prompt only. Memory stays off until [memory] enabled = true or GROK_MEMORY=1. --no-memory and GROK_MEMORY=0 hide /memory for the process and do not delete files. `codsh --rust memory clear` (--workspace default, --global, --all) deletes only the selected scope after --yes. Disabling memory never uploads notes. A damaged index is rebuilt from the notes and does not overwrite them. /voice starts dictation into the current draft and never submits it; /voice again, /voice stop, or Esc cancels or stops. Ctrl+Space and F8 follow [ui] voice_capture_mode (hold or toggle) when [ui] voice_keybind_enabled is true; /voice still works when that is false. Hold needs a key-release report. Audio goes only to [voice] api_base (or endpoints.xai_api_base_url) /audio/transcriptions. Official hosts are refused. [ui] voice_stt_language overrides [voice] language. /voice doctor and `codsh --rust voice doctor` list devices without recording. Missing devices report voice.no-input-device. Live microphone open is unverified on this host; CODSH_VOICE_FIXTURE supplies bytes for a real substitute route. Linux and Windows capture are unverified. /always-approve, /auto, /ask, /dontAsk, and /acceptEdits set the session mode unless requirements.toml locks always-approve off. /feedback opens Write and Drafts; Enter on Write sends, Ctrl+S saves locally, and /feedback <text> sends immediately. Draft text is posted only when privacy.share_content is on. /settings (/config) edits appearance, default screen mode, timestamps, compact mode, and status line. /theme (/t) previews fullscreen themes; Escape restores the previous theme without saving. /compact-mode and /timestamps toggle persisted [ui] keys. Minimal mode uses the terminal palette and refuses /theme. Status-line scripts run with a 10s timeout, cleared BASH_ENV/ENV, and process-group cleanup on exit. Locked requirements show their source and cannot be edited.\n/minimal and /fullscreen switch render mode in process without restarting dsh; --minimal/--fullscreen and GROK_SCREEN_MODE are session-scoped and do not rewrite [ui] screen_mode. /model (/m) and /effort select advertised catalog options; unsupported backends/efforts are refused, never treated as equivalent or silently swapped. /context shows dsh occupancy, advertised model limits, and heuristic buckets without fabricating zeros. /compact [instruction] runs dsh compaction (not a second history); optional instructions go only to the summarizer request (purpose=compaction). Automatic compaction uses session.auto_compact_threshold_percent / GROK_AUTO_COMPACT_THRESHOLD_PERCENT mapped to dsh thresholdRatio. GROK_COMPACTION_WALL_CLOCK_SECS bounds the operation; 0 disables that budget. Runtime changes apply to the next turn and persist under $GROK_HOME/model-selection.toml. export <id> [file] writes that session as Markdown and keeps stored messages, tool calls, and attachment paths; it does not claim secrets were removed. -c copies the same transcript. /export [file] does this for the current session. Extra arguments are rejected before any file is written. share <id> and /share post only to the selected endpoints.share_url, CODSH_SHARE_URL, or --url. A missing service, a redirect, a timeout, or an official grok.com, api.x.ai, or sentry host is an error and uploads nothing. Redirects are not followed. sessions delete <id> --yes, /delete, the resume picker, and dashboard Ctrl+X are blocked: released dsh persistence has no deletion operation, so nothing is removed. du and disk-usage report isolated-home sizes, largest first, with --json. They do not delete files. --continue resumes the last session in this directory; --resume <id> loads that dsh session. --fork-session with --resume/--continue copies conversation into a new session id. /rewind and /undo fork conversation-only history through dsh; files are not restored. /fork copies the current history into a new session. Idle empty Esc Esc opens rewind. A second client is refused while this process holds write ownership. Interrupted tools show [interrupted]/unknown and are not replayed.\nSubagents: dsh creates and runs every child. The subagent tool takes subagent_type: general-purpose (every parent tool), explore and plan (read, search, shell; no write or edit), [subagents.roles.<name>] (description, default_capability_mode read-only|read-write|execute|all, model, prompt_file under $GROK_HOME), and .grok/agents or $GROK_HOME/agents files (tools and model front matter). A type's capability becomes a dsh tool allow-list, so a removed tool is absent from the child's schema and refused if called; tools dsh cannot classify stay only in `all`. Children inherit the parent's permission mode, rules, hooks, and sandbox; a child cannot answer an approval, so an ask is rejected. [subagents.models] <type> = \"model\" and a role or agent model are checked before the child starts; a missing model starts nothing. [subagents] enabled / GROK_SUBAGENTS=0 / --no-subagents remove the tool. max_concurrent / GROK_MAX_CONCURRENT_SUBAGENTS (default 32, 0 becomes 1) counts running children per session; limit_behavior / GROK_SUBAGENT_LIMIT_BEHAVIOR queue (default) waits for a slot and fail refuses. max_depth / GROK_SUBAGENTS_MAX_DEPTH (default 1, below 1 becomes 1) caps nesting. [subagents.toggle] <type> = false hides a type. run_in_background returns a dsh job id; the model collects the result with job_output. The block reads Subagent running/started/queued and then completed, failed, or cancelled with the elapsed time; the status line counts children still running. Ctrl+G (fullscreen) or /tasks opens the task list: Enter or Ctrl+F opens a read-only child transcript, x cancels the selected child, h hides finished ones, Esc or q closes. In the child view Ctrl+C cancels that child only. Ctrl+C on the parent turn cancels its foreground children. Child sessions are not listed for resume. isolation: \"worktree\" runs the child in its own git worktree (see Worktrees); nothing is applied to the checkout. Messaging, resume_from, and --agent stay with later tickets.\nOptions: --help, -v/--version, --continue, --resume <id>, --fork-session, --session-id <id>, --minimal, --fullscreen, -m/--model <id>, --effort/--reasoning-effort <level>, --cwd <path>, -w/--worktree [NAME], --worktree-ref/--ref <REF>, --no-memory, --no-subagents, --disable-web-search, --trust, --trust-folder [path], --revoke-trust, --always-approve/--yolo, --auto, --permission-mode <mode>, --allow/--deny <RULE>, --sandbox <profile>, --rules/--append-system-prompt <text>, --system-prompt-override/--system-prompt <text>, inspect, import, plugin, feedback, memory clear, voice doctor, login, logout, setup, export, share, sessions delete, worktree list|show|apply|rm|gc|db, du, disk-usage, agent stdio, agent serve, agent leader, leader list|info|kill, mcp list|add|remove|enable|disable|doctor. `mcp` manages local MCP servers from [mcp_servers] in $GROK_HOME/config.toml plus, in a trusted folder, .grok/config.toml and .mcp.json; dsh starts them for each session, and /mcps (alias /mcp) lists state, failures, and tools, and enables, disables, or restarts them. `agent stdio` is the editor ACP entry; unsupported x.ai methods are refused. `agent serve` (authenticated WebSocket, default 127.0.0.1:2419) and `agent leader` (0600 per-user socket; `agent --leader stdio` or [cli] use_leader) share live sessions between clients with one dsh executor per session; nothing listens unless one of them runs. --rules appends a <human_rules> block for this session. --system-prompt-override replaces file rules and --rules for the text sent to dsh; the typed prompt is still sent. GROK_CLAUDE_SKILLS_ENABLED and GROK_CURSOR_SKILLS_ENABLED turn those vendor skill scans off. --restore-code is refused.\nFilesystem sandbox: off by default. --sandbox or GROK_SANDBOX or [sandbox] profile selects workspace, read-only, strict, devbox, or a sandbox.toml profile. Naming a custom profile does not trust an untrusted workspace's .grok/sandbox.toml; a definition that exists only there refuses startup, and a user $GROK_HOME/sandbox.toml definition still wins. A non-off profile is applied to this process with Seatbelt (macOS) or Landlock (Linux) before dsh starts, and children inherit it. If that kernel policy cannot be applied, startup is refused. The status line names the active profile and write roots. Linux and Windows are not claimed from a macOS run. A devbox-based profile keeps its deny list. Deny paths and glob prefixes are resolved through symlinks such as /tmp; one under a dangling symlink or with a control character refuses startup. dsh's own per-call bash sandbox cannot nest inside the kernel policy, so while a profile is applied dsh runs with its per-call file mode at danger-full-access ($DSH_HOME/codsh-kernel-sandbox.yml) and unchanged approvals; the kernel policy confines bash children and child agents. A deny glob's literal-prefix directory is pinned against rename. The launchd escape (launchctl submit / bootstrap gui/$UID) is kernel-blocked under a profile, matching the reference mach-lookup rules. restrict_network (read-only, strict, or a custom profile) denies network with macOS Seatbelt `(deny network*)` for this process and its children. A profile that asks for network isolation where it cannot be applied, including Linux Landlock and Windows, refuses startup. dsh's per-call file mode is not a network sandbox. [shell_environment_policy] in sandbox.toml, when active, is the environment of a shell child this client starts and of the dsh process spawned afterwards. dsh's bash tool is built from that process and only adds keys. A second Seatbelt profile is not applied inside this one.\nPlain: -p/--single <prompt>, --prompt-file <path>, or --prompt-json <blocks> runs one dsh turn. --output-format plain (the default) prints the final answer on stdout. json prints one object with text, stopReason, sessionId, and requestId. streaming-json prints one ACP-shaped object per line and ends with end. streaming-messages-json prints system/init, assistant and user messages, and a terminal result. --include-partial-messages adds stream_event deltas and only changes streaming-messages-json; other formats warn and ignore it. Tool arguments, tool results, and reasoning are copied from dsh. usage is copied only from a prompt _meta.usage object dsh sent; when that object is absent the terminal line says usage_absent and does not invent tokens or cost. A truncation stop (max_tokens) and a model error exit 1 and do not report end_turn. A tool approval with no terminal is rejected inside dsh and exits 1; the JSON object is an error, not end_turn. streaming-messages-json init tools and slash_commands stay empty unless dsh advertised them. Diagnostics stay on stderr. --verbatim sends that user content unchanged and does not expand custom slash commands. Rules from files, --rules, and --system-prompt-override, plus enabled first-turn memory, still apply: they lead as their own block ahead of the exact user bytes, because dsh receives codsh rules as prompt context, not as a separate system prompt. Permission policy stays on the tool channel. A plain turn has no time limit; it ends when dsh finishes or fails, or on a signal. -c/--continue and -r/--resume <id-or-title> with a plain prompt resume that session; --fork-session copies it. --max-turns <N> stops before model step N+1. --tools and --disallowed-tools filter tools before the first model request; public ids such as read_file and Bash map to dsh names, Agent removes every subagent spawn tool (subagent and subagent_fork), Agent(type) or Agent(type, other) in --disallowed-tools removes those subagent types (an unknown type refuses every spawn), --tools cannot allow Agent or a type, deny wins when both are set, and an unknown name is an error. An inherited CODSH_PLAIN_TOOLS or CODSH_PLAIN_MAX_TURNS value follows the same rules in a plain prompt and is ignored by interactive sessions. --tools, --disallowed-tools, --max-turns, and --verbatim are headless flags: without a plain prompt they print a warning and are ignored. --cwd <path>, --sandbox <profile>, --no-memory, and --disable-web-search work for plain prompts and interactive sessions; --cwd is entered before config, trust, and the sandbox are read. A relative --prompt-file is opened after that, so it names a file inside --cwd. A relative --trust-folder or sandbox report path still names a file beside the invocation. --disable-web-search removes web_search and web_fetch for the process. A positional prompt is not plain mode. Piped stdin is not the prompt. Repeated prompt sources are rejected before a provider call. `help` prints this text. `completions <shell>` prints a bash, zsh, fish, powershell, or elvish script. Agent selection, plan, --experimental-memory, --memory-flush, and --json-schema name the flag and stay owned by later tickets. Unknown options and missing values exit 2. SIGINT exits 130 and SIGTERM exits 143, also during startup. A missing credential or dsh error exits 1.\nWorktrees: -w/--worktree [NAME] starts the session (interactive or plain) in a new git worktree at $GROK_HOME/worktrees/<repo>/<name> on branch codsh/<name>, created from the directory you are in (after --cwd) before config, trust, and the sandbox are read. Without --worktree-ref (alias --ref) the worktree starts from HEAD plus your uncommitted and untracked (not ignored) files, committed there as one snapshot; your checkout, index, and branch are not changed. With a ref it is a clean checkout. A name that is already a directory or branch gets a -2, -3 suffix; an existing branch is never reused or reset. A directory outside git is refused and nothing is created. -w -r <id> (or -w -c) copies that session under a new id into the new worktree and resumes the copy; the original session keeps its directory. The status line names the worktree and branch. The worktree is a separate workspace for folder trust and remembered grants, so both are asked again there. `codsh --rust worktree list|ls [--repo R] [--type session|subagent|untracked] [--all] [--json]`, `show <id>`, `apply <id> [--overwrite] [--dry-run]`, `rm <id>... [-f] [--dry-run]`, `gc|prune [--max-age 7d] [--dry-run] [-f]`, and `db path|stats|rebuild` manage them; /worktree [list|show|apply|rm|gc] does the same inside a session. apply merges by default: a file is written only when the checkout still holds what the worktree started from; anything else is reported as a conflict and left untouched, and --overwrite takes the worktree version. apply never commits or stages. rm refuses a worktree with uncommitted work unless -f and keeps the branch when it holds commits. gc expires nothing without --max-age and keeps worktrees with uncommitted, untracked, or non-cache ignored files, commits no branch holds, or a live owner. detach, salvage, and clean-artifacts are refused: there is no Grove projection. /fork --worktree is refused inside a running session; use -w -r. The new-session/fork worktree prompts (hints.*_worktree_mode) and automatic gc are not implemented. Under a filesystem sandbox, git in a worktree and subagent isolation can write only where the profile's write roots reach ($GROK_HOME/worktrees and the source repository's .git); otherwise git's own error is reported and nothing is applied.\nNonessential telemetry, trace upload, session tracking, and content sharing default off. Opt-in requires a substitute endpoints.telemetry_url / feedback_base_url / trace_upload_url; official grok.com, api.x.ai, and sentry hosts are refused. Diagnostic previews list kind/ok/count only and never prompts or keys. Model calls stay on the configured provider and are not telemetry. Locked requirements can force these switches off."
             );
             return Ok(());
         }
@@ -6862,7 +7059,7 @@ fn run() -> io::Result<()> {
     let connecting = format!(
         "mode={} | {}\nConnecting to dsh ACP…",
         screen.as_str(),
-        filesystem_sandbox::status_line(filesystem_sandbox::active())
+        worktree_header(filesystem_sandbox::status_line(filesystem_sandbox::active()))
     );
     let env_map: std::collections::BTreeMap<String, String> = std::env::vars().collect();
     let mut nav = NavState::new(
@@ -6967,6 +7164,10 @@ fn run() -> io::Result<()> {
                 owner = Some(connection.owner);
                 turns = restored;
                 let mut client = connection.client;
+                attach_worktree_session(&client);
+                if let Some(created) = worktree::active() {
+                    hint = worktree::short_notice(created);
+                }
                 match apply_live_selection(&mut client, &effective) {
                     Ok(()) => selection_ready = true,
                     Err(error) => {
@@ -9061,6 +9262,19 @@ fn dispatch_composer_command(
             }
         );
         last_error.clear();
+        return Ok(());
+    }
+    if text.trim() == "/worktree" || text.trim().starts_with("/worktree ") {
+        composer.restore_slash_draft();
+        let cwd = std::env::current_dir().unwrap_or_else(|_| effective.cwd.clone());
+        let pool = worktree::pool(&effective.grok_home);
+        match worktree::slash(&pool, &cwd, text.trim()) {
+            Ok(output) => {
+                *hint = output;
+                last_error.clear();
+            }
+            Err(error) => *last_error = error,
+        }
         return Ok(());
     }
     if text.trim() == "/revoke-approvals" {
@@ -12055,6 +12269,47 @@ enabled = {enabled}
     }
 
     #[test]
+    fn worktree_flags_parse_like_the_reference() {
+        let bare = parse_launch(&args(&["-w"])).unwrap();
+        assert_eq!(bare.worktree.name.as_deref(), Some(""));
+        assert!(matches!(bare.mode, LaunchMode::New));
+        let named = parse_launch(&args(&["--worktree", "fix-bug", "--minimal"])).unwrap();
+        assert_eq!(named.worktree.name.as_deref(), Some("fix-bug"));
+        let inline = parse_launch(&args(&["--worktree=x", "--ref", "main"])).unwrap();
+        assert_eq!(inline.worktree.name.as_deref(), Some("x"));
+        assert_eq!(inline.worktree.reference.as_deref(), Some("main"));
+        let aliased = parse_launch(&args(&["-w", "--worktree-ref=v1"])).unwrap();
+        assert_eq!(aliased.worktree.reference.as_deref(), Some("v1"));
+        // A bare -w before -r keeps the id for --resume.
+        let resume = parse_launch(&args(&["-w", "-r", "abc"])).unwrap();
+        assert_eq!(resume.worktree.name.as_deref(), Some(""));
+        assert!(matches!(resume.mode, LaunchMode::Resume(ref id) if id == "abc"));
+        let plain = parse_launch(&args(&["-w", "-p", "hi"])).unwrap();
+        assert!(matches!(plain.mode, LaunchMode::Plain { .. }));
+        let lonely = parse_launch(&args(&["--ref", "main"]))
+            .unwrap_err()
+            .to_string();
+        assert!(lonely.contains("requires '--worktree"), "{lonely}");
+        let twice = parse_launch(&args(&["-w", "a", "-w"]))
+            .unwrap_err()
+            .to_string();
+        assert!(twice.contains("cannot be used multiple times"), "{twice}");
+        let command = parse_launch(&args(&["-w", "inspect"]))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            command.contains("cannot be combined with that command"),
+            "{command}"
+        );
+        let sub = parse_launch(&args(&["worktree", "rm", "-f", "x", "--dry-run"])).unwrap();
+        assert!(
+            matches!(sub.mode, LaunchMode::Worktree(ref words) if words == &["rm", "-f", "x", "--dry-run"])
+        );
+        let list = parse_launch(&args(&["worktree"])).unwrap();
+        assert!(matches!(list.mode, LaunchMode::Worktree(ref words) if words.is_empty()));
+    }
+
+    #[test]
     fn fork_slash_accepts_no_worktree_and_refuses_worktree() {
         assert_eq!(
             session_fork::parse_fork_slash("/fork --no-worktree")
@@ -12065,7 +12320,7 @@ enabled = {enabled}
         assert!(
             session_fork::parse_fork_slash("/fork --worktree")
                 .unwrap_err()
-                .contains("omit --worktree")
+                .contains("codsh --rust -w -r")
         );
         assert!(session_fork::is_conversation_slash("/rewind"));
         assert_eq!(

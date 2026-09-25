@@ -515,6 +515,11 @@ pub struct Entry {
     pub detail: String,
     pub started: Instant,
     pub elapsed: Option<Duration>,
+    /// `isolation: "worktree"` (ticket 174): the child's worktree while it
+    /// runs and, after it ends, only when the worktree was kept.
+    pub worktree: Option<String>,
+    /// After the end: whether the worktree was kept (it holds changes).
+    pub worktree_kept: Option<bool>,
 }
 
 impl Entry {
@@ -547,11 +552,23 @@ impl Entry {
                 activity(&self.activity)
             ),
             status => format!(
-                "Subagent {} in {}: \"{}\" {tag}",
+                "Subagent {} in {}: \"{}\" {tag}{}",
                 status.as_str(),
                 seconds(self.elapsed()),
-                self.label
+                self.label,
+                self.worktree_note()
             ),
+        }
+    }
+
+    /// ` · worktree kept: <path>` for an isolated child that changed files,
+    /// ` · worktree removed (no changes)` for one that did not.
+    pub fn worktree_note(&self) -> String {
+        match (self.worktree_kept, &self.worktree) {
+            (Some(true), Some(path)) => format!(" · worktree kept: {path}"),
+            (Some(false), _) => " · worktree removed (no changes)".into(),
+            (None, Some(path)) => format!(" · worktree {path}"),
+            _ => String::new(),
         }
     }
 }
@@ -629,6 +646,8 @@ impl Board {
             detail: String::new(),
             started: Instant::now(),
             elapsed: None,
+            worktree: None,
+            worktree_kept: None,
         });
         self.entries.last_mut()
     }
@@ -650,6 +669,8 @@ impl Board {
                     entry.started = Instant::now();
                     let child = text(event, "child");
                     entry.child = (!child.is_empty()).then_some(child);
+                    let worktree = text(event, "worktree");
+                    entry.worktree = (!worktree.is_empty()).then_some(worktree);
                 }
                 None
             }
@@ -687,6 +708,12 @@ impl Board {
                 let child = text(event, "child");
                 if !child.is_empty() {
                     entry.child = Some(child);
+                }
+                if let Some(kept) = event.get("worktreeKept").and_then(Value::as_bool) {
+                    entry.worktree_kept = Some(kept);
+                    if !kept {
+                        entry.worktree = None;
+                    }
                 }
                 entry.background.then(|| Notice(entry.block_title()))
             }
@@ -801,6 +828,10 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             },
             activity(&entry.activity)
         ));
+        let note = entry.worktree_note();
+        if !note.is_empty() {
+            lines.push(format!("   {}", note.trim_start_matches(" · ")));
+        }
         if index == modal.cursor && !entry.detail.is_empty() {
             lines.push(format!("    {}", entry.detail.lines().next().unwrap_or("")));
         }
@@ -1093,6 +1124,55 @@ mod tests {
 
     fn event(value: Value) -> Value {
         value
+    }
+
+    #[test]
+    fn board_shows_the_isolated_worktree_and_whether_it_was_kept() {
+        let mut board = Board::default();
+        let base = json!({"id": "w1", "type": "general-purpose", "label": "edit", "model": "m/m", "background": false, "isolation": "worktree"});
+        let mut start = base.clone();
+        start["event"] = json!("start");
+        start["worktree"] = json!("/pool/repo/edit-1");
+        board.apply(&start);
+        assert_eq!(
+            board.entries[0].worktree.as_deref(),
+            Some("/pool/repo/edit-1")
+        );
+        let mut end = base.clone();
+        end["event"] = json!("end");
+        end["status"] = json!("completed");
+        end["elapsedMs"] = json!(1000);
+        end["worktree"] = json!("/pool/repo/edit-1");
+        end["worktreeKept"] = json!(true);
+        board.apply(&end);
+        assert!(
+            board.entries[0]
+                .block_title()
+                .ends_with(" · worktree kept: /pool/repo/edit-1")
+        );
+        let lines = list_lines(&board, &TasksModal::default());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "   worktree kept: /pool/repo/edit-1"),
+            "{lines:?}"
+        );
+        let mut other = Board::default();
+        let mut start = base.clone();
+        start["event"] = json!("start");
+        start["worktree"] = json!("/pool/repo/pwd-1");
+        other.apply(&start);
+        let mut end = base;
+        end["event"] = json!("end");
+        end["status"] = json!("completed");
+        end["worktreeKept"] = json!(false);
+        other.apply(&end);
+        assert_eq!(other.entries[0].worktree, None);
+        assert!(
+            other.entries[0]
+                .block_title()
+                .ends_with(" · worktree removed (no changes)")
+        );
     }
 
     #[test]

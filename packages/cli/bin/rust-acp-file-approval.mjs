@@ -8,7 +8,8 @@
 export const name = 'rust-acp-file-approval'
 
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { recordForPath } from './rust-worktree.mjs'
 
 function wait(ms, signal) {
   return new Promise(resolve => {
@@ -1417,6 +1418,83 @@ function askReason(access, policy, persistFailed) {
   return lines.join('\n')
 }
 
+const RANK = { allow: 1, ask: 2, deny: 3 }
+
+/** realpath of the path, or of its nearest existing ancestor plus the rest (a file about to be created). */
+function realOr(path) {
+  const absolute = resolve(path)
+  let head = absolute
+  const tail = []
+  for (;;) {
+    try {
+      return [realpathSync(head), ...tail].join(sep)
+    } catch {
+      const parent = dirname(head)
+      if (parent === head) return absolute
+      tail.unshift(head.slice(parent.length).replace(/^[\\/]+/u, ''))
+      head = parent
+    }
+  }
+}
+
+/**
+ * The policy views an agent's call is checked under (ticket 174).
+ *
+ * An agent working in a codsh worktree (a `-w` session, or a subagent with
+ * worktree isolation whose session cwd differs from the policy cwd) is
+ * checked twice: with its own cwd, so relative paths and rules resolve where
+ * its tools act, and with the worktree mapped back onto
+ * the checkout it came from, so a rule on a checkout path also covers the
+ * worktree copy of that path. The strictest decision wins. Every other agent
+ * keeps the single policy view it always had.
+ */
+export function policyViews(policy, agentCwd, worktreeHome = process.env.CODSH_WORKTREE_HOME) {
+  const policyCwd = policy.cwd || process.cwd()
+  const cwd = agentCwd && isAbsolute(agentCwd) ? agentCwd : policyCwd
+  let record = null
+  if (worktreeHome) {
+    try {
+      record = recordForPath(worktreeHome, cwd)
+    } catch {}
+  }
+  // Outside a worktree the single view stays exactly as before.
+  if (!record?.sourceRoot) return [{ policy, map: path => path }]
+  const root = realOr(record.path)
+  const source = record.sourceRoot
+  const map = path => {
+    if (typeof path !== 'string' || path === '') return path
+    const absolute = realOr(resolve(cwd, path))
+    const rel = relative(root, absolute)
+    if (rel === '') return source
+    if (rel.startsWith('..') || isAbsolute(rel)) return absolute
+    return `${source}${sep}${rel}`
+  }
+  return [
+    { policy: cwd === policyCwd ? policy : { ...policy, cwd }, map: path => path },
+    { policy: { ...policy, cwd: map(cwd) }, map },
+  ]
+}
+
+/** evaluatePermission under every view of the calling agent; the strictest decision wins. */
+export function evaluateForAgent(policy, access, hookDeny, agentCwd, worktreeHome) {
+  let strictest = null
+  for (const view of policyViews(policy, agentCwd, worktreeHome)) {
+    const viewed = typeof access.path === 'string' ? { ...access, path: view.map(access.path) } : access
+    const decision = evaluatePermission(view.policy, viewed, hookDeny)
+    if (!strictest || RANK[decision.kind] > RANK[strictest.kind]) strictest = decision
+  }
+  return strictest
+}
+
+function restrictedForAgent(policy, path, agentCwd) {
+  return policyViews(policy, agentCwd).some(view => pathIsRestricted(view.policy, view.map(path)))
+}
+
+function agentCwdOf(exec) {
+  const cwd = exec?.agent?.session?.header?.cwd
+  return typeof cwd === 'string' ? cwd : undefined
+}
+
 export function apply(ctx) {
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!process.env.CODSH_PERMISSION_POLICY) {
@@ -1433,7 +1511,7 @@ export function apply(ctx) {
     if (policy.loadError && mutatingAccess(access)) {
       return { kind: 'deny', reason: policy.loadError }
     }
-    const decision = evaluatePermission(policy, access, hookDeny)
+    const decision = evaluateForAgent(policy, access, hookDeny, agentCwdOf(exec))
     if (decision.kind === 'deny') return { kind: 'deny', reason: decision.reason }
     if (decision.kind === 'allow') return next()
     const persistable = policy.rememberToolApprovals !== false && Boolean(policy.grantsPath)
@@ -1470,8 +1548,9 @@ export function apply(ctx) {
     if (decision.kind !== 'accept' || result.isError) return decision
     if (Object.hasOwn(decision, 'value') || Object.hasOwn(decision, 'content')) return decision
     const policy = loadPolicy()
+    const agentCwd = agentCwdOf(exec)
     const root = stringField(exec.arguments, ['path'])
-    if (root && pathIsRestricted(policy, root)) {
+    if (root && restrictedForAgent(policy, root, agentCwd)) {
       return {
         kind: 'block',
         feedback: [{
@@ -1483,12 +1562,12 @@ export function apply(ctx) {
     const value = result.value
     if (!value || typeof value !== 'object') return decision
     if (exec.name === 'grep' && Array.isArray(value.matches)) {
-      const matches = value.matches.filter(match => !pathIsRestricted(policy, String(match?.path ?? '')))
+      const matches = value.matches.filter(match => !restrictedForAgent(policy, String(match?.path ?? ''), agentCwd))
       if (matches.length === value.matches.length) return decision
       return { kind: 'accept', value: { matches } }
     }
     if (exec.name === 'glob' && Array.isArray(value.paths)) {
-      const paths = value.paths.filter(path => !pathIsRestricted(policy, String(path ?? '')))
+      const paths = value.paths.filter(path => !restrictedForAgent(policy, String(path ?? ''), agentCwd))
       if (paths.length === value.paths.length) return decision
       return { kind: 'accept', value: { ...value, paths } }
     }

@@ -49,6 +49,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "tutorial",
         "vim-mode",
         "reload-assets",
+        "worktree",
     ]
 }
 
@@ -117,6 +118,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     ),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("tasks", &[], "Show subagent tasks", true),
+    SlashCommand::new(
+        "worktree",
+        &[],
+        "List, show, apply, or remove worktrees",
+        false,
+    ),
     SlashCommand::new("onboarding", &[], "Open onboarding", true),
     SlashCommand::new(
         "reload-assets",

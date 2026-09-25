@@ -2,7 +2,7 @@
 Register-ArgumentCompleter -CommandName codsh -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $shells = @('bash', 'elvish', 'fish', 'powershell', 'zsh')
-  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'web', 'sessions', 'dashboard', 'export', 'share', 'du', 'disk-usage', 'memory')
+  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'web', 'sessions', 'dashboard', 'export', 'share', 'du', 'disk-usage', 'memory', 'worktree')
   $flags = @(
     '--help', '-h', '--version', '-V', '-v', '--continue', '-c', '--resume', '-r', '--fork-session',
     '--session-id', '-s', '--model', '-m', '--effort', '--reasoning-effort', '--cwd',
@@ -11,7 +11,8 @@ Register-ArgumentCompleter -CommandName codsh -ScriptBlock {
     '--system-prompt-override', '--system-prompt', '--allow', '--deny',
     '--allowedTools', '--disallowedTools', '--always-approve', '--yolo',
     '--permission-mode', '--output-format', '--trust', '--revoke-trust',
-    '--minimal', '--fullscreen', '--sandbox', '--no-memory', '--disable-web-search'
+    '--minimal', '--fullscreen', '--sandbox', '--no-memory', '--disable-web-search',
+    '--worktree', '-w', '--worktree-ref', '--ref'
   )
   $text = $commandAst.ToString()
   $candidates = if ($text -match 'completions\s+\S*$') { $shells }

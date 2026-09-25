@@ -267,7 +267,14 @@ type's capability into a dsh tool allow-list (unclassified tools only under
 `all`), preflights a type model, admits by session with queue or fail, and
 reports one lifecycle (queued, start, activity, end, refused) on stderr that
 feeds the tool block, status line, and task list. Cancel requests travel as
-files in a private control directory. Deny and hook blocks have
+files in a private control directory. Git worktrees (`rust-worktree.mjs`) have
+one implementation shared by `-w`, `codsh --rust worktree`, `/worktree`, and
+subagent `isolation: "worktree"`: a plain `git worktree` per id under
+`$GROK_HOME/worktrees` (dsh gets `CODSH_WORKTREE_HOME`) with a JSON registry
+beside it. The source checkout is only read; apply is explicit and merges per
+file against the worktree base; an isolated child sees a parent whose session
+header cwd is the worktree, and the permission listener checks its calls under
+both the worktree and the mapped checkout path. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command
