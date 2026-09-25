@@ -96,6 +96,36 @@ leader。`agent headless`、`agent serve --remote <url>`、`--grok-ws-url` 和 C
 和 Cursor worker 需要私有基础设施，仍然拒绝。本次在 Linux 上对本机 OpenSSH 服务器验证，
 未对另一台机器、macOS 或 Windows 验证。
 
+`codsh --rust clone [-b 分支] [--cone 路径]... [--full-history] <URL> [目录]` 用普通
+git 代替参考实现的 Grove 懒克隆。它默认关闭，按参考实现的开关顺序打开：`GROK_CLONE` 或
+`GROVE_CLONE`，然后是 `GROK_GROVE` 或 `$GROK_HOME/config.toml` 中的 `[cli] grove`，最后是
+Grove 的 `~/.config/grove/config.toml`（你真实的 Home）中的 `[clone] enabled`；都没有设置时
+以退出码 2 结束，并说明用哪个设置打开。各项 Grove 行为的替代方式：
+
+| Grove（参考实现） | codsh 替代 | 差异 |
+| --- | --- | --- |
+| 所选分支深度 1 的引导克隆；`--full-history` 获取全部历史、分支和标签 | `git clone --depth=1 --single-branch --no-tags`；`--full-history` 为 `--no-single-branch` 并带标签 | 形态相同；`git fetch --deepen=N origin` / `--unshallow origin` 只加深所选分支，与文档一致。本地路径 URL 会让 git 忽略深度，摘要会说明（请用 `file://`） |
+| 从内容存储懒加载 blob | 部分克隆 `--filter=blob:none` | 检出所需的 blob 在克隆时获取，其余在 git 需要时获取；服务器不支持过滤时会全部发送，摘要会说明 |
+| `--cone` 投影 | `--sparse` 加 `git sparse-checkout set --cone` | 真实的稀疏检出，不是投影 |
+| 守护进程、FUSE/NFS 挂载、`--leader-socket` | 无 | 克隆是磁盘上的真实检出；`--leader-socket` 会被拒绝；未与 Grove 做性能对比 |
+| 守护进程认证：`GROVE_AUTH_TOKEN`、git 凭据、`GROVE_TOKEN_ROTATION` | git 自己的凭据助手、SSH 密钥、known_hosts、`GIT_SSH_COMMAND`；`GROVE_AUTH_TOKEN` 作为 https Authorization 头 | 令牌只通过 git 的环境配置发给 https（或本机回环 http）远端，从不写入 `.git/config`；轮换没有守护进程，报告为已忽略；git 从不使用 `codsh --rust login`；被拒绝的凭据报告为 `unavailable`（守护进程的 `expired-static` 与 `carrier-stale` 类别不适用） |
+
+目标目录必须不存在或为空；非空目录、文件或符号链接会被拒绝（退出码 3）且保持不动。git
+先写入一个隐藏的同级暂存目录，克隆和检出都成功后才重命名为目标，所以失败（退出码 1，
+消息中去掉 URL）、凭据被拒（退出码 4）或 Ctrl-C（退出码 130）都不会留下任何东西，空目标
+保持为空；被杀死的进程留下的暂存目录会在下一次克隆时清除。对已完成且 origin 相同的克隆
+再次执行同一克隆，只会报告它而不获取任何内容（`-b` 不同则退出码 3）。摘要列出检出、
+历史深度、blob 模式、后端（git 版本）和凭据来源，然后是 `Next: cd 目录 && codsh --rust`。
+`--remote ssh://[user@]host[:port]/abs/base`（codsh 扩展；参考实现的克隆没有远程形式）在
+那台主机上按远端自己的开关和 git 凭据执行同样的克隆，SSH 规则同上；`GROVE_AUTH_TOKEN`
+不会发送，连接关闭会取消远端克隆并删除其未完成的目录，下一步是
+`codsh --rust --remote <url>/<目录>`。工作树开关同样按参考顺序：`GROK_WORKTREE_TYPE`，
+然后是 `[cli] grove_worktree` / `nfs_worktree` / `worktree_type`，再是 `GROK_GROVE` 或
+`[cli] grove`。Grove 请求会记录在工作树上（`worktree show`），并回退为带完整检出的普通 git
+工作树，与参考实现在 Grove 不可达时的做法一致。没有远程设置层。本次在 Linux 上对本机裸
+仓库验证（file://、带令牌的本机 `git http-backend` http 服务，以及本机 OpenSSH 服务器），
+未对 GitHub、真实 Grove、macOS 或 Windows 验证。
+
 本地 MCP 服务器运行在 dsh 自己的 MCP 客户端里，codsh 不另起一套。
 `codsh --rust mcp list|add|remove|enable|disable|doctor` 编辑并检查
 `$GROK_HOME/config.toml` 中的 `[mcp_servers.<name>]`（stdio 的 `command`、`args`、

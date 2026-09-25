@@ -157,6 +157,11 @@ over SSH (public key, pinned host key, nothing forwarded); the remote config,
 policy, and sandbox execute, `/reconnect` attaches to a turn still running
 there, and `/remote` or `remote check` shows what the remote reports (see the
 root README).
+`clone [-b BRANCH] [--cone PATH] [--full-history] <URL> [DIR]` clones with git
+in place of the reference Grove lazy clone once `GROK_CLONE`, `GROK_GROVE`, or
+Grove's `[clone] enabled` turns it on: depth 1 of one branch with blobs on
+demand, a missing or empty target only, nothing left after a failure or Ctrl-C,
+and `--remote ssh://…` to clone on another host (see the root README).
 `mcp list|add|remove|enable|disable|doctor` and `/mcps` manage local MCP
 servers that dsh starts for each session; `search_tool`/`use_tool` and every
 direct `mcp__*` call go through the same permission, Hook, and cancellation

@@ -35,6 +35,10 @@ pub struct Created {
     pub session_cwd: PathBuf,
     pub reference: Option<String>,
     pub carried: usize,
+    /// The Grove gate asked for a projected worktree (ticket 191): the
+    /// setting that asked. This client has no Grove backend, so the
+    /// worktree is still a plain git worktree, and the notice says so.
+    pub grove: Option<String>,
 }
 
 static ACTIVE: OnceLock<Created> = OnceLock::new();
@@ -56,12 +60,24 @@ pub fn early_grok_home() -> PathBuf {
     crate::config::grok_home_from(&home, std::env::var("GROK_HOME").ok().as_deref())
 }
 
-/// Environment for the dsh child, so subagent isolation uses the same pool.
+/// Environment for the dsh child, so subagent isolation uses the same pool
+/// and records the same Grove request.
 pub fn dsh_env(grok_home: &Path) -> Vec<(String, String)> {
-    vec![(
+    let mut env = vec![(
         "CODSH_WORKTREE_HOME".into(),
         pool(grok_home).to_string_lossy().into_owned(),
-    )]
+    )];
+    if let Some(source) = crate::clone::worktree_grove_request(grok_home) {
+        env.push(("CODSH_WORKTREE_GROVE".into(), source.into()));
+    }
+    env
+}
+
+/// The notice line for a Grove request that fell back to git.
+pub fn grove_fallback(source: &str) -> String {
+    format!(
+        "Grove was requested ({source}); this client has no Grove backend, so this is a plain git worktree with a full checkout on disk"
+    )
 }
 
 fn command(pool: &Path) -> Command {
@@ -70,6 +86,7 @@ fn command(pool: &Path) -> Command {
     command
         .arg(helper_path())
         .env("CODSH_WORKTREE_HOME", pool)
+        .env_remove("CODSH_WORKTREE_GROVE")
         .stdin(Stdio::null());
     command
 }
@@ -134,11 +151,21 @@ pub fn parse_created(value: &Value) -> Option<Created> {
             .and_then(Value::as_array)
             .map(Vec::len)
             .unwrap_or(0),
+        grove: value
+            .get("grove")
+            .and_then(|grove| grove.get("source"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
     })
 }
 
 /// Create a session worktree from `source` (the directory the user is in).
-pub fn create(pool: &Path, source: &Path, flags: &WorktreeFlags) -> Result<Created, String> {
+pub fn create(
+    pool: &Path,
+    source: &Path,
+    flags: &WorktreeFlags,
+    grove: Option<&str>,
+) -> Result<Created, String> {
     let source = source.to_string_lossy().into_owned();
     let pid = std::process::id().to_string();
     let mut args = vec![
@@ -155,6 +182,9 @@ pub fn create(pool: &Path, source: &Path, flags: &WorktreeFlags) -> Result<Creat
     }
     if let Some(reference) = flags.reference.as_deref() {
         args.extend(["--ref", reference]);
+    }
+    if let Some(grove) = grove {
+        args.extend(["--grove", grove]);
     }
     let value = machine(pool, None, &args)?;
     parse_created(&value).ok_or_else(|| "the worktree helper returned no worktree".into())
@@ -201,8 +231,13 @@ pub fn start_notice(created: &Created) -> String {
         (None, 0) => "clean checkout of HEAD".to_string(),
         (None, count) => format!("HEAD plus {count} uncommitted path(s) from the checkout"),
     };
+    let grove = created
+        .grove
+        .as_deref()
+        .map(|source| format!(" {}.", grove_fallback(source)))
+        .unwrap_or_default();
     format!(
-        "Worktree {id}: working in {cwd} on branch {branch} ({base}); {source} is not changed. /worktree apply {id} copies the changes back; /worktree rm {id} removes it.",
+        "Worktree {id}: working in {cwd} on branch {branch} ({base}); {source} is not changed. /worktree apply {id} copies the changes back; /worktree rm {id} removes it.{grove}",
         id = created.id,
         cwd = created.session_cwd.display(),
         branch = created.branch,
@@ -217,8 +252,13 @@ pub fn short_notice(created: &Created) -> String {
         (None, 0) => "from HEAD".to_string(),
         (None, count) => format!("HEAD + {count} uncommitted path(s)"),
     };
+    let grove = if created.grove.is_some() {
+        "; Grove requested, plain git worktree used"
+    } else {
+        ""
+    };
     format!(
-        "Worktree {id} ({base}); the checkout is not changed. /worktree show {id} · /worktree apply {id}",
+        "Worktree {id} ({base}{grove}); the checkout is not changed. /worktree show {id} · /worktree apply {id}",
         id = created.id,
     )
 }
@@ -343,6 +383,16 @@ mod tests {
             "Worktree fix-bug (HEAD + 2 uncommitted path(s)); the checkout is not changed. /worktree show fix-bug · /worktree apply fix-bug"
         );
         assert!(parse_created(&json!({"ok": true})).is_none());
+        let grove = parse_created(&json!({
+            "ok": true, "id": "g", "path": "/p/g", "branch": "codsh/g",
+            "sourceRoot": "/src", "grove": {"requested": true, "source": "env GROK_WORKTREE_TYPE"},
+        }))
+        .expect("record");
+        assert_eq!(grove.grove.as_deref(), Some("env GROK_WORKTREE_TYPE"));
+        assert!(start_notice(&grove).contains(
+            "Grove was requested (env GROK_WORKTREE_TYPE); this client has no Grove backend, so this is a plain git worktree"
+        ));
+        assert!(short_notice(&grove).contains("Grove requested, plain git worktree used"));
     }
 
     #[test]
@@ -362,11 +412,11 @@ mod tests {
             PathBuf::from("/h/.grok/worktrees")
         );
         assert_eq!(
-            dsh_env(Path::new("/h/.grok")),
-            vec![(
+            dsh_env(Path::new("/nonexistent-codsh-home/.grok"))[0],
+            (
                 "CODSH_WORKTREE_HOME".to_string(),
-                "/h/.grok/worktrees".to_string()
-            )]
+                "/nonexistent-codsh-home/.grok/worktrees".to_string()
+            )
         );
     }
 }

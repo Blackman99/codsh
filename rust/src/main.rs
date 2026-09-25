@@ -4,6 +4,7 @@ mod assets;
 mod attachments;
 mod auth;
 mod background;
+mod clone;
 mod config;
 mod content;
 mod control;
@@ -1716,7 +1717,7 @@ fn run_web(kind: &WebCommand, json: bool, loaded: &config::EffectiveConfig) -> i
 }
 
 fn short_help() -> &'static str {
-    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nRemote: --remote ssh://[user@]host[:port]/abs/path runs this client against codsh on another host over SSH (public key, pinned host key); see codsh --rust remote --help.\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -w/--worktree [NAME], --worktree-ref <REF>, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory, worktree.\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
+    "codsh --rust\n\nUsage: codsh --rust [OPTIONS] [COMMAND]\n\nRemote: --remote ssh://[user@]host[:port]/abs/path runs this client against codsh on another host over SSH (public key, pinned host key); see codsh --rust remote --help.\nPlain: -p/--single, --prompt-file, --prompt-json. --verbatim sends the prompt as given.\n-c/--continue, -r/--resume <id-or-title>, --fork-session, --max-turns <N>, --tools, --disallowed-tools.\nBoth modes: --cwd, -w/--worktree [NAME], --worktree-ref <REF>, -m/--model, --sandbox, --no-memory, --disable-web-search.\nShells: bash, elvish, fish, powershell, zsh via `completions <SHELL>`.\nCommands: help, completions, inspect, import, feedback, plugin, login, logout, setup, voice, web, sessions, dashboard, export, share, du, memory, worktree, clone (git as the Grove substitute; see codsh --rust clone --help).\n-h is this summary. --help prints the full text. Unknown options and missing values exit 2."
 }
 
 fn voice_help() -> &'static str {
@@ -7509,7 +7510,8 @@ fn enter_worktree(launch: &mut Launch) -> io::Result<()> {
     let source_session = worktree_resume_source(&launch.mode, &dsh_home)?;
     let pool = worktree::pool(&worktree::early_grok_home());
     let source = std::env::current_dir()?;
-    let created = worktree::create(&pool, &source, &launch.worktree)
+    let grove = clone::worktree_grove_request(&worktree::early_grok_home());
+    let created = worktree::create(&pool, &source, &launch.worktree, grove)
         .map_err(|error| io::Error::other(format!("-w/--worktree: {error}")))?;
     if let Some(source_session) = source_session {
         let forked = session_fork::fork_conversation_in(
@@ -7672,6 +7674,11 @@ fn run() -> io::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("remote") => return run_remote_command(&args[1..]),
+        Some("clone") => {
+            let mut rest = args[1..].to_vec();
+            let target = remote::extract_flags(&mut rest).map_err(usage_error)?;
+            std::process::exit(clone::run(&rest, target)?);
+        }
         Some(word @ ("workspace" | "cursor-worker")) => {
             return Err(usage_error(format!(
                 "codsh --rust {word}: this needs the official Computer Hub or Cursor worker relay (private infrastructure), which this client does not have. For a remote workspace use --remote ssh://[user@]host[:port]/abs/path; see codsh --rust remote --help"

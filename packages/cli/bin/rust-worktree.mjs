@@ -278,6 +278,11 @@ export function createWorktree(options) {
     parentSessionId: options.parentSessionId ?? null,
     ownerPid: options.ownerPid ?? null,
     applied: [],
+    // Always a plain git worktree. A Grove request (ticket 191: env
+    // GROK_WORKTREE_TYPE, [cli] grove_worktree, or enable-all) is recorded
+    // with the setting that asked; there is no Grove backend to use.
+    strategy: 'git',
+    grove: groveRequest(options.grove),
   }
   writeRecord(pool, record)
   let added = false
@@ -315,6 +320,12 @@ export function createWorktree(options) {
   record.sessionCwd = existsSync(inner) ? inner : path
   writeRecord(pool, record)
   return record
+}
+
+function groveRequest(source = process.env.CODSH_WORKTREE_GROVE) {
+  const text = typeof source === 'string' ? source.trim() : ''
+  if (!text) return null
+  return { requested: true, source: text.slice(0, 80), used: false, reason: 'no Grove backend in this client; plain git worktree' }
 }
 
 /** Find a record by id, label, or path (a path inside a worktree counts). */
@@ -786,7 +797,7 @@ function parseArgs(argv) {
   const positional = []
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
-    if (arg === '--repo' || arg === '--type' || arg === '--max-age' || arg === '--out' || arg === '--source' || arg === '--label' || arg === '--ref' || arg === '--session' || arg === '--pid' || arg === '--parent-session') {
+    if (arg === '--repo' || arg === '--type' || arg === '--max-age' || arg === '--out' || arg === '--source' || arg === '--label' || arg === '--ref' || arg === '--session' || arg === '--pid' || arg === '--parent-session' || arg === '--grove') {
       if (index + 1 >= argv.length) throw new WorktreeError(`${arg} needs a value`, 2)
       values[arg.slice(2)] = argv[++index]
     } else if (arg.startsWith('-')) {
@@ -835,6 +846,7 @@ export function runCli(argv, out = text => process.stdout.write(`${text}\n`)) {
         `  path:     ${record.path}${record.exists ? '' : ' (missing)'}`,
         `  branch:   ${record.branch ?? '-'}`,
         `  source:   ${record.sourceRoot}`,
+        `  strategy: plain git worktree${record.grove?.requested ? ` (Grove requested by ${record.grove.source}; this client has no Grove backend)` : ''}`,
         `  base:     ${String(record.baseCommit ?? '').slice(0, 12)}${record.ref ? ` (from ${record.ref})` : record.carried?.length ? ` (carried ${record.carried.length} uncommitted path(s))` : ''}`,
         `  session:  ${record.sessionId ?? '-'}${record.parentSessionId ? ` (delegated by ${record.parentSessionId})` : ''}`,
         `  created:  ${age(record.createdAt)} · last used ${age(record.lastAccessedAt)}`,
@@ -920,6 +932,7 @@ export function runCli(argv, out = text => process.stdout.write(`${text}\n`)) {
         type: parsed.values.type,
         sessionId: parsed.values.session,
         ownerPid: parsed.values.pid ? Number(parsed.values.pid) : undefined,
+        grove: parsed.values.grove ?? '',
       })
       out(JSON.stringify({ ok: true, ...record }))
       return 0

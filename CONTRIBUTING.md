@@ -603,7 +603,17 @@ restart reported as unknown effects with no retry. Both need OpenSSH: set
 `usr/bin/ssh-keygen` (for example `apt-get download openssh-client
 openssh-server` plus `dpkg -x`; add `libwrap0` and `libwtmpdb0` when they are
 missing), or have ssh/sshd on PATH. Without them the spec is skipped and the PTY
-script prints SKIP with the reason. Local MCP is checked by
+script prints SKIP with the reason. `codsh --rust clone` (ticket 191) is checked by
+`scripts/rust-clone.spec.mjs` (fixtures in `scripts/rust-clone-fixtures.mjs`)
+and `scripts/rust-clone-pty-test.py` against temporary local bare repositories
+only: file://, a loopback `git http-backend` behind a Basic-token check, and
+the same unprivileged OpenSSH server for ssh clones and `--remote` clones. It
+covers the gate order, depth/branch/tags, `--full-history`, cones, deepen,
+directory conflicts, a repeated clone that fetches nothing, failure and Ctrl-C
+cleanup (also a closed `--remote` connection), `GROVE_AUTH_TOKEN` versus
+`codsh --rust login`, the Grove worktree request with its plain-git fallback,
+and real dsh editing a file in the fresh clone, locally and on the SSH host.
+The SSH cases use `CODSH_TEST_OPENSSH` as above and are skipped without it. Local MCP is checked by
 `scripts/rust-mcp.spec.mjs` with the keyless stdio fixture
 `e2e/fixtures/rust-mcp-fixture.mjs` and real dsh: a configured server's tool
 writes its file exactly once after an ACP approval and not after a reject,

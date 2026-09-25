@@ -37,7 +37,15 @@ owner lease and reads no local history, `session/load` replay rebuilds the
 transcript, `_codsh/prompt_complete` finishes a turn that was running when it
 attached, and a stopped remote leader or dsh is an interrupted turn with unknown
 effects. The official Computer Hub, cloud workspaces, and the Cursor worker stay
-refused. Local MCP servers are
+refused. `codsh --rust clone` (ticket 191) is plain git standing in for the
+Grove lazy clone: off until `GROK_CLONE`/`GROVE_CLONE`, `GROK_GROVE`/`[cli]
+grove`, or Grove's `[clone] enabled`; depth-1 single-branch partial clone
+(`--full-history`, `--cone`), git's own credentials or `GROVE_AUTH_TOKEN` as an
+https header kept out of `.git/config`, a hidden staging directory renamed onto
+a missing or empty target so failure and cancel leave nothing, and `--remote`
+running the same clone on the SSH host. A Grove worktree request
+(`GROK_WORKTREE_TYPE`, `[cli] grove_worktree`, `GROK_GROVE`) is recorded and
+falls back to a plain git worktree; there is no daemon, projection, or mount. Local MCP servers are
 mounted by dsh's own MCP client from a per-process plan codsh-rust writes
 (`$DSH_HOME/mcp/run-*/plan.json`, `CODSH_MCP_PLAN`); a server that fails to
 start is dropped by name and the session still starts. Grok's `search_tool` and

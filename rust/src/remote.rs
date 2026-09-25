@@ -238,6 +238,13 @@ impl Target {
     /// any ssh_config entry, so a config file cannot turn forwarding or
     /// password prompts back on.
     pub fn ssh_args(&self) -> Vec<String> {
+        self.ssh_args_for(&format!("{} {REMOTE_AGENT_ARGS}", self.command))
+    }
+
+    /// The same hardened client for another remote command line (ticket
+    /// 191 runs `codsh --rust clone` there). `command_line` is passed to the
+    /// remote shell as one argument after `--` and the host.
+    pub fn ssh_args_for(&self, command_line: &str) -> Vec<String> {
         let mut args: Vec<String> = vec!["-T".into(), "-a".into(), "-x".into()];
         for option in [
             "BatchMode=yes",
@@ -283,7 +290,7 @@ impl Target {
         }
         args.push("--".into());
         args.push(self.host.clone());
-        args.push(format!("{} {REMOTE_AGENT_ARGS}", self.command));
+        args.push(command_line.to_string());
         args
     }
 

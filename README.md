@@ -116,6 +116,46 @@ cloud workspaces (`x.ai/cloud/*`), and the Cursor worker need private
 infrastructure and stay refused. Checked on Linux against a local OpenSSH
 server, not against another machine, macOS, or Windows.
 
+`codsh --rust clone [-b BRANCH] [--cone PATH]... [--full-history] <URL> [DIR]`
+clones with plain git in place of the reference Grove lazy clone. It is off
+until a reference gate turns it on: `GROK_CLONE` or `GROVE_CLONE`, then
+`GROK_GROVE` or `[cli] grove` in `$GROK_HOME/config.toml`, then `[clone]
+enabled` in Grove's `~/.config/grove/config.toml` (your real home); otherwise
+it exits 2 and says which setting turns it on. What stands in for each Grove
+behavior:
+
+| Grove (reference) | codsh substitute | Difference |
+| --- | --- | --- |
+| depth-1 bootstrap of the selected branch; `--full-history` for all history, branches, and tags | `git clone --depth=1 --single-branch --no-tags`; `--full-history` is `--no-single-branch` with tags | same shape; `git fetch --deepen=N origin` / `--unshallow origin` deepen only the selected branch, as documented. A local-path URL makes git ignore depth, and the summary says so (use `file://`) |
+| lazy blobs from the content store | partial clone `--filter=blob:none` | blobs of the checkout are fetched at clone time and others when git needs them; a server without filter support sends everything, and the summary says so |
+| `--cone` projection | `--sparse` plus `git sparse-checkout set --cone` | a real sparse checkout, not a projection |
+| daemon, FUSE/NFS mount, `--leader-socket` | none | the clone is a real checkout on disk; `--leader-socket` is refused; no performance comparison with Grove was made |
+| daemon auth: `GROVE_AUTH_TOKEN`, git credentials, `GROVE_TOKEN_ROTATION` | git's own credential helper, SSH keys, known_hosts, `GIT_SSH_COMMAND`; `GROVE_AUTH_TOKEN` as an https Authorization header | the token is sent only to https (or loopback http) remotes through git's environment config and never written to `.git/config`; rotation has no daemon and is reported as ignored; `codsh --rust login` is never used for git; a rejected credential is reported as `unavailable` (the daemon's `expired-static` and `carrier-stale` classes do not apply) |
+
+The target directory must be missing or empty; a non-empty directory, a file,
+or a symlink is refused (exit 3) and left alone. git writes into a hidden
+sibling staging directory that is renamed onto the target only after the clone
+and checkout succeed, so a failure (exit 1, the URL scrubbed from the message),
+a rejected credential (exit 4), or Ctrl-C (exit 130) leaves nothing behind and
+an empty target stays empty; a staging directory left by a killed process is
+removed by the next clone. Running the same clone again into a finished clone
+with the same origin reports it and fetches nothing (a different `-b` is exit
+3). The summary prints the checkout, history depth, blob mode, backend (git
+version), and credential source, then `Next: cd DIR && codsh --rust`.
+`--remote ssh://[user@]host[:port]/abs/base` (a codsh extension; the reference
+clone has no remote form) runs the same clone on that host under the remote's
+own gate and git credentials, with the SSH rules above; `GROVE_AUTH_TOKEN` is
+not sent, a closed connection cancels the remote clone and removes its partial
+directory, and the next step is `codsh --rust --remote <url>/<dir>`. The
+worktree gate follows the reference order too: `GROK_WORKTREE_TYPE`, then
+`[cli] grove_worktree` / `nfs_worktree` / `worktree_type`, then `GROK_GROVE` or
+`[cli] grove`. A Grove request is recorded on the worktree (`worktree show`)
+and falls back to a plain git worktree with a full checkout, as the reference
+does when Grove is unreachable. There is no remote-settings layer. Checked on
+Linux against local bare repositories (file://, a local `git http-backend`
+over http with a token, and a local OpenSSH server), not against GitHub, a real
+Grove, macOS, or Windows.
+
 Local MCP servers run inside dsh's own MCP client; codsh does not start a
 second one. `codsh --rust mcp list|add|remove|enable|disable|doctor` edits and
 checks `[mcp_servers.<name>]` in `$GROK_HOME/config.toml` (stdio `command`,
