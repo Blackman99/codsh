@@ -102,6 +102,17 @@ uuid-simd 0.8.0 and vsimd 0.8.0 (pulled in by jsonschema's format checks) ship
 no license file, so their MIT text comes from the Nugine/simd repository at the
 crate VCS revision recorded in import.json.
 
+Ticket 74 (#206) adds upstream/workflows/deep_research.rhai, an unmodified
+copy of crates/codegen/xai-grok-shell/src/session/workflows/deep_research.rhai
+at the pinned commit (Apache-2.0, see LICENSE and xai-workflow/NOTICE). It is
+compiled into the binary as the built-in `deep-research` workflow by local
+`src/workflow_catalog.rs` (BUILTIN_WORKFLOWS, written against the reference
+registry.rs, not copied); a unit test compares its SHA-256 with the entry in
+import.json. The `/deep-research` slash command, its replies, and the save
+refusal follow the reference slash_exec.rs and workflow.rs text in
+`packages/cli/bin/rust-acp-workflow.mjs`. The reference bundled workflow scope
+(downloaded workflows) is not reproduced.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

@@ -2,10 +2,14 @@
 //!
 //! The reference registry (`xai-grok-shell` `session/workflow/registry.rs`)
 //! scans bundled, built-in, project and user workflows in that order and keeps
-//! the first definition of each name. This build has no bundled or built-in
-//! workflows (service flows such as deep research ship in their own tickets),
-//! so the catalog is the project's `.grok/workflows` (only in a trusted
-//! folder; it shadows the user scope) and `$GROK_HOME/workflows`.
+//! the first definition of each name. Ticket 206 adds the built-in scope: the
+//! reference `deep-research` script, pinned byte for byte from grok-build
+//! (`rust/upstream/workflows`, recorded in `rust/upstream/import.json`) and
+//! compiled into the binary. Built-ins win over project and personal files of
+//! the same name, as in the reference. This build has no bundled scope (the
+//! reference downloads it from a managed bucket), so the catalog is the
+//! built-ins, the project's `.grok/workflows` (only in a trusted folder; it
+//! shadows the user scope) and `$GROK_HOME/workflows`.
 //!
 //! Discovery reads files and never runs them: a `.rhai` file is read with the
 //! trusted-source rules (no symlink, regular file, at most 1 MiB, UTF-8), its
@@ -51,8 +55,40 @@ const TRUNCATION_MARKER: &str = "…";
 const MAX_SHOWN_INVALID: usize = 10;
 const MAX_SHOWN_ERROR_BYTES: usize = 240;
 
+/// A workflow compiled into the binary (reference `BUILTIN_WORKFLOWS`).
+pub struct BuiltinWorkflow {
+    pub name: &'static str,
+    pub script: &'static str,
+    /// Where the pinned copy lives in this repository.
+    pub repo_path: &'static str,
+    /// The file it copies in the pinned grok-build commit.
+    pub upstream_path: &'static str,
+    /// The reference slash command's menu description (`BuiltinCommand`).
+    pub command_description: &'static str,
+    pub argument_hint: &'static str,
+}
+
+/// The grok-build commit the built-in scripts are pinned to (the `commit`
+/// of `rust/upstream/import.json`).
+pub const BUILTIN_UPSTREAM_COMMIT: &str = "a28ee2b";
+
+pub const BUILTIN_WORKFLOWS: &[BuiltinWorkflow] = &[BuiltinWorkflow {
+    name: "deep-research",
+    script: include_str!("../upstream/workflows/deep_research.rhai"),
+    repo_path: "rust/upstream/workflows/deep_research.rhai",
+    upstream_path: "crates/codegen/xai-grok-shell/src/session/workflows/deep_research.rhai",
+    command_description: "Research with bounded parallel agents, cross-check evidence, and write a cited report",
+    argument_hint: "<query>",
+}];
+
+/// Whether `name` is a built-in workflow (which cannot be saved over).
+pub fn is_builtin(name: &str) -> bool {
+    BUILTIN_WORKFLOWS.iter().any(|builtin| builtin.name == name)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CatalogScope {
+    Builtin,
     Project,
     User,
     Plugin,
@@ -61,6 +97,7 @@ pub enum CatalogScope {
 impl CatalogScope {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Builtin => "builtin",
             Self::Project => "project",
             Self::User => "user",
             Self::Plugin => "plugin",
@@ -169,11 +206,33 @@ impl Entry {
         }
     }
 
-    /// `project`, `user`, or `plugin <name>`.
+    /// `builtin`, `project`, `user`, or `plugin <name>`.
     pub fn scope_label(&self) -> String {
         match &self.plugin {
             Some(plugin) => format!("plugin {}", plugin.name),
             None => self.scope.label().to_string(),
+        }
+    }
+
+    /// The pinned upstream source of a built-in workflow.
+    pub fn builtin(&self) -> Option<&'static BuiltinWorkflow> {
+        if self.scope != CatalogScope::Builtin {
+            return None;
+        }
+        BUILTIN_WORKFLOWS
+            .iter()
+            .find(|builtin| builtin.name == self.meta.name)
+    }
+
+    /// Where the script can be read: its file, or for a built-in whose
+    /// source tree is not on this machine, what it was compiled from.
+    pub fn location(&self) -> String {
+        match self.builtin() {
+            Some(builtin) if !self.path.is_file() => format!(
+                "built in ({}, pinned from grok-build {BUILTIN_UPSTREAM_COMMIT} {})",
+                builtin.repo_path, builtin.upstream_path
+            ),
+            _ => self.path.display().to_string(),
         }
     }
 
@@ -184,6 +243,10 @@ impl Entry {
             "callName": self.call_name(),
             "path": self.path.display().to_string(),
             "plugin": self.plugin.as_ref().map(PluginOrigin::json),
+            "upstream": self.builtin().map(|builtin| json!({
+                "commit": BUILTIN_UPSTREAM_COMMIT,
+                "path": builtin.upstream_path,
+            })),
         })
     }
 }
@@ -364,6 +427,9 @@ pub fn scan_with(scope: &Scope, plugins: &[PluginWorkflowSource]) -> Catalog {
         plugins: Vec::new(),
         plugin_conflicts: BTreeMap::new(),
     };
+    let (builtins, skipped) = builtin_entries();
+    catalog.skipped.extend(skipped);
+    merge_scope(&mut catalog, builtins);
     let mut dirs = Vec::new();
     if scope.trusted {
         dirs.push((project_dir, CatalogScope::Project));
@@ -385,6 +451,50 @@ pub fn scan_with(scope: &Scope, plugins: &[PluginWorkflowSource]) -> Catalog {
     catalog.shadowed.extend(ambiguous);
     add_plugins(&mut catalog, plugins);
     catalog
+}
+
+/// The built-in workflows. Each is checked like a file (its `meta.name` must
+/// be its registered name); one that fails is reported, not dropped.
+fn builtin_entries() -> (Vec<Entry>, Vec<Skipped>) {
+    let mut entries = Vec::new();
+    let mut skipped = Vec::new();
+    for builtin in BUILTIN_WORKFLOWS {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("upstream")
+            .join("workflows")
+            .join(
+                Path::new(builtin.repo_path)
+                    .file_name()
+                    .expect("built-in file name"),
+            );
+        let checked = parse_workflow(builtin.script, None).and_then(|meta| {
+            if meta.name == builtin.name {
+                Ok(meta)
+            } else {
+                Err(format!(
+                    "built-in workflow '{}' declares meta.name '{}'",
+                    builtin.name, meta.name
+                ))
+            }
+        });
+        match checked {
+            Ok(meta) => entries.push(Entry {
+                meta,
+                script: builtin.script.to_string(),
+                scope: CatalogScope::Builtin,
+                path,
+                plugin: None,
+                bare: true,
+            }),
+            Err(error) => skipped.push(Skipped {
+                path,
+                scope: CatalogScope::Builtin,
+                error,
+                plugin: None,
+            }),
+        }
+    }
+    (entries, skipped)
 }
 
 /// Active plugins' workflows after the project and personal ones; every
@@ -666,7 +776,14 @@ pub fn listing(catalog: &Catalog) -> Option<String> {
                 truncate_with_marker(when, when_budget)
             ));
         }
-        body.push_str(&format!("\n  Absolute path: {}", entry.path.display()));
+        // The reference lists the built-in's source path too; here it is
+        // listed only when that file exists, so the model is never pointed
+        // at a path it cannot read.
+        if entry.path.is_file() {
+            body.push_str(&format!("\n  Absolute path: {}", entry.path.display()));
+        } else {
+            body.push_str(&format!("\n  Source: {}", entry.location()));
+        }
     }
     Some(body)
 }
@@ -682,45 +799,67 @@ fn squash(text: &str) -> String {
 /// whether `/<name>` is already a command.
 pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
     let mut lines = Vec::new();
-    if catalog.entries.is_empty() {
+    let shown = |entry: &Entry| {
+        let name = entry.call_name();
+        if taken(&name) {
+            format!(
+                "{name} [{}, run with /workflow {name}]",
+                entry.scope_label()
+            )
+        } else {
+            format!("/{name} [{}]", entry.scope_label())
+        }
+    };
+    let saved: Vec<&Entry> = catalog
+        .entries
+        .iter()
+        .filter(|entry| entry.scope != CatalogScope::Builtin)
+        .collect();
+    if saved.is_empty() {
         lines.push("No saved workflows found.".to_string());
     } else {
-        let names: Vec<String> = catalog
-            .entries
-            .iter()
-            .map(|entry| {
-                let name = entry.call_name();
-                if taken(&name) {
-                    format!(
-                        "{name} [{}, run with /workflow {name}]",
-                        entry.scope_label()
-                    )
-                } else {
-                    format!("/{name} [{}]", entry.scope_label())
-                }
-            })
-            .collect();
+        let names: Vec<String> = saved.iter().map(|entry| shown(entry)).collect();
         lines.push(format!(
             "Saved workflows ({}): {}.",
-            catalog.entries.len(),
+            saved.len(),
             names.join(", ")
         ));
     }
-    let mut hidden: Vec<String> = catalog
-        .shadowed
+    let builtins: Vec<String> = catalog
+        .entries
         .iter()
-        .filter(|entry| {
-            entry.plugin.is_none() && !catalog.duplicates.contains_key(&entry.meta.name)
+        .filter(|entry| entry.scope == CatalogScope::Builtin)
+        .map(|entry| {
+            shown(entry)
+                .replace(" [builtin]", "")
+                .replace("builtin, ", "")
         })
-        .map(|entry| format!("{} [{}]", entry.meta.name, entry.scope.label()))
         .collect();
-    hidden.dedup();
     let mut problems = Vec::new();
-    if !hidden.is_empty() {
-        problems.push(format!(
-            "Hidden: {} (a project workflow of the same name takes precedence)",
-            hidden.join(", ")
-        ));
+    for (winner, why) in [
+        (
+            CatalogScope::Builtin,
+            "a built-in workflow of the same name takes precedence",
+        ),
+        (
+            CatalogScope::Project,
+            "a project workflow of the same name takes precedence",
+        ),
+    ] {
+        let mut hidden: Vec<String> = catalog
+            .shadowed
+            .iter()
+            .filter(|entry| {
+                entry.plugin.is_none()
+                    && !catalog.duplicates.contains_key(&entry.meta.name)
+                    && winner_scope(catalog, &entry.meta.name) == Some(winner)
+            })
+            .map(|entry| format!("{} [{}]", entry.meta.name, entry.scope.label()))
+            .collect();
+        hidden.dedup();
+        if !hidden.is_empty() {
+            problems.push(format!("Hidden: {} ({why})", hidden.join(", ")));
+        }
     }
     for (name, scope) in &catalog.duplicates {
         match name.split_once(':') {
@@ -774,23 +913,37 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
         .as_ref()
         .map(|dir| format!("{} (user)", dir.display()))
         .unwrap_or_else(|| "no user folder (GROK_HOME is unset)".into());
+    let built_in = if builtins.is_empty() {
+        String::new()
+    } else {
+        format!("Built in (first): {}. ", builtins.join(", "))
+    };
     if catalog.project_trusted {
         lines.push(format!(
-            "Folders: {} (project, first), {user}, then active plugins. Built-in workflows ship separately.",
+            "{built_in}Folders: {} (project), {user}, then active plugins.",
             catalog.project_dir.display()
         ));
     } else {
         lines.push(format!(
-            "Folders: {user}, then active plugins; {} loads once this folder is trusted. Built-in workflows ship separately.",
+            "{built_in}Folders: {user}, then active plugins; {} loads once this folder is trusted.",
             catalog.project_dir.display()
         ));
     }
-    if catalog.entries.is_empty() {
+    if saved.is_empty() {
         lines.push("Add <name>.rhai files (named after meta.name) to a folder above, save a run with /workflow save <name>, or enable a plugin that ships workflows.".into());
     } else {
         lines.push("Run /<name> or /workflow <name> [--agent-budget N] [--effort LEVEL] [text | JSON args]; details: /workflows <name>; keep a run: /workflow save <name>.".into());
     }
     lines.join("\n")
+}
+
+/// The scope of the runnable bare-name entry `name` resolves to.
+fn winner_scope(catalog: &Catalog, name: &str) -> Option<CatalogScope> {
+    catalog
+        .entries
+        .iter()
+        .find(|entry| entry.bare && entry.meta.name == name)
+        .map(|entry| entry.scope)
 }
 
 /// Plugin workflows that only run qualified, offered by several plugins, or
@@ -883,6 +1036,11 @@ pub fn detail(catalog: &Catalog, name: &str, taken: &dyn Fn(&str) -> bool) -> St
                 runs.push(format!(
                     "/workflow {run} [args] (/{run} is taken by another command)"
                 ));
+            } else if let Some(builtin) = entry.builtin() {
+                runs.push(format!(
+                    "/{run} {} or /workflow {run} [args]",
+                    builtin.argument_hint
+                ));
             } else {
                 runs.push(format!("/{run} [args] or /workflow {run} [args]"));
             }
@@ -893,6 +1051,8 @@ pub fn detail(catalog: &Catalog, name: &str, taken: &dyn Fn(&str) -> bool) -> St
             if !entry.bare {
                 let why = if catalog.plugin_conflicts.contains_key(&entry.meta.name) {
                     "other plugins offer it too"
+                } else if winner_scope(catalog, &entry.meta.name) == Some(CatalogScope::Builtin) {
+                    "the built-in workflow owns it"
                 } else {
                     "a project or personal workflow owns it"
                 };
@@ -902,12 +1062,21 @@ pub fn detail(catalog: &Catalog, name: &str, taken: &dyn Fn(&str) -> bool) -> St
                 ));
             }
         }
-        lines.push(format!("Path: {}", entry.path.display()));
+        if let Some(builtin) = entry.builtin() {
+            lines.push(format!(
+                "Built in: pinned byte for byte from grok-build {BUILTIN_UPSTREAM_COMMIT} {} (Apache-2.0); it wins over project and personal files of the same name and cannot be saved over.",
+                builtin.upstream_path
+            ));
+        }
+        lines.push(format!("Path: {}", entry.location()));
     }
     for entry in catalog.shadowed.iter().filter(|entry| matches(entry)) {
         let why = match &entry.plugin {
             Some(_) => "the name is defined twice in this plugin".to_string(),
             None if catalog.duplicates.contains_key(name) => "the name is ambiguous".into(),
+            None if winner_scope(catalog, name) == Some(CatalogScope::Builtin) => {
+                "the built-in workflow takes precedence".into()
+            }
             None => "the project workflow takes precedence".into(),
         };
         lines.push(format!(
@@ -982,15 +1151,23 @@ pub fn menu_entries(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> Vec<(Str
         .entries
         .iter()
         .filter(|entry| !taken(&entry.call_name()))
-        .map(|entry| {
-            (
+        .map(|entry| match entry.builtin() {
+            // A built-in keeps the reference command row: `/deep-research <query>`.
+            Some(builtin) => (
+                format!("/{}", entry.call_name()),
+                format!(
+                    "built-in workflow · {}  {}",
+                    builtin.argument_hint, builtin.command_description
+                ),
+            ),
+            None => (
                 format!("/{}", entry.call_name()),
                 format!(
                     "workflow · {}  {}",
                     entry.scope_label(),
                     truncate_with_marker(&squash(&entry.meta.description), 120)
                 ),
-            )
+            ),
         })
         .collect()
 }
@@ -1005,6 +1182,11 @@ pub fn to_json(catalog: &Catalog) -> Value {
             "callName": entry.call_name(),
             "plugin": entry.plugin.as_ref().map(PluginOrigin::json),
             "path": entry.path.display().to_string(),
+            "location": entry.location(),
+            "upstream": entry.builtin().map(|builtin| json!({
+                "commit": BUILTIN_UPSTREAM_COMMIT,
+                "path": builtin.upstream_path,
+            })),
         })
     };
     json!({
@@ -1034,11 +1216,24 @@ impl SaveError {
     }
 }
 
+/// The reference refusal for saving over a built-in workflow.
+pub fn builtin_save_refusal(name: &str) -> String {
+    format!(
+        "Save is disabled for built-in workflow '{name}', which is already runnable. To customize it, create a copy with a new unique meta.name."
+    )
+}
+
 /// Reference `save_project_workflow`: `<project>/.grok/workflows/<name>.rhai`,
 /// never replacing an existing file.
 pub fn save_project(scope: &Scope, name: &str, script: &str) -> Result<PathBuf, SaveError> {
     if !valid_name(name) {
         return Err(SaveError::new("workflow_invalid_input", invalid_name(name)));
+    }
+    if is_builtin(name) {
+        return Err(SaveError::new(
+            "workflow_builtin",
+            builtin_save_refusal(name),
+        ));
     }
     let root = project_root(&scope.cwd);
     if !scope.trusted {
@@ -1316,6 +1511,7 @@ mod tests {
         assert_eq!(
             names,
             [
+                ("deep-research", CatalogScope::Builtin),
                 ("review", CatalogScope::Project),
                 ("notes", CatalogScope::User)
             ]
@@ -1392,7 +1588,7 @@ mod tests {
             .iter()
             .map(|entry| entry.meta.name.as_str())
             .collect();
-        assert_eq!(names, ["good", "spin"]);
+        assert_eq!(names, ["deep-research", "good", "spin"]);
         let reasons: BTreeMap<String, String> = catalog
             .skipped
             .iter()
@@ -1450,7 +1646,7 @@ mod tests {
         std::fs::create_dir_all(fx.project.join(".grok")).unwrap();
         std::os::unix::fs::symlink(&elsewhere, fx.project_dir()).unwrap();
         let catalog = scan(&fx.scope(true));
-        assert!(catalog.entries.is_empty());
+        assert!(saved(&catalog).is_empty());
         assert_eq!(catalog.skipped.len(), 1);
         assert!(
             catalog.skipped[0]
@@ -1522,7 +1718,168 @@ mod tests {
             "- beta: short\n  Absolute path: {}",
             fx.user_dir().join("beta.rhai").display()
         )));
-        assert!(listing(&scan(&fx.scope(false).clone_with_home(None))).is_none());
+        // Only the built-in is left without folders; its source is named.
+        let builtin_only = listing(&scan(&fx.scope(false).clone_with_home(None))).unwrap();
+        assert!(builtin_only.starts_with(&format!("{LISTING_HEADER}- deep-research: ")));
+        assert_eq!(builtin_only.matches("\n- ").count(), 1, "{builtin_only}");
+        assert!(
+            builtin_only.contains("\n  Absolute path: ")
+                || builtin_only.contains("\n  Source: built in ("),
+            "{builtin_only}"
+        );
+    }
+
+    /// Reference `every_builtin_validates_and_matches_its_registered_name`,
+    /// plus the pin: each script is the upstream file byte for byte, as
+    /// recorded in `rust/upstream/import.json`, and the dry-run validator
+    /// accepts it.
+    #[test]
+    fn every_builtin_validates_matches_its_name_and_its_pin() {
+        use sha2::Digest;
+        let manifest: Value =
+            serde_json::from_str(include_str!("../upstream/import.json")).unwrap();
+        assert!(
+            manifest["commit"]
+                .as_str()
+                .unwrap()
+                .starts_with(BUILTIN_UPSTREAM_COMMIT)
+        );
+        for builtin in BUILTIN_WORKFLOWS {
+            let meta = xai_workflow::extract_meta(builtin.script)
+                .unwrap_or_else(|e| panic!("builtin '{}' must validate: {e}", builtin.name));
+            assert_eq!(meta.name, builtin.name);
+            assert!(
+                meta.when_to_use
+                    .as_deref()
+                    .is_some_and(|text| !text.is_empty())
+            );
+            let local = builtin.repo_path.strip_prefix("rust/").unwrap();
+            let pinned = manifest["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|file| file["path"] == local)
+                .unwrap_or_else(|| panic!("{local} is not recorded in import.json"));
+            assert_eq!(pinned["upstreamPath"], builtin.upstream_path);
+            assert!(pinned.get("modified").is_none(), "built-ins are unmodified");
+            let digest = format!("{:x}", sha2::Sha256::digest(builtin.script.as_bytes()));
+            assert_eq!(pinned["upstreamSha256"], digest.as_str());
+            let on_disk = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(local)).unwrap();
+            assert_eq!(on_disk, builtin.script.as_bytes());
+            let report = xai_workflow::validate_script_with_agent_budget(
+                builtin.script,
+                Some(json!({"query": "What changed in Rhai 1.20?"})),
+                xai_workflow::DEFAULT_AGENT_BUDGET,
+            )
+            .unwrap_or_else(|e| panic!("builtin '{}' dry run: {e}", builtin.name));
+            assert_eq!(report.name, builtin.name);
+        }
+    }
+
+    /// Reference `deep_research_binds_shards_and_renders_verified_claims`.
+    #[test]
+    fn deep_research_binds_shards_and_renders_verified_claims() {
+        let script = BUILTIN_WORKFLOWS
+            .iter()
+            .find(|builtin| builtin.name == "deep-research")
+            .map(|builtin| builtin.script)
+            .expect("deep-research builtin registered");
+        assert!(script.contains("expected_ids[shard_idx]"));
+        assert!(script.contains("verification_results[assigned_shard]"));
+        assert!(script.contains("verified_claim_ids"));
+        assert!(script.contains("**Status: Partial**"));
+        assert!(!script.contains("label: \"research-reporter\""));
+        assert!(script.contains("label: \"report-synthesizer\""));
+        assert!(script.contains("<report-body>"));
+        assert!(!script.contains("output_schema: synthesis_schema"));
+        assert!(script.contains("failed citation validation"));
+        assert!(script.contains("let findings_fallback"));
+        assert!(script.contains("full_report += \"\\n## Sources\\n\""));
+        assert!(script.contains("report: chat_report"));
+        assert!(!script.contains("chat_report += \"\\n## Sources\\n\""));
+    }
+
+    #[test]
+    fn a_builtin_wins_over_project_user_and_plugin_names() {
+        let fx = Fixture::new();
+        let fake = script("deep-research", "a simplified copy");
+        fx.write(&fx.project_dir(), "deep-research.rhai", &fake);
+        fx.write(&fx.user_dir(), "deep-research.rhai", &fake);
+        let plugin = plugin_source(&fx, "demo", "active");
+        fx.write(&plugin.dirs[0], "deep-research.rhai", &fake);
+        let catalog = scan_with(&fx.scope(true), &[plugin]);
+
+        let entry = catalog.find("deep-research").unwrap();
+        assert_eq!(entry.scope, CatalogScope::Builtin);
+        assert_eq!(entry.script, BUILTIN_WORKFLOWS[0].script);
+        assert_eq!(entry.origin_json()["scope"], "builtin");
+        assert_eq!(
+            entry.origin_json()["upstream"]["path"],
+            BUILTIN_WORKFLOWS[0].upstream_path
+        );
+        assert_eq!(
+            catalog.find("demo:deep-research").unwrap().meta.description,
+            "a simplified copy"
+        );
+        assert_eq!(catalog.shadowed.len(), 2);
+
+        let text = overview(&catalog, &|_| false);
+        assert!(
+            text.contains("Hidden: deep-research [project], deep-research [user] (a built-in workflow of the same name takes precedence)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Qualified only: demo:deep-research"),
+            "{text}"
+        );
+        assert!(
+            text.starts_with("Saved workflows (1): /demo:deep-research [plugin demo]."),
+            "{text}"
+        );
+        assert!(
+            text.contains("Built in (first): /deep-research. Folders: "),
+            "{text}"
+        );
+
+        let about = detail(&catalog, "deep-research", &|_| false);
+        assert!(
+            about.starts_with("deep-research [builtin] — Research a query"),
+            "{about}"
+        );
+        assert!(about.contains("Built in: pinned byte for byte from grok-build a28ee2b crates/codegen/xai-grok-shell/src/session/workflows/deep_research.rhai (Apache-2.0)"), "{about}");
+        assert!(
+            about.contains("[project] — the built-in workflow takes precedence."),
+            "{about}"
+        );
+        assert!(
+            about.contains("[user] — the built-in workflow takes precedence."),
+            "{about}"
+        );
+        assert!(
+            about.contains("Run: /deep-research <query> or /workflow deep-research [args]"),
+            "{about}"
+        );
+        let plugin_about = detail(&catalog, "demo:deep-research", &|_| false);
+        assert!(
+            plugin_about
+                .contains("/deep-research does not run this one: the built-in workflow owns it."),
+            "{plugin_about}"
+        );
+
+        let error = save_project(&fx.scope(true), "deep-research", &fake).unwrap_err();
+        assert_eq!(error.code, "workflow_builtin");
+        assert_eq!(
+            error.message,
+            "Save is disabled for built-in workflow 'deep-research', which is already runnable. To customize it, create a copy with a new unique meta.name."
+        );
+    }
+
+    fn saved(catalog: &Catalog) -> Vec<&Entry> {
+        catalog
+            .entries
+            .iter()
+            .filter(|entry| entry.scope != CatalogScope::Builtin)
+            .collect()
     }
 
     impl Scope {
@@ -1547,7 +1904,14 @@ mod tests {
         let catalog = scan(&fx.scope(false));
         let taken = |name: &str| name == "plan";
         assert_eq!(
-            menu_entries(&catalog, &taken),
+            menu_entries(&catalog, &taken)[..1],
+            [(
+                "/deep-research".to_string(),
+                "built-in workflow · <query>  Research with bounded parallel agents, cross-check evidence, and write a cited report".to_string()
+            )]
+        );
+        assert_eq!(
+            menu_entries(&catalog, &taken)[1..],
             [(
                 "/triage".to_string(),
                 "workflow · user  Sort issues".to_string()
@@ -1570,7 +1934,9 @@ mod tests {
         assert!(empty.starts_with("No saved workflows found."), "{empty}");
         assert!(empty.contains("then active plugins"), "{empty}");
         assert!(
-            empty.contains("Built-in workflows ship separately."),
+            empty.starts_with(
+                "No saved workflows found.\nBuilt in (first): /deep-research. Folders: "
+            ),
             "{empty}"
         );
     }
@@ -1663,8 +2029,11 @@ mod tests {
         request["op"] = json!("catalog");
         let reply = serve_op(&request).unwrap();
         assert_eq!(reply["type"], "catalog");
-        assert_eq!(reply["entries"][0]["name"], "notes");
-        assert_eq!(reply["entries"][0]["scope"], "user");
+        assert_eq!(reply["entries"][0]["name"], "deep-research");
+        assert_eq!(reply["entries"][0]["scope"], "builtin");
+        assert_eq!(reply["entries"][0]["upstream"]["commit"], "a28ee2b");
+        assert_eq!(reply["entries"][1]["name"], "notes");
+        assert_eq!(reply["entries"][1]["scope"], "user");
         assert!(
             reply["listing"]
                 .as_str()
@@ -1756,7 +2125,7 @@ mod tests {
         assert!(!catalog.knows("demo:ghost"));
 
         let names: Vec<String> = catalog.entries.iter().map(Entry::call_name).collect();
-        assert_eq!(names, ["review", "demo:review", "triage"]);
+        assert_eq!(names, ["deep-research", "review", "demo:review", "triage"]);
         let list = listing(&catalog).unwrap();
         assert!(list.contains("- demo:review: plugin review"), "{list}");
         assert!(list.contains("- triage: plugin triage"), "{list}");
@@ -1797,16 +2166,16 @@ mod tests {
 
         let menu = menu_entries(&catalog, &|name| name == "triage");
         let rows: Vec<&str> = menu.iter().map(|(name, _)| name.as_str()).collect();
-        assert_eq!(rows, ["/review", "/demo:review"]);
+        assert_eq!(rows, ["/deep-research", "/review", "/demo:review"]);
         assert!(
-            menu[1]
+            menu[2]
                 .1
                 .starts_with("workflow · plugin demo  plugin review")
         );
 
         let value = to_json(&catalog);
-        assert_eq!(value["entries"][1]["callName"], "demo:review");
-        assert_eq!(value["entries"][1]["plugin"]["license"], "MIT");
+        assert_eq!(value["entries"][2]["callName"], "demo:review");
+        assert_eq!(value["entries"][2]["plugin"]["license"], "MIT");
         assert_eq!(value["plugins"][0]["status"], "active");
         assert_eq!(value["skipped"][0]["plugin"], "demo");
         assert!(value["listing"].as_str().unwrap().contains("demo:review"));
@@ -1897,7 +2266,7 @@ mod tests {
                 &script("deploy", "never loads"),
             );
             let catalog = scan_with(&fx.scope(true), &[off]);
-            assert!(catalog.entries.is_empty(), "{status}");
+            assert!(saved(&catalog).is_empty(), "{status}");
             let expected = format!(
                 "workflow 'deploy' is not available: plugin 'off' is {status} ({status} for the test)"
             );
@@ -1907,7 +2276,7 @@ mod tests {
                 expected.replace("'deploy'", "'off:deploy'")
             );
             assert!(catalog.knows("deploy"));
-            assert!(listing(&catalog).is_none());
+            assert!(!listing(&catalog).unwrap().contains("deploy"));
             let text = overview(&catalog, &|_| false);
             assert!(
                 text.contains(&format!(

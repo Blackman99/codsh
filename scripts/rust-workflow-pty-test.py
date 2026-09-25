@@ -35,10 +35,19 @@ the free bare name and /<plugin>:<name> the one a project workflow owns, both
 with real dsh children, and after `plugin disable` -p by the qualified name is
 refused with the plugin's state.
 
+Ticket 206 adds the built-in deep-research workflow, pinned byte for byte from
+grok-build: /workflows shows it first with its pin and hides a same-named
+project file, the slash menu offers /deep-research, and a run against a
+keyless fake SearXNG and page server (config.toml, loopback only) plans,
+searches, fetches to verify, and reports a cited, verified result; a plain
+-p run by name reports a rate-limited branch and a contradicted claim as
+partial.
+
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first); the binary is also the workflow
 engine. It reuses the Session harness of rust-screen-pty-test.py.
 """
+import http.server
 import importlib.util
 import json
 import os
@@ -173,6 +182,147 @@ def engines(root):
         except OSError:
             continue
     return found
+
+
+class FakeWeb(http.server.BaseHTTPRequestHandler):
+    """A keyless fake SearXNG (/search?format=json) and the pages it points at."""
+    base = ''
+    searches = []
+    pages = []
+    RESULTS = {
+        'alpha': ('Alpha Notes', '/alpha', 'Alpha ships with 3 engines.'),
+        'beta': ('Beta Notes', '/beta', 'Beta was released in 2021.'),
+        'gamma': ('Gamma Notes', '/gamma', 'Gamma supports 9 languages.'),
+    }
+    BODIES = {
+        '/alpha': 'Alpha Notes\n\nAlpha ships with 3 engines. Each engine is documented separately.',
+        '/beta': 'Beta Notes\n\nBeta was released in 2021. It followed a long preview.',
+        '/gamma': 'Gamma Notes\n\nGamma supports 2 languages today.',
+    }
+
+    def log_message(self, fmt, *args):
+        return
+
+    def do_GET(self):
+        from urllib.parse import parse_qs, urlsplit
+        parts = urlsplit(self.path)
+        if parts.path == '/search':
+            query = parse_qs(parts.query).get('q', [''])[0]
+            FakeWeb.searches.append(query)
+            if 'RATELIMIT' in query:
+                self.send_response(429)
+                self.end_headers()
+                self.wfile.write(b'slow down')
+                return
+            hits = [{'title': title, 'url': FakeWeb.base + path, 'content': content}
+                    for key, (title, path, content) in FakeWeb.RESULTS.items() if key in query.lower()]
+            body = json.dumps({'query': query, 'results': hits}).encode()
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        FakeWeb.pages.append(parts.path)
+        body = FakeWeb.BODIES.get(parts.path)
+        self.send_response(200 if body else 404)
+        self.send_header('content-type', 'text/plain; charset=utf-8')
+        self.end_headers()
+        self.wfile.write((body or 'not found').encode())
+
+
+def deep_research(work, cwd, home, grok_home, project_workflows, env, output, plain):
+    import threading
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), FakeWeb)
+    port = server.server_address[1]
+    FakeWeb.base = f'http://127.0.0.1:{port}'
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    result = {}
+    try:
+        (grok_home / 'config.toml').write_text('\n'.join([
+            '[models]', 'web_search = "searx"', '',
+            '[model.searx]', 'model = "searx"', f'base_url = "http://127.0.0.1:{port}"', 'protocol = "searxng"',
+            'supports_backend_search = true', '',
+            '[features]', 'web_fetch = true', '',
+            '[toolset.web_fetch]', f'allowed_domains = ["127.0.0.1:{port}"]', 'allow_local = true', '',
+        ]))
+        # The test overlay mirrors what the client enables from config.toml.
+        saved = {key: os.environ.get(key) for key in ('CODSH_WEB_SEARCH', 'CODSH_WEB_FETCH')}
+        os.environ['CODSH_WEB_SEARCH'] = '1'
+        os.environ['CODSH_WEB_FETCH'] = '1'
+        try:
+            patch = work / 'overlay-web.yml'
+            patch.write_text(screen.overlay_text())
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        web_env = {**env, 'CODSH_ACP_PATCH': str(patch)}
+        fake = project_workflows / 'deep-research.rhai'
+        fake.write_text('let meta = #{ name: "deep-research", description: "a simplified copy" };\n"FAKE_REPORT"\n')
+        session = Session('research', LAUNCHER, cwd, web_env, output,
+                          extra=['--fullscreen', '--always-approve', '--trust'], cols=150, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            prompt(session, '/workflows')
+            shown = wait_until(session, lambda s: 'Built in (first): /deep-research.' in s.replace('\n', ''), '/workflows with the built-in', 15)
+            flat = shown.replace('\n', '')
+            assert 'Hidden: deep-research [project] (a built-in workflow of the same name takes precedence)' in flat, shown
+            prompt(session, '/workflows deep-research')
+            shown = wait_until(session, lambda s: 'Built in: pinned byte for byte from grok-build a28ee2b' in s.replace('\n', ''),
+                               '/workflows deep-research', 15)
+            flat = shown.replace('\n', '')
+            assert 'Run: /deep-research <query> or /workflow deep-research [args]' in flat, shown
+            assert '[project] — the built-in workflow takes precedence.' in flat, shown
+            # The slash menu row is the reference command; Tab inserts it for the query.
+            session.write('/deep')
+            shown = session.wait_visible('built-in workflow · <query>', 10)
+            assert '/deep-research' in shown, shown
+            session.write(b'\t')
+            session.write('alpha engines | beta release')
+            session.wait_visible('/deep-research alpha engines | beta release', 10)
+            session.write(b'\r')
+            wait_until(session, lambda s: "Deep research 'deep-research' started in the background." in s.replace('\n', ''),
+                       'deep research launch reply', 20)
+            shown = wait_until(session, lambda s: 'RESEARCH_SYNTHESIZED answer from 2 verified finding(s).' in s
+                               and 'Result status: verified' in s, 'deep research completion', 120)
+            assert 'FAKE_REPORT' not in shown, shown
+            assert sorted(FakeWeb.searches) == ['alpha engines', 'beta release'], FakeWeb.searches
+            assert sorted(FakeWeb.pages) == ['/alpha', '/beta'], FakeWeb.pages
+            prompt(session, '/workflow runs')
+            shown = wait_until(session, lambda s: 'Source: built in, pinned from grok-build a28ee2b' in s, 'runs source line', 15)
+            prompt(session, '/workflow save deep-research')
+            wait_until(session, lambda s: "Save is disabled for built-in workflow 'deep-research'" in s.replace('\n', ''),
+                       'save refusal', 15)
+            result['session'] = True
+            result['screen'] = session.finish(expect_alt_leave=True)['exit']
+        finally:
+            session.close()
+        reports = sorted((grok_home / 'sessions').glob('*/*/workflows/*/scratch/report.md'))
+        assert len(reports) == 1, reports
+        report = reports[0].read_text()
+        assert '**Status: Verified**' in report and f'- [S1] "Alpha Notes" — "{FakeWeb.base}/alpha"' in report, report
+
+        # -p by name through the plain workflow path: a rate-limited branch and
+        # a contradicted claim leave nothing verified, and the result says so.
+        FakeWeb.pages.clear()
+        ran = subprocess.run([NODE, str(LAUNCHER), '--rust', '--always-approve', '-p',
+                              call({'source': {'type': 'name', 'name': 'deep-research'}, 'args': {'query': 'gamma languages | RATELIMIT epsilon'}})],
+                             cwd=cwd, env=web_env, capture_output=True, text=True, timeout=180)
+        assert ran.returncode == 0, ran.stderr
+        assert "Workflow 'deep-research' ended;" in ran.stdout and '— status: complete' in ran.stdout, ran.stdout
+        assert 'Result status: partial' in ran.stdout, ran.stdout
+        assert 'None of the candidate claims survived independent source verification.' in ran.stdout, ran.stdout
+        assert 'SearXNG rate limited the query' in ran.stdout, ran.stdout
+        assert FakeWeb.pages == ['/gamma'], FakeWeb.pages
+        result['headless_partial'] = True
+    finally:
+        server.shutdown()
+        fake = project_workflows / 'deep-research.rhai'
+        if fake.exists():
+            fake.unlink()
+    return result
 
 
 def main():
@@ -316,7 +466,7 @@ def main():
             flat = shown.replace('\n', '')
             assert 'Hidden: digest [user] (a project workflow of the same name takes precedence)' in flat, shown
             assert 'Not loaded (invalid, never run): mangled.rhai [user]' in flat, shown
-            assert 'Built-in workflows ship separately.' in flat, shown
+            assert 'Built in (first): /deep-research. Folders: ' in flat, shown
             assert 'details: /workflows <name>' in flat, shown
             prompt(session, '/workflows digest')
             shown = wait_until(session, lambda s: 'digest [project] — Project digest of one topic' in s, '/workflows digest', 15)
@@ -469,6 +619,10 @@ def main():
         wider = panel({'GROK_WORKFLOW_MAX_CONCURRENT_AGENTS': '3'})
         assert max(int(text.split('peak=')[1]) for text in wider['peaks']) == 3, wider
         results['cap'] = {'config': max(peaks), 'env': 3}
+
+        # 8. Ticket 206: the built-in deep-research workflow against keyless
+        #    fake web services on loopback, in a fourth PTY session.
+        results['deep_research'] = deep_research(work, cwd, home, grok_home, project_workflows, env, output, plain)
     print(json.dumps({'ok': True, 'output': str(output), **results}))
 
 

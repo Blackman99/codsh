@@ -1119,6 +1119,142 @@ async function * subagentChildTurn(options, kind, signal) {
   yield* mockText(`CHILD_ECHO tools=${tools}`)
 }
 
+// Ticket 206: the built-in deep-research workflow's children, recognised by
+// the opening of each reference prompt. They use the tools dsh offers them
+// (web_search / web_fetch through the keyless fake services of the test) and
+// report only what those tools returned. Markers in a question or the query:
+//   RESEARCH_PLANNER_FAIL   the planner's provider fails
+//   RESEARCH_BRANCH_FAIL    that researcher's provider fails
+//   RESEARCH_SLOW           that researcher waits (until cancelled, at most 60 s)
+//   RESEARCH_VERIFIER_BADIDS a verifier answers with an ID outside its packet
+//   RESEARCH_BAD_CITATION   the synthesizer drops the [Sn] markers
+const RESEARCH_ROLES = [
+  ['planner', 'Break the JSON-encoded research query below'],
+  ['researcher', 'Investigate the JSON-encoded question below'],
+  ['verifier', 'Independently verify every candidate claim in the JSON packet below'],
+  ['synthesizer', 'Rewrite the verified research findings'],
+]
+
+function researchRole(options) {
+  const first = rawUserTexts(options).find(text => RESEARCH_ROLES.some(([, opening]) => text.includes(opening)))
+  if (!first) return undefined
+  const [role] = RESEARCH_ROLES.find(([, opening]) => first.includes(opening))
+  return { role, prompt: first }
+}
+
+function taggedJson(prompt, tag) {
+  const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(prompt)
+  return match ? JSON.parse(match[1]) : undefined
+}
+
+function * researchJson(value) {
+  yield* mockText(`\`\`\`json\n${JSON.stringify(value)}\n\`\`\``)
+}
+
+function * researchProviderError(code) {
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 0 } }
+  yield { type: 'finish', reason: { kind: 'error', failure: { code, message: `research ${code} (mock provider failure)` } } }
+}
+
+/** Sources of a dsh web_search result: `- [title](url)` plus the provider's `- title: snippet` line. */
+function searchSources(text) {
+  const snippets = new Map()
+  for (const line of text.split('\n')) {
+    const match = /^- (?!\[)(.+?): (.+)$/.exec(line.trim())
+    if (match) snippets.set(match[1], match[2])
+  }
+  const sources = []
+  for (const line of text.split('\n')) {
+    const match = /^- \[(.+?)\]\((\S+?)\)/.exec(line.trim())
+    if (match) sources.push({ title: match[1], url: match[2], snippet: snippets.get(match[1]) ?? '' })
+  }
+  return sources
+}
+
+const squashSpace = text => String(text).replace(/\s+/g, ' ').trim()
+
+async function * researchTurn(options, { role, prompt }) {
+  const offered = new Set(Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : [])
+  const done = toolResults(options)
+  if (role === 'planner') {
+    const query = String(taggedJson(prompt, 'query-json') ?? '')
+    if (query.includes('RESEARCH_PLANNER_FAIL')) {
+      yield* researchProviderError('MOCK_PLANNER_FAIL')
+      return
+    }
+    yield* researchJson({ questions: query.split(' | ').map(part => part.trim()).filter(Boolean) })
+    return
+  }
+  if (role === 'researcher') {
+    const question = String(taggedJson(prompt, 'question-json') ?? '')
+    if (question.includes('RESEARCH_BRANCH_FAIL')) {
+      yield* researchProviderError('MOCK_BRANCH_FAIL')
+      return
+    }
+    if (question.includes('RESEARCH_SLOW')) {
+      try {
+        await sleep(60000, options.signal)
+      } catch {
+        return
+      }
+    }
+    if (!offered.has('web_search')) {
+      yield* researchJson({ claims: [], uncertainties: ['web_search is not available to this researcher; nothing was searched and no claim is made.'] })
+      return
+    }
+    if (done.length === 0) {
+      yield* mockToolCall(`rust-acp-research-search-${Date.now().toString(36)}`, 'web_search', { queries: [question] })
+      return
+    }
+    const result = done.at(-1)
+    const text = resultText(result)
+    if (result.isError) {
+      yield* researchJson({ claims: [], uncertainties: [`web_search failed: ${squashSpace(text).slice(0, 240)}`] })
+      return
+    }
+    const sources = searchSources(text).filter(source => source.snippet)
+    const claims = sources.slice(0, 6).map(source => ({
+      claim: source.snippet,
+      evidence: source.snippet,
+      source_title: source.title,
+      source_locator: source.url,
+      source_type: 'primary',
+      confidence: 'medium',
+    }))
+    yield* researchJson({ claims, uncertainties: claims.length === 0 ? ['web_search returned no source with a snippet for this question.'] : [] })
+    return
+  }
+  if (role === 'verifier') {
+    const claims = taggedJson(prompt, 'candidate-claims-json') ?? []
+    if (claims.some(claim => String(claim.claim).includes('RESEARCH_VERIFIER_BADIDS'))) {
+      yield* researchJson({ verdicts: claims.map(() => ({ claim_id: 'claim-999', supported: true, reason: 'wrong id on purpose', evidence: 'x', source_title: 'x', source_locator: 'x' })) })
+      return
+    }
+    if (offered.has('web_fetch') && done.length < claims.length) {
+      yield* mockToolCall(`rust-acp-research-fetch-${done.length}-${Date.now().toString(36)}`, 'web_fetch', { url: claims[done.length].source_locator })
+      return
+    }
+    const verdicts = claims.map((claim, index) => {
+      const fetched = offered.has('web_fetch') ? done[index] : undefined
+      if (!fetched) return { claim_id: claim.id, supported: false, reason: 'web_fetch is not available; the cited source could not be opened' }
+      const page = squashSpace(resultText(fetched))
+      if (fetched.isError) return { claim_id: claim.id, supported: false, reason: `web_fetch failed: ${page.slice(0, 160)}` }
+      if (!page.includes(squashSpace(claim.evidence))) return { claim_id: claim.id, supported: false, reason: 'the fetched page does not contain the quoted evidence' }
+      return { claim_id: claim.id, supported: true, reason: 'the fetched page contains the quoted evidence', evidence: claim.evidence, source_title: claim.source_title, source_locator: claim.source_locator }
+    })
+    yield* researchJson({ verdicts })
+    return
+  }
+  const query = String(taggedJson(prompt, 'query-json') ?? '')
+  const packet = taggedJson(prompt, 'verified-findings-json') ?? []
+  if (query.includes('RESEARCH_BAD_CITATION')) {
+    yield* mockText('<report-body>\nThe findings are summarised without citation markers.\n</report-body>')
+    return
+  }
+  const lines = packet.map(entry => `- ${entry.claim} [${entry.citation}]`)
+  yield* mockText(`<report-body>\nRESEARCH_SYNTHESIZED answer from ${packet.length} verified finding(s).\n\n### Findings\n${lines.join('\n')}\n</report-body>`)
+}
+
 async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
   // Ticket 183: a workflow completion message (the reminder plus the wake
@@ -1152,6 +1288,11 @@ async function * subagentsTurn(options) {
     }
     const last = done.at(-1)
     yield* mockText(`PARENT_WORKFLOW ${last.isError ? 'error' : 'ok'}: ${resultText(last)}`)
+    return
+  }
+  const research = researchRole(options)
+  if (research) {
+    yield* researchTurn(options, research)
     return
   }
   const childText = texts.find(text => /CHILD_[A-Z]+/.test(text))

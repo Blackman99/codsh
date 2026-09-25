@@ -390,7 +390,7 @@ same catalog for `/workflows`, the slash menu, and `/<name>` (sent as a
 (`parseNamedArgs`), injects a `form: snapshot` reminder for a host-side
 launch, adds the reference listing to a top-level agent's first step when it
 changes, and saves a run through the engine (create-new, no symlinks, trusted
-project only). Built-in workflows are a separate ticket. Ticket 205 adds
+project only). Ticket 206 adds the built-in scope (see below). Ticket 205 adds
 plugin workflows: `plugin::workflow_sources` lists installed plugins whose
 layout has `workflows` directories (manifest `workflows`, default
 `workflows/`) with state, trust, and provenance, without asset discovery;
@@ -405,6 +405,20 @@ version, commit, source, license); the plugin keeps it in `launch.json` and
 `run.json`, shows it in `/workflow runs`, and before resuming a plugin run
 asks the engine for the catalog and refuses unless that plugin is active.
 The resumed run still replays its stored `script.rhai`.
+Ticket 206 adds `BUILTIN_WORKFLOWS` to `workflow_catalog.rs`: the reference
+`deep_research.rhai`, pinned unmodified under `rust/upstream/workflows/` with
+its digest in `import.json`, is merged before the project and user scopes, so
+it shadows same-named files (reported as hidden) and takes the bare name from
+plugins; there is no bundled scope. Its entry carries `scope: "builtin"` and
+`upstream` (commit, path) in the catalog and the run `origin`, and
+`save_project` refuses its name. The Rust client needs no new command: the
+catalog makes `/deep-research` a workflow slash command, and the plugin
+answers `launch: "deep-research"` with the reference replies (usage, args
+`{query}`, launch reminder). The script's children use the ordinary dsh tools:
+read-only children get `web_search`/`web_fetch` only when the configured
+substitute enables them. A completed run whose result map has a `status`
+(`partial`/`verified`) keeps it as `resultStatus`, shown as `Result status:`
+in the completion reminder and `/workflow runs`.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and

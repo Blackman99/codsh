@@ -458,6 +458,11 @@
       "path": "upstream/xai-workflow/src/validate.rs",
       "upstreamPath": "crates/codegen/xai-workflow/src/validate.rs",
       "upstreamSha256": "7dd9fc9280d5977fe2319867bafa1bd672d6051aaf94f12f31a3dda7b50bd798"
+    },
+    {
+      "path": "upstream/workflows/deep_research.rhai",
+      "upstreamPath": "crates/codegen/xai-grok-shell/src/session/workflows/deep_research.rhai",
+      "upstreamSha256": "471c88a07cf7a2aab546489c166f2311c39f96c083bffffa9c69d210c50b0f37"
     }
   ],
   "supplementalLicenses": [

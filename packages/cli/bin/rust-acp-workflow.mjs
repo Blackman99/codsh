@@ -90,6 +90,7 @@ import {
   parseCommand,
   parseNamedArgs,
   pauseStatus,
+  resultStatus,
   uniqueName,
 } from './rust-acp-workflow-runs.mjs'
 
@@ -338,7 +339,11 @@ export function runEngine({ enginePath, start, onRequest, onEvent = () => {}, si
 
 const BACKGROUND_SENTENCE = 'The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait.'
 const FOREGROUND_SENTENCE = 'This is a plain prompt that ends with its turn, so the call waits for the run and returns its result.'
-const DESCRIPTION = `Launch or control a workflow: a Rhai script that orchestrates subagents as one background run. Provide exactly one \`source\`: the \`name\` of a saved workflow (the available ones are listed in a system reminder; a trusted project's .grok/workflows shadows $GROK_HOME/workflows), an inline \`script\`, a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows), a same-process \`resume\`, or a \`pause\` / \`stop\` of a run this session launched (by \`run_id\` or display name). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot (schema retries do not); default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. A session runs at most 4 workflows at once. The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait. A run keeps the script it resolved at launch. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
+/** Built-in workflows (ticket 206): compiled into the engine, never saved over. */
+const BUILTIN_WORKFLOW_NAMES = new Set(['deep-research'])
+const DEEP_RESEARCH_USAGE = 'Usage: /deep-research <query>\nResearch with bounded parallel agents, independently cross-check the evidence, and write a concise cited report.'
+
+const DESCRIPTION = `Launch or control a workflow: a Rhai script that orchestrates subagents as one background run. Provide exactly one \`source\`: the \`name\` of a built-in or saved workflow (the available ones are listed in a system reminder; built-ins such as deep-research come first, and a trusted project's .grok/workflows shadows $GROK_HOME/workflows), an inline \`script\`, a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows), a same-process \`resume\`, or a \`pause\` / \`stop\` of a run this session launched (by \`run_id\` or display name). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot (schema retries do not); default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. A session runs at most 4 workflows at once. The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait. A run keeps the script it resolved at launch. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
 
 A started run gets a session-unique display name (e.g. \`review-changes\`, \`review-changes-2\`) — the handle to show the user, who manages runs with \`/workflow pause|resume|stop <name>\`; keep run IDs internal. To stop or pause a run yourself, call this tool with \`source: { type: "stop", run_id }\` or \`{ type: "pause", run_id }\` (run id or display name); both cancel the run's child agents and keep its journal, so either can be continued later with \`resume\`. Pause only applies to an active run; stop applies to any run that has not finished or hit its agent budget (a budget-limited run is already stopped and needs \`resume\` with a higher \`agent_budget\`). Use the \`resume\` source (\`resume_from_run_id\`: run id or display name) only for a paused, stopped, failed or budget-limited run of this dsh process (process restarts are terminal); it reuses the run's original immutable script and args, replays finished agent calls from the run's journal, and runs again the calls that were cancelled or unfinished — their side effects may repeat. A budget-limited run resumes only with a higher \`agent_budget\`.
 
@@ -686,6 +691,7 @@ export function createWorkflowRuns(deps) {
           run.activeSince = Date.now()
           run.pauseMessage = null
           run.resultSummary = null
+          run.resultStatus = null
           run.agentBudget = line.agentBudget
           run.agentsUsed = line.agentsUsed ?? 0
           touch(session, run)
@@ -754,6 +760,7 @@ export function createWorkflowRuns(deps) {
         case 'completed':
           run.status = 'complete'
           run.resultSummary = summarizeResult(final.result)
+          run.resultStatus = resultStatus(final.result)
           break
         case 'paused':
           run.status = pauseStatus(final.kind)
@@ -897,6 +904,7 @@ export function createWorkflowRuns(deps) {
         activeSince: null,
         elapsedFloor: 0,
         resultSummary: null,
+        resultStatus: null,
         pauseMessage: null,
         epoch: 1,
         reportedEpoch: 0,
@@ -985,14 +993,37 @@ export function createWorkflowRuns(deps) {
     return `Workflow '${run.name}' started in the background. Watch it in /workflow runs; the result lands here when it finishes.`
   }
 
-  /** Display names bare `/workflow save` offers: own-name runs not yet in the project catalog. */
+  /**
+   * `/deep-research <query>` (reference `BuiltinAction::DeepResearch`): the
+   * built-in deep-research workflow with `args.query`, the default agent
+   * budget, and the reference replies. The whole text is the query.
+   */
+  async function deepResearch(session, text) {
+    const query = String(text ?? '').trim()
+    if (query === '') return DEEP_RESEARCH_USAGE
+    if (deps.refusal) return `Could not start deep research: ${deps.refusal}`
+    if (!session?.agent) return 'Could not start deep research: this session has no live agent'
+    if (!deps.enginePath()) return `Could not start deep research: ${noEngine}`
+    let run
+    try {
+      run = await launch(session, session.agent, { source: { type: 'name', value: 'deep-research' }, args: { query }, objective: query }, '')
+    } catch (cause) {
+      const detail = cause?.detail ?? (cause instanceof Error ? cause.message : String(cause))
+      if (cause?.code === 'workflow_resolve_failed') return `deep-research workflow unavailable: ${detail}`
+      return `Could not start deep research: ${detail}`
+    }
+    remindLaunch(session, run, `/deep-research ${run.objective ?? query}`)
+    return `Deep research '${run.name}' started in the background. It will cross-check candidate claims and return a concise cited report here. Use /workflow runs to follow progress.`
+  }
+
+  /** Display names bare `/workflow save` offers: own-name runs not yet in the project catalog and not built in. */
   async function savableNames(session, runs) {
-    let project = new Set()
+    let taken = new Set()
     try {
       const reply = await catalog(session)
-      if (reply?.type === 'catalog') project = new Set(reply.entries.filter(entry => entry.scope === 'project').map(entry => entry.name))
+      if (reply?.type === 'catalog') taken = new Set(reply.entries.filter(entry => entry.scope === 'project' || entry.scope === 'builtin').map(entry => entry.name))
     } catch {}
-    return new Set(runs.filter(run => run.definition && run.name === run.definition && !project.has(run.definition)).map(run => run.name))
+    return new Set(runs.filter(run => run.definition && run.name === run.definition && !taken.has(run.definition)).map(run => run.name))
   }
 
   /** Reference `/workflow save <name>`: the run's immutable script into the project catalog. */
@@ -1004,6 +1035,9 @@ export function createWorkflowRuns(deps) {
       return `No persisted script for '${run.name}'; nothing to save.`
     }
     const definition = String(record.definition || run.definition || '')
+    if (BUILTIN_WORKFLOW_NAMES.has(definition)) {
+      return `Save is disabled for built-in workflow '${definition}', which is already runnable. To customize it, create a copy with a new unique meta.name.`
+    }
     if (run.name !== definition) {
       return `Save is disabled for run '${run.name}': it is a duplicate-run display handle, while the script is still named '${definition}'. Choose a new unique meta.name and save the script under that name instead.`
     }
@@ -1029,6 +1063,7 @@ export function createWorkflowRuns(deps) {
   async function command(sessionId, text, { launch: launchName } = {}) {
     const session = sessions.get(sessionId)
     const runs = session ? list(session) : []
+    if (launchName === 'deep-research') return deepResearch(session, text)
     if (typeof launchName === 'string' && launchName !== '') return launchNamed(session, launchName, text)
     const parsed = parseCommand(text)
     if (parsed.kind === 'overview') return formatOverview(runs)

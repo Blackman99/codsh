@@ -110,6 +110,8 @@ export function agentsLine(agents) {
  * version it had at launch, and the installed version when that changed.
  */
 export function sourceLine(origin) {
+  // Ticket 206: a built-in run names the grok-build file it was pinned from.
+  if (origin?.scope === 'builtin' && origin.upstream?.commit) return `Source: built in, pinned from grok-build ${origin.upstream.commit}`
   const plugin = origin?.plugin
   if (!plugin?.name) return undefined
   const at = plugin.version ? `${plugin.name} ${plugin.version}` : plugin.name
@@ -120,6 +122,17 @@ export function sourceLine(origin) {
     line += `; installed now: ${now.version ?? 'no version'}${now.commit ? ` (${String(now.commit).slice(0, 12)})` : ''}, this run keeps the script it started with`
   }
   return line
+}
+
+/**
+ * The `status` a finished script put in its result map (the built-in
+ * deep-research returns `partial` or `verified`), so a completed run whose
+ * result is partial never reads as a plain success. Ticket 206; the
+ * reference shows it only inside the report text.
+ */
+export function resultStatus(result) {
+  const status = result !== null && typeof result === 'object' && !Array.isArray(result) ? result.status : undefined
+  return typeof status === 'string' && /^[a-z][a-z_-]{0,31}$/.test(status) ? status : null
 }
 
 /** Reference `format_workflow_runs_overview`: display names only, no run ids. */
@@ -136,6 +149,7 @@ export function formatOverview(runs, now = Date.now()) {
     const agents = agentsLine(run.agents)
     if (agents) out += `\n  ${agents}`
     out += `\n  Elapsed: ${formatElapsed(elapsedMs(run, now))}`
+    if (run.resultStatus) out += `\n  Result status: ${run.resultStatus}`
     const objective = squash(run.objective)
     if (objective) out += `\n  Objective: ${truncate(objective, OBJECTIVE_CAP)}`
     const source = sourceLine(run.origin)
@@ -155,6 +169,7 @@ export function formatRunBlock(run, { now = Date.now(), reportPath = () => undef
   const objective = squash(run.objective)
   if (objective) buf += `\n  Objective: ${truncate(objective, OBJECTIVE_CAP)}`
   buf += `\n  Elapsed: ${formatElapsed(elapsedMs(run, now))}`
+  if (run.resultStatus) buf += `\n  Result status: ${run.resultStatus}`
   if (typeof run.resultSummary === 'string') {
     const capped = truncate(run.resultSummary, RESULT_CAP)
     buf += '\n  Result:\n'
