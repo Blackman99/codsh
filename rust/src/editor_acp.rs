@@ -967,10 +967,20 @@ impl Hub {
             && let Some(spare) = self.spare.take()
         {
             let wanted = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
-            if spare.cwd == wanted {
+            // A spare started before a plugin was enabled, disabled, or
+            // updated would mount the old plugin MCP servers.
+            let stale = crate::mcp::plugin_mounts_stale(
+                None,
+                spare.client.mcp_plan_path(),
+                &spare.effective,
+            );
+            if stale {
+                spare.shutdown();
+            } else if spare.cwd == wanted {
                 return Ok(spare);
+            } else {
+                self.spare = Some(spare);
             }
-            self.spare = Some(spare);
         }
         Runtime::connect(&self.launch, cwd, session_id)
     }
@@ -1372,6 +1382,19 @@ impl Hub {
         if text.trim().is_empty() {
             return self.error(id, -32602, "prompt text is required");
         }
+        if live.approval.is_none()
+            && crate::mcp::plugin_mounts_stale(
+                live.rt.client.mounted_mcp_plan(),
+                live.rt.client.mcp_plan_path(),
+                &live.rt.effective,
+            )
+            && let Err(error) = self.remount(&session_id)
+        {
+            return self.error(id, -32603, &error);
+        }
+        let Some(live) = self.live.get_mut(&session_id) else {
+            return self.error(id, -32602, &format!("unknown session: {session_id}"));
+        };
         let request = match live.rt.client.submit_prompt(&text) {
             Ok(request) => request,
             Err(error) => return self.error(id, -32603, &error.message),
@@ -1386,6 +1409,56 @@ impl Hub {
             message_id: format!("editor-{request}"),
             user_chunk_sent: false,
         });
+    }
+
+    /// Plugin MCP servers changed (ticket 204): dsh mounts servers with the
+    /// session, so the idle session is resumed in a fresh dsh with the
+    /// current plan. A withdrawn plugin's tools are gone before the prompt
+    /// runs; the editor's own servers are passed again.
+    fn remount(&mut self, session_id: &str) -> Result<(), String> {
+        let Some(mut old) = self.live.remove(session_id) else {
+            return Err(format!("unknown session: {session_id}"));
+        };
+        let cwd = old.cwd.clone();
+        let editor_mcp = std::mem::take(&mut old.rt.client.editor_mcp);
+        let _ = old.rt.client.close_session(REQUEST_TIMEOUT);
+        let Live { rt, owner, .. } = old;
+        rt.shutdown();
+        drop(owner);
+        self.log(&format!(
+            "plugin MCP servers changed; resuming session {session_id} in a fresh dsh"
+        ));
+        let failed = |error: String| {
+            format!(
+                "plugin MCP servers changed and session {session_id} could not be resumed with them: {error}; this prompt was not executed, resume the session again"
+            )
+        };
+        let runtime =
+            Runtime::connect(&self.launch, Path::new(&cwd), Some(session_id)).map_err(failed)?;
+        let mut live = match Live::hold(runtime, session_id, &cwd) {
+            Ok(live) => live,
+            Err((runtime, error)) => {
+                runtime.shutdown();
+                return Err(failed(error));
+            }
+        };
+        live.rt.client.editor_mcp = editor_mcp;
+        if let Err(error) =
+            live.rt
+                .client
+                .resume_session(session_id, Path::new(&cwd), REQUEST_TIMEOUT)
+        {
+            live.rt.shutdown();
+            return Err(failed(error.message));
+        }
+        live.rt.effective.refresh_saved_selection();
+        if let Err(error) = crate::apply_live_selection(&mut live.rt.client, &live.rt.effective) {
+            let _ = live.rt.client.close_session(REQUEST_TIMEOUT);
+            live.rt.shutdown();
+            return Err(failed(error));
+        }
+        self.live.insert(session_id.to_string(), live);
+        Ok(())
     }
 
     fn session_config(&mut self, id: &Value, params: &Value) {

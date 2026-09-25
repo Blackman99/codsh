@@ -295,6 +295,43 @@ fn string_array(value: &TomlValue, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// Forget remembered "always allow" grants for every tool of `servers`
+/// (`server__tool`) in every project's grant file under `$GROK_HOME`. A
+/// plugin that is disabled, updated, or removed loses the approvals its MCP
+/// tools collected (ticket 204); remembered denials stay. Returns how many
+/// grants were removed.
+pub fn revoke_mcp_allows(
+    grok_home: &Path,
+    servers: &std::collections::BTreeSet<String>,
+) -> io::Result<usize> {
+    if servers.is_empty() {
+        return Ok(0);
+    }
+    let Ok(entries) = fs::read_dir(grok_home.join("sessions")) else {
+        return Ok(0);
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path().join(GRANTS_FILE_NAME);
+        if !path.is_file() {
+            continue;
+        }
+        let mut grants = load_grants(&path);
+        let before = grants.allowed_mcp.len();
+        grants.allowed_mcp.retain(|tool| {
+            !servers.iter().any(|server| {
+                tool.strip_prefix(server.as_str())
+                    .is_some_and(|rest| rest.starts_with("__"))
+            })
+        });
+        if grants.allowed_mcp.len() != before {
+            removed += before - grants.allowed_mcp.len();
+            persist_grants(&path, &grants)?;
+        }
+    }
+    Ok(removed)
+}
+
 pub fn persist_grants(path: &Path, grants: &GrantStore) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         io::Error::new(

@@ -75,6 +75,20 @@ pub enum Source {
     Cursor(PathBuf),
     CursorProject(PathBuf),
     McpJson(PathBuf),
+    /// An active plugin's `.mcp.json` or manifest `mcpServers` (ticket 204).
+    /// `revision` changes when the plugin is updated, so a live session
+    /// remounts the server and remembered approvals are withdrawn.
+    Plugin(PluginOrigin),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PluginOrigin {
+    pub plugin: String,
+    /// The file (or manifest) that declared the server.
+    pub path: PathBuf,
+    pub root: PathBuf,
+    pub data: PathBuf,
+    pub revision: String,
 }
 
 impl Source {
@@ -86,6 +100,23 @@ impl Source {
             Source::Claude(_) => "claude",
             Source::Cursor(_) | Source::CursorProject(_) => "cursor",
             Source::McpJson(_) => "mcp.json",
+            Source::Plugin(_) => "plugin",
+        }
+    }
+
+    /// The plugin that supplies this server, if any.
+    pub fn plugin(&self) -> Option<&PluginOrigin> {
+        match self {
+            Source::Plugin(origin) => Some(origin),
+            _ => None,
+        }
+    }
+
+    /// `scope` as `/mcps` shows it: a plugin server names its plugin.
+    pub fn display_scope(&self) -> String {
+        match self {
+            Source::Plugin(origin) => format!("plugin: {}", origin.plugin),
+            _ => self.scope().to_string(),
         }
     }
 
@@ -97,6 +128,7 @@ impl Source {
             | Source::Cursor(path)
             | Source::CursorProject(path)
             | Source::McpJson(path) => path,
+            Source::Plugin(origin) => &origin.path,
         }
     }
 
@@ -109,7 +141,7 @@ impl Source {
     }
 
     pub fn label(&self) -> String {
-        format!("{} ({})", self.scope(), self.path().display())
+        format!("{} ({})", self.display_scope(), self.path().display())
     }
 }
 
@@ -147,9 +179,19 @@ pub struct SourceStatus {
     pub skipped: Option<String>,
 }
 
+/// A plugin server that lost its name to another definition.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shadowed {
+    pub def: ServerDef,
+    /// `Source::label` of the definition that won.
+    pub by: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Discovery {
     pub entries: Vec<Entry>,
+    /// Plugin servers that another source (or an earlier plugin) shadows.
+    pub shadowed: Vec<Shadowed>,
     pub sources: Vec<SourceStatus>,
     pub warnings: Vec<String>,
     pub disabled: BTreeSet<String>,
@@ -809,6 +851,122 @@ struct Candidate {
     def: Result<ServerDef, Box<(ServerDef, String)>>,
 }
 
+/// `GROK_PLUGIN_ROOT` / `GROK_PLUGIN_DATA` and their `CLAUDE_*` aliases, as
+/// plugin hooks get them.
+pub fn plugin_vars(root: &Path, data: &Path) -> [(String, String); 4] {
+    let root = root.display().to_string();
+    let data = data.display().to_string();
+    [
+        ("GROK_PLUGIN_ROOT".into(), root.clone()),
+        ("GROK_PLUGIN_DATA".into(), data.clone()),
+        ("CLAUDE_PLUGIN_ROOT".into(), root),
+        ("CLAUDE_PLUGIN_DATA".into(), data),
+    ]
+}
+
+/// `rel` joined under `root` without leaving it (lexically, and through a
+/// symlink when the target exists).
+fn inside_root(root: &Path, rel: &str) -> Option<PathBuf> {
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for component in Path::new(rel).components() {
+        match component {
+            std::path::Component::Normal(part) => parts.push(part.to_os_string()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                parts.pop()?;
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => return None,
+        }
+    }
+    let joined = parts
+        .iter()
+        .fold(root.to_path_buf(), |path, part| path.join(part));
+    if let (Ok(real), Ok(real_root)) = (fs::canonicalize(&joined), fs::canonicalize(root))
+        && !real.starts_with(&real_root)
+    {
+        return None;
+    }
+    Some(joined)
+}
+
+/// A plugin server's stdio details are anchored in the plugin: a relative
+/// command or cwd resolves under the plugin root (never the workspace, so a
+/// repository file cannot stand in for the plugin's program), and the
+/// process gets the plugin root and data variables.
+fn plugin_def(
+    mut def: ServerDef,
+    root: &Path,
+    data: &Path,
+) -> Result<ServerDef, Box<(ServerDef, String)>> {
+    let mut problem = None;
+    if let Transport::Stdio {
+        command, env, cwd, ..
+    } = &mut def.transport
+    {
+        let has_separator = command.contains('/') || (cfg!(windows) && command.contains('\\'));
+        if has_separator && !Path::new(command.as_str()).is_absolute() {
+            match inside_root(root, command) {
+                Some(path) => *command = path.display().to_string(),
+                None => problem = Some(format!("command `{command}` leaves the plugin root")),
+            }
+        }
+        if let Some(dir) = cwd.as_mut()
+            && !Path::new(dir.as_str()).is_absolute()
+        {
+            match inside_root(root, dir) {
+                Some(path) => *dir = path.display().to_string(),
+                None => problem = Some(format!("cwd `{dir}` leaves the plugin root")),
+            }
+        }
+        for (key, value) in plugin_vars(root, data) {
+            env.insert(key, value);
+        }
+    }
+    match problem {
+        Some(reason) => Err(Box::new((def, reason))),
+        None => Ok(def),
+    }
+}
+
+/// Candidates from active plugins. Plugins that are disabled, untrusted,
+/// missing, or shadowed contribute nothing; a plugin whose MCP config is
+/// broken is reported and the others still load.
+fn plugin_candidates(input: &DiscoverInput<'_>, discovery: &mut Discovery) -> Vec<Candidate> {
+    let sources = crate::plugin::mcp_sources(input.grok_home, input.cwd, input.trusted, input.env);
+    let mut out = Vec::new();
+    let mut found = 0usize;
+    for source in sources.iter().filter(|source| source.active) {
+        for problem in &source.problems {
+            discovery
+                .warnings
+                .push(format!("plugin {}: {problem}", source.plugin));
+        }
+        let mut vars = input.env.clone();
+        vars.extend(plugin_vars(&source.root, &source.data));
+        for server in &source.servers {
+            found += 1;
+            let origin = PluginOrigin {
+                plugin: source.plugin.clone(),
+                path: server.file.clone(),
+                root: source.root.clone(),
+                data: source.data.clone(),
+                revision: source.revision.clone(),
+            };
+            let def = parse_json_server(&server.name, &server.value, Source::Plugin(origin), &vars)
+                .and_then(|def| plugin_def(def, &source.root, &source.data));
+            out.push(Candidate { def });
+        }
+    }
+    if !sources.is_empty() {
+        discovery.sources.push(SourceStatus {
+            path: "plugins".into(),
+            found: Some(found),
+            skipped: None,
+        });
+    }
+    out
+}
+
 pub fn discover(input: &DiscoverInput<'_>) -> Discovery {
     let env = input.env;
     let mut discovery = Discovery::default();
@@ -820,6 +978,11 @@ pub fn discover(input: &DiscoverInput<'_>) -> Discovery {
     // an earlier one entirely. Repo-controlled candidates only replace when
     // the folder is trusted.
     let mut ordered: Vec<Candidate> = Vec::new();
+
+    // Active plugins (ticket 204) have the lowest priority: any user,
+    // project, or imported definition of the same name wins. Between two
+    // plugins the first by name keeps it.
+    ordered.extend(plugin_candidates(input, &mut discovery));
 
     // `.mcp.json`, repo root first so the one nearest the cwd wins.
     let mut mcp_json_found = 0usize;
@@ -989,6 +1152,21 @@ pub fn discover(input: &DiscoverInput<'_>) -> Discovery {
             });
             continue;
         }
+        if let Some(existing) = winners.get(&name)
+            && existing.def.source.plugin().is_some()
+        {
+            if def.source.plugin().is_some() {
+                discovery.shadowed.push(Shadowed {
+                    def,
+                    by: existing.def.source.label(),
+                });
+                continue;
+            }
+            discovery.shadowed.push(Shadowed {
+                def: existing.def.clone(),
+                by: def.source.label(),
+            });
+        }
         let state = match invalid {
             Some(reason) => State::Invalid(reason),
             None => match validate_server_name(&name) {
@@ -1116,11 +1294,19 @@ fn pairs(map: &BTreeMap<String, String>) -> JsonValue {
 fn entry_json(entry: &Entry) -> serde_json::Map<String, JsonValue> {
     let mut object = serde_json::Map::new();
     object.insert("name".into(), json!(entry.def.name));
-    object.insert("scope".into(), json!(entry.def.source.scope()));
+    object.insert("scope".into(), json!(entry.def.source.display_scope()));
     object.insert(
         "source".into(),
         json!(entry.def.source.path().display().to_string()),
     );
+    if let Some(origin) = entry.def.source.plugin() {
+        object.insert("plugin".into(), json!(origin.plugin));
+        object.insert("pluginRevision".into(), json!(origin.revision));
+        object.insert(
+            "pluginData".into(),
+            json!(origin.data.display().to_string()),
+        );
+    }
     object.insert("transport".into(), json!(entry.def.transport.kind()));
     object.insert("target".into(), json!(entry.def.transport.target()));
     if !entry.def.notes.is_empty() {
@@ -1135,6 +1321,110 @@ pub fn run_dir(dsh_home: &Path, tag: &str) -> PathBuf {
     dsh_home
         .join("mcp")
         .join(format!("run-{}-{tag}", std::process::id()))
+}
+
+/// Where a stdio server runs and the program it starts (`None`: not found).
+fn stdio_program(
+    transport: &Transport,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> (PathBuf, Option<PathBuf>) {
+    let Transport::Stdio {
+        command,
+        env: server_env,
+        cwd: server_cwd,
+        ..
+    } = transport
+    else {
+        return (cwd.to_path_buf(), None);
+    };
+    let run_cwd = server_cwd
+        .as_ref()
+        .map(|dir| {
+            let path = Path::new(dir);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                cwd.join(path)
+            }
+        })
+        .unwrap_or_else(|| cwd.to_path_buf());
+    let mut lookup = env.clone();
+    if let Some(path) = server_env.get("PATH") {
+        lookup.insert("PATH".into(), path.clone());
+    }
+    let program = resolve_program(command, &run_cwd, &lookup);
+    (run_cwd, program)
+}
+
+/// The state `build_plan` gives one entry before dsh starts anything:
+/// `ready` (it is mounted), `disabled`, `untrusted`, `invalid`, or `failed`
+/// (its program does not exist), with the plan's reason. The plugin view
+/// uses the same decision, so it cannot disagree with the plan.
+pub fn plan_state(
+    entry: &Entry,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> (&'static str, Option<String>) {
+    match &entry.state {
+        State::Disabled => ("disabled", Some("disabled in config".into())),
+        State::Untrusted => (
+            "untrusted",
+            Some("repo-local server not started for an untrusted folder".into()),
+        ),
+        State::Invalid(reason) => ("invalid", Some(reason.clone())),
+        State::Ready => match &entry.def.transport {
+            Transport::Stdio { command, .. } => {
+                match stdio_program(&entry.def.transport, cwd, env).1 {
+                    Some(_) => ("ready", None),
+                    None => ("failed", Some(format!("command not found: {command}"))),
+                }
+            }
+            _ => ("ready", None),
+        },
+    }
+}
+
+/// One plugin-declared server as the extension view shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginServer {
+    pub plugin: String,
+    pub name: String,
+    /// `ready`, `disabled`, `invalid`, `failed`, or `shadowed`.
+    pub state: String,
+    pub reason: Option<String>,
+}
+
+/// Every server an active plugin declared, from the same discovery and plan
+/// decision a session uses.
+pub fn plugin_servers(
+    discovery: &Discovery,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> Vec<PluginServer> {
+    let mut out = Vec::new();
+    for entry in &discovery.entries {
+        if let Some(origin) = entry.def.source.plugin() {
+            let (state, reason) = plan_state(entry, cwd, env);
+            out.push(PluginServer {
+                plugin: origin.plugin.clone(),
+                name: entry.def.name.clone(),
+                state: state.into(),
+                reason,
+            });
+        }
+    }
+    for shadowed in &discovery.shadowed {
+        if let Some(origin) = shadowed.def.source.plugin() {
+            out.push(PluginServer {
+                plugin: origin.plugin.clone(),
+                name: shadowed.def.name.clone(),
+                state: "shadowed".into(),
+                reason: Some(format!("shadowed by {}", shadowed.by)),
+            });
+        }
+    }
+    out
 }
 
 /// Build the plan dsh mounts. Stdio servers go through the proxy launcher
@@ -1193,22 +1483,8 @@ pub fn build_plan(
                 env: server_env,
                 cwd: server_cwd,
             } => {
-                let run_cwd = server_cwd
-                    .as_ref()
-                    .map(|dir| {
-                        let path = Path::new(dir);
-                        if path.is_absolute() {
-                            path.to_path_buf()
-                        } else {
-                            cwd.join(path)
-                        }
-                    })
-                    .unwrap_or_else(|| cwd.to_path_buf());
-                let mut lookup = env.clone();
-                if let Some(path) = server_env.get("PATH") {
-                    lookup.insert("PATH".into(), path.clone());
-                }
-                let Some(program) = resolve_program(command, &run_cwd, &lookup) else {
+                let (run_cwd, program) = stdio_program(&entry.def.transport, cwd, env);
+                let Some(program) = program else {
                     object.insert("state".into(), json!("failed"));
                     object.insert(
                         "reason".into(),
@@ -1338,6 +1614,17 @@ pub fn write_plan(
     }
     let proxy = std::env::current_exe().ok();
     let plan = build_plan(discovery, cwd, env, &dir, proxy.as_deref());
+    // A mounted plugin server gets its writable data directory, as hooks do.
+    for server in plan
+        .get("servers")
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(data) = server.get("pluginData").and_then(JsonValue::as_str) {
+            let _ = fs::create_dir_all(data);
+        }
+    }
     let path = dir.join("plan.json");
     let tmp = dir.join("plan.json.tmp");
     fs::write(&tmp, serde_json::to_vec_pretty(&plan).unwrap_or_default())?;
@@ -1559,11 +1846,16 @@ pub fn render_rows(rows: &[ServerRow], max_output: Option<u64>) -> String {
 /// Rows for a live client, reading its plan and this session's catalog.
 pub fn live_rows(
     plan_path: Option<&Path>,
+    mounted: Option<&JsonValue>,
     session_id: Option<&str>,
     failed: &BTreeMap<String, String>,
 ) -> Option<(Vec<ServerRow>, Option<u64>)> {
     let path = plan_path?;
-    let plan = read_plan(path)?;
+    // What the session mounted, not a plan file rewritten since.
+    let plan = match mounted {
+        Some(plan) => plan.clone(),
+        None => read_plan(path)?,
+    };
     let dir = path.parent()?;
     let catalog = session_id.and_then(|id| read_json(&catalog_path(dir, id)));
     let max = plan.get("maxOutputBytes").and_then(JsonValue::as_u64);
@@ -2534,6 +2826,9 @@ fn list_json(entry: &Entry, disabled: &BTreeSet<String>) -> JsonValue {
         "source".into(),
         json!(entry.def.source.path().display().to_string()),
     );
+    if let Some(origin) = entry.def.source.plugin() {
+        object.insert("plugin".into(), json!(origin.plugin));
+    }
     object.insert("enabled".into(), json!(!disabled.contains(&entry.def.name)));
     match &entry.state {
         State::Untrusted => {
@@ -2585,7 +2880,7 @@ pub fn run_list(discovery: &Discovery, json_out: bool) -> CliOutcome {
             _ => {}
         }
         if entry.def.source.scope() != "user" {
-            notes.push(entry.def.source.scope().into());
+            notes.push(entry.def.source.display_scope());
         }
         let suffix = if notes.is_empty() {
             String::new()
@@ -2596,6 +2891,15 @@ pub fn run_list(discovery: &Discovery, json_out: bool) -> CliOutcome {
             "  {}: {}{suffix}",
             entry.def.name,
             entry.def.transport.target()
+        ));
+    }
+    for shadowed in &discovery.shadowed {
+        outcome.out(format!(
+            "  {}: {} ({}, shadowed by {})",
+            shadowed.def.name,
+            shadowed.def.transport.target(),
+            shadowed.def.source.display_scope(),
+            shadowed.by
         ));
     }
     outcome
@@ -2692,6 +2996,16 @@ pub fn run_remove(ctx: &DiscoverInput<'_>, name: &str, scope: Option<Scope>) -> 
     };
     let Some((scope, path)) = site else {
         let searched = scope.map_or("user or project", Scope::label);
+        let mut outcome = outcome;
+        if let Some(origin) = discover(ctx)
+            .get(name)
+            .and_then(|entry| entry.def.source.plugin().cloned())
+        {
+            outcome.err(format!(
+                "'{name}' comes from plugin {}; turn it off with `codsh --rust mcp disable {name}` or `codsh --rust plugin disable {}`",
+                origin.plugin, origin.plugin
+            ));
+        }
         return outcome.fail(format!("No MCP server named '{name}' in {searched} config"));
     };
     let mut outcome = outcome;
@@ -2732,6 +3046,18 @@ pub fn run_remove(ctx: &DiscoverInput<'_>, name: &str, scope: Option<Scope>) -> 
         outcome.err(format!(
             "note: '{name}' is still defined in {}",
             project.display()
+        ));
+    } else if let Some(origin) = discover(ctx)
+        .get(name)
+        .and_then(|entry| entry.def.source.plugin().cloned())
+    {
+        // The name now goes to a plugin's server: approvals given to the
+        // removed definition's tools must not carry over to it.
+        let names = BTreeSet::from([name.to_string()]);
+        let forgot = crate::permission::revoke_mcp_allows(ctx.grok_home, &names).unwrap_or(0);
+        outcome.err(format!(
+            "note: '{name}' now comes from plugin {}; {forgot} remembered approval(s) for '{name}' tools were forgotten",
+            origin.plugin
         ));
     }
     outcome
@@ -2810,6 +3136,60 @@ pub fn discover_for(
         trusted: effective.workspace_trusted,
         env,
     })
+}
+
+/// Whether the plugin MCP servers a live dsh session mounted (`mounted`,
+/// the plan it was given) differ from what this discovery would mount now:
+/// a plugin enabled, disabled, updated, or removed. The session keeps its
+/// servers until it is replaced, so a difference means the live child must
+/// be replaced before the next prompt. Other MCP config edits keep their
+/// `/mcp reload` path.
+pub fn plugin_servers_differ(
+    mounted: &JsonValue,
+    plan_path: &Path,
+    discovery: &Discovery,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> bool {
+    let Some(dir) = plan_path.parent() else {
+        return false;
+    };
+    let proxy = std::env::current_exe().ok();
+    let fresh = build_plan(discovery, cwd, env, dir, proxy.as_deref());
+    let plugin_entries = |plan: &JsonValue, key: &str| -> Vec<JsonValue> {
+        plan.get(key)
+            .and_then(JsonValue::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|entry| entry.get("plugin").is_some())
+            .cloned()
+            .collect()
+    };
+    ["servers", "skipped"]
+        .iter()
+        .any(|key| plugin_entries(mounted, key) != plugin_entries(&fresh, key))
+}
+
+/// `plugin_servers_differ` for a live dsh child: what its session mounted,
+/// or, before it has a session, the plan file it will mount from.
+pub fn plugin_mounts_stale(
+    mounted: Option<&JsonValue>,
+    plan_path: Option<&Path>,
+    effective: &crate::config::EffectiveConfig,
+) -> bool {
+    let Some(path) = plan_path else {
+        return false;
+    };
+    let mounted = match mounted {
+        Some(plan) => plan.clone(),
+        None => match read_plan(path) {
+            Some(plan) => plan,
+            None => return false,
+        },
+    };
+    let env: BTreeMap<String, String> = std::env::vars().collect();
+    let discovery = discover_for(effective, &env);
+    plugin_servers_differ(&mounted, path, &discovery, &effective.cwd, &env)
 }
 
 /// Write this child's plan and return the env pair that points dsh (and

@@ -260,8 +260,22 @@ project rules, `/plugin:name` skills and commands, `plugin:agent` agents; workfl
 runs those command hooks under the same contract. Enabling never widens tool
 permissions (`executionGranted` stays false). A live TUI session replaces the
 dsh child on the next prompt when plugin hooks or agent types changed; rules,
-skills, and commands are rescanned every prompt. Plugin MCP servers are not
-started. Official marketplace auto-register is
+skills, and commands are rescanned every prompt. Plugin MCP servers (ticket
+204): `plugin::mcp_sources` feeds active plugins' `.mcp.json`/manifest
+`mcpServers` into `mcp::discover` as `Source::Plugin` at the lowest priority
+(shadowed ones are kept in `Discovery.shadowed`); relative stdio commands and
+cwd are anchored in the plugin root, and plan entries carry `plugin`,
+`pluginRevision` (commit@updated_at), and `pluginData`. The plugin view reads
+the same discovery (`fill_mcp_states`) and, in the TUI, the mounted plan
+(`annotate_live_mcp`). `AcpClient` keeps the plan each session mounted;
+`mcp::plugin_servers_differ` compares its plugin entries with a fresh plan so
+the TUI drops the dsh child before the next prompt and the editor server
+resumes the idle session in a fresh dsh (`EditorServer::remount`; a stale spare
+runtime is discarded). Every mutating `plugin::run` fingerprints plugin-won
+servers before and after and `permission::revoke_mcp_allows` removes remembered
+`server__*` allows (never denials) for each server whose plugin, revision, or
+transport changed or vanished. No new MCP client or permission path exists.
+Official marketplace auto-register is
 off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set. Git marketplace
 catalogs are read from `$GROK_HOME/marketplace-cache` after add/update.
 Each marketplace plugin installs into its own dest under `installed-plugins`.

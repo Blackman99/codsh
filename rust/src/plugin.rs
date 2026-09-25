@@ -3,8 +3,10 @@
 //! Install records provenance and files under `$GROK_HOME`. It does not touch
 //! legacy `~/.grok` / dsh profile packages. An enabled, trusted plugin feeds
 //! its rules, skills, commands, agents, and command hooks into the existing
-//! asset discovery and hook runner (`active_roots`, `hook_env`); it never
-//! grants tool permissions and its MCP servers are not started here.
+//! asset discovery and hook runner (`active_roots`, `hook_env`), and its MCP
+//! servers into the same MCP discovery a session mounts (`mcp_sources`,
+//! ticket 204). It never grants tool permissions; disabling, updating, or
+//! removing a plugin withdraws the remembered approvals of its MCP tools.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -238,8 +240,22 @@ pub struct InstalledView {
     pub status: String,
     /// Why the plugin is in that state, in one line.
     pub status_detail: String,
+    /// Changes when the installed copy changes (commit and update time), so
+    /// a live session remounts its MCP servers after an update.
+    pub revision: String,
     /// What the plugin provides, read with the same parsers dsh uses.
     pub contributions: Contributions,
+}
+
+/// One MCP server a plugin declares, with the state the session sees.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpContribution {
+    pub name: String,
+    /// `ready`, `disabled`, `invalid`, `failed`, `shadowed`, or the plugin's
+    /// own state when it is not active (`disabled`, `blocked`, `missing`).
+    /// A live TUI view replaces `ready` with `connected` or `failed`.
+    pub state: String,
+    pub detail: Option<String>,
 }
 
 /// The extension view: each contribution by the name a user invokes it.
@@ -253,9 +269,9 @@ pub struct Contributions {
     /// Rhai workflows by the name that runs them (`plugin:name`; ticket 205).
     /// Only their `meta` is read; installing or listing never runs one.
     pub workflows: Vec<String>,
-    /// `.mcp.json` or `mcpServers` is present. This build does not start
-    /// plugin MCP servers; the MCP ticket owns that.
-    pub mcp: bool,
+    /// MCP servers from `.mcp.json` or manifest `mcpServers`, in the state
+    /// the MCP discovery of a session gives them.
+    pub mcp: Vec<McpContribution>,
     pub problems: Vec<String>,
 }
 
@@ -274,8 +290,10 @@ impl Contributions {
                 parts.push(format!("{count} {}", if count == 1 { one } else { many }));
             }
         }
-        if self.mcp {
-            parts.push("MCP config (not loaded)".into());
+        match self.mcp.len() {
+            0 => {}
+            1 => parts.push("1 MCP server".into()),
+            count => parts.push(format!("{count} MCP servers")),
         }
         if parts.is_empty() {
             "no contributions".into()
@@ -292,7 +310,12 @@ impl Contributions {
             "agents": self.agents,
             "hooks": self.hooks,
             "workflows": self.workflows,
-            "mcp": self.mcp,
+            "mcp": !self.mcp.is_empty(),
+            "mcpServers": self.mcp.iter().map(|server| json!({
+                "name": server.name,
+                "state": server.state,
+                "detail": server.detail,
+            })).collect::<Vec<_>>(),
             "problems": self.problems,
         })
     }
@@ -365,7 +388,7 @@ Options:\n      --debug                 Enable debug logging\n      \
   --debug-file <FILE>     Write debug logs to FILE\n  \
   -h, --help                  Print help\n\n\
 Leader sockets are unused; dsh owns execution. Install records files and provenance only.\n\
-An enabled, trusted plugin adds its rules, skills (/plugin:name), commands, agents, and command hooks to the normal discovery; disable or uninstall withdraws them. Enabling never grants tool permissions, and plugin MCP servers are not started.\n\
+An enabled, trusted plugin adds its rules, skills (/plugin:name), commands, agents, command hooks, and MCP servers (.mcp.json or manifest mcpServers) to the normal discovery; disable or uninstall withdraws them. Enabling never grants tool permissions: plugin MCP tools still ask, and disable, update, or uninstall forgets their remembered approvals.\n\
 `install bundled:<name>` copies an optional extension shipped with codsh (bundled:ship is the Ship workflow); it is never installed or enabled by default."
 }
 
@@ -511,23 +534,116 @@ pub fn run(
         workspace_trusted,
     };
     maybe_auto_register(&ctx)?;
+    let mutates = !matches!(
+        command,
+        PluginCommand::Help
+            | PluginCommand::MarketplaceHelp
+            | PluginCommand::List { .. }
+            | PluginCommand::MarketplaceList { .. }
+    );
+    let before = if mutates {
+        plugin_mcp_fingerprints(&ctx)
+    } else {
+        BTreeMap::new()
+    };
+    let result = run_command(&ctx, command);
+    if !mutates {
+        return result;
+    }
+    // A partly failed update may still have replaced some plugins.
+    match result {
+        Ok(text) => Ok(withdraw_mcp_approvals(&ctx, &before, text)),
+        Err(mut error) => {
+            error.message = withdraw_mcp_approvals(&ctx, &before, error.message);
+            Err(error)
+        }
+    }
+}
+
+/// Server name -> which plugin supplies it, at which revision, with which
+/// transport, for every MCP server an active plugin currently supplies.
+fn plugin_mcp_fingerprints(ctx: &Context) -> BTreeMap<String, String> {
+    let home = ctx
+        .env
+        .get("HOME")
+        .or_else(|| ctx.env.get("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let config_path = ctx.config_path();
+    let discovery = crate::mcp::discover(&crate::mcp::DiscoverInput {
+        grok_home: &ctx.grok_home,
+        config_path: &config_path,
+        home: &home,
+        cwd: &ctx.cwd,
+        trusted: ctx.workspace_trusted,
+        env: &ctx.env,
+    });
+    discovery
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            let origin = entry.def.source.plugin()?;
+            Some((
+                entry.def.name.clone(),
+                format!(
+                    "{}\n{}\n{:?}",
+                    origin.plugin, origin.revision, entry.def.transport
+                ),
+            ))
+        })
+        .collect()
+}
+
+/// A plugin MCP server that is no longer supplied by the same plugin at the
+/// same revision (disabled, updated, removed, or now shadowed by another
+/// plugin) loses its remembered approvals: its tools ask again.
+fn withdraw_mcp_approvals(
+    ctx: &Context,
+    before: &BTreeMap<String, String>,
+    result: String,
+) -> String {
+    if before.is_empty() {
+        return result;
+    }
+    let after = plugin_mcp_fingerprints(ctx);
+    let withdrawn: BTreeSet<String> = before
+        .iter()
+        .filter(|(name, fingerprint)| after.get(*name) != Some(*fingerprint))
+        .map(|(name, _)| name.clone())
+        .collect();
+    if withdrawn.is_empty() {
+        return result;
+    }
+    let names = withdrawn.iter().cloned().collect::<Vec<_>>().join(", ");
+    match crate::permission::revoke_mcp_allows(&ctx.grok_home, &withdrawn) {
+        Ok(0) => format!("{result}\nPlugin MCP servers withdrawn from the next prompt: {names}."),
+        Ok(count) => format!(
+            "{result}\nPlugin MCP servers withdrawn from the next prompt: {names}; forgot {count} remembered approval(s) for their tools."
+        ),
+        Err(error) => format!(
+            "{result}\nPlugin MCP servers withdrawn from the next prompt: {names}; remembered approvals could not be updated: {error}"
+        ),
+    }
+}
+
+fn run_command(ctx: &Context, command: &PluginCommand) -> Result<String, PluginError> {
     match command {
         PluginCommand::Help => Ok(plugin_help().to_string()),
         PluginCommand::MarketplaceHelp => Ok(marketplace_help().to_string()),
-        PluginCommand::List { json, available } => cmd_list(&ctx, *json, *available),
-        PluginCommand::Install { source, trust } => cmd_install(&ctx, source, *trust),
+        PluginCommand::List { json, available } => cmd_list(ctx, *json, *available),
+        PluginCommand::Install { source, trust } => cmd_install(ctx, source, *trust),
         PluginCommand::Uninstall {
             name,
             confirm,
             keep_data,
-        } => cmd_uninstall(&ctx, name, *confirm, *keep_data),
-        PluginCommand::Update { name } => cmd_update(&ctx, name.as_deref()),
-        PluginCommand::Enable { name } => cmd_enable(&ctx, name, true),
-        PluginCommand::Disable { name } => cmd_enable(&ctx, name, false),
-        PluginCommand::MarketplaceList { json } => cmd_marketplace_list(&ctx, *json),
-        PluginCommand::MarketplaceAdd { url, force } => cmd_marketplace_add(&ctx, url, *force),
-        PluginCommand::MarketplaceRemove { source } => cmd_marketplace_remove(&ctx, source),
-        PluginCommand::MarketplaceUpdate { name } => cmd_marketplace_update(&ctx, name.as_deref()),
+        } => cmd_uninstall(ctx, name, *confirm, *keep_data),
+        PluginCommand::Update { name } => cmd_update(ctx, name.as_deref()),
+        PluginCommand::Enable { name } => cmd_enable(ctx, name, true),
+        PluginCommand::Disable { name } => cmd_enable(ctx, name, false),
+        PluginCommand::MarketplaceList { json } => cmd_marketplace_list(ctx, *json),
+        PluginCommand::MarketplaceAdd { url, force } => cmd_marketplace_add(ctx, url, *force),
+        PluginCommand::MarketplaceRemove { source } => cmd_marketplace_remove(ctx, source),
+        PluginCommand::MarketplaceUpdate { name } => cmd_marketplace_update(ctx, name.as_deref()),
     }
 }
 
@@ -2107,6 +2223,14 @@ fn installed_views(ctx: &Context, with_contributions: bool) -> Vec<InstalledView
                 execution_granted: false,
                 status: status.into(),
                 status_detail,
+                revision: format!(
+                    "{}@{}",
+                    match &repo.kind {
+                        InstallKind::Git { commit, .. } => commit.as_str(),
+                        InstallKind::Local { .. } => "local",
+                    },
+                    repo.updated_at
+                ),
             });
         }
     }
@@ -2145,12 +2269,117 @@ fn installed_views(ctx: &Context, with_contributions: bool) -> Vec<InstalledView
                     execution_granted: false,
                     status: status.into(),
                     status_detail,
+                    revision: "project".into(),
                 });
             }
         }
     }
     views.sort_by(|a, b| a.name.cmp(&b.name));
+    if with_contributions {
+        fill_mcp_states(ctx, &mut views);
+    }
     views
+}
+
+/// Each plugin's MCP servers in the state the session's MCP discovery gives
+/// them: an active plugin's server is ready, disabled, invalid, failed (its
+/// program is missing), or shadowed; an inactive plugin's servers carry the
+/// plugin's own state and are never mounted.
+fn fill_mcp_states(ctx: &Context, views: &mut [InstalledView]) {
+    if !views
+        .iter()
+        .any(|view| view.path.is_dir() && plugin_layout(&view.path).has_mcp())
+    {
+        return;
+    }
+    let home = ctx
+        .env
+        .get("HOME")
+        .or_else(|| ctx.env.get("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    let config_path = ctx.config_path();
+    let discovery = crate::mcp::discover(&crate::mcp::DiscoverInput {
+        grok_home: &ctx.grok_home,
+        config_path: &config_path,
+        home: &home,
+        cwd: &ctx.cwd,
+        trusted: ctx.workspace_trusted,
+        env: &ctx.env,
+    });
+    let states = crate::mcp::plugin_servers(&discovery, &ctx.cwd, &ctx.env);
+    for view in views.iter_mut() {
+        if !view.path.is_dir() {
+            continue;
+        }
+        let layout = plugin_layout(&view.path);
+        if !layout.has_mcp() {
+            continue;
+        }
+        let (servers, problems) = read_mcp_servers(&layout);
+        view.contributions.problems.extend(problems);
+        view.contributions.mcp = servers
+            .iter()
+            .map(|server| {
+                if view.status != "active" {
+                    return McpContribution {
+                        name: server.name.clone(),
+                        state: view.status.clone(),
+                        detail: Some("not mounted while the plugin is not active".into()),
+                    };
+                }
+                match states
+                    .iter()
+                    .find(|state| state.plugin == view.name && state.name == server.name)
+                {
+                    Some(state) => McpContribution {
+                        name: server.name.clone(),
+                        state: state.state.clone(),
+                        detail: state.reason.clone(),
+                    },
+                    None => McpContribution {
+                        name: server.name.clone(),
+                        state: "invalid".into(),
+                        detail: Some("not loaded".into()),
+                    },
+                }
+            })
+            .collect();
+    }
+}
+
+/// Replace `ready` with what the live session mounted: `connected` with its
+/// tool count, `failed` with dsh's reason, or pending until the next prompt
+/// replaces the dsh child. A server that is still mounted although its
+/// plugin is no longer active is marked as withdrawn on the next prompt.
+pub fn annotate_live_mcp(snapshot: &mut PluginInspect, rows: &[crate::mcp::ServerRow]) {
+    for view in &mut snapshot.installed {
+        let scope = format!("plugin: {}", view.name);
+        for server in &mut view.contributions.mcp {
+            let live = rows
+                .iter()
+                .find(|row| row.scope == scope && row.name == server.name);
+            match (server.state.as_str(), live) {
+                ("ready", Some(row)) if row.state == "connected" => {
+                    let count = row.tools.len();
+                    server.state = "connected".into();
+                    server.detail =
+                        Some(format!("{count} tool{}", if count == 1 { "" } else { "s" }));
+                }
+                ("ready", Some(row)) if row.state == "failed" => {
+                    server.state = "failed".into();
+                    server.detail = row.reason.clone();
+                }
+                ("ready", _) => {
+                    server.detail = Some("mounts with the next prompt".into());
+                }
+                (_, Some(row)) if row.state == "connected" => {
+                    server.detail = Some("still mounted; withdrawn with the next prompt".into());
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn plugin_status(
@@ -2201,8 +2430,17 @@ struct PluginLayout {
     workflow_dirs: Vec<PathBuf>,
     hooks_file: Option<PathBuf>,
     hooks_inline: Option<JsonValue>,
-    mcp: bool,
+    /// MCP config files (`.mcp.json`, or manifest `mcpServers` paths).
+    mcp_files: Vec<PathBuf>,
+    /// Manifest `mcpServers` given inline, with the manifest path.
+    mcp_inline: Option<(PathBuf, JsonValue)>,
     problems: Vec<String>,
+}
+
+impl PluginLayout {
+    fn has_mcp(&self) -> bool {
+        !self.mcp_files.is_empty() || self.mcp_inline.is_some()
+    }
 }
 
 const MANIFEST_FILES: &[&str] = &[
@@ -2219,11 +2457,13 @@ const MANIFEST_FILES: &[&str] = &[
 fn plugin_layout(root: &Path) -> PluginLayout {
     let mut layout = PluginLayout::default();
     let mut manifest = JsonValue::Null;
+    let mut manifest_path = root.join(MANIFEST_FILES[0]);
     for rel in MANIFEST_FILES {
         let path = root.join(rel);
         if !path.is_file() {
             continue;
         }
+        manifest_path = path.clone();
         match fs::read_to_string(&path)
             .map_err(|error| error.to_string())
             .and_then(|text| {
@@ -2293,8 +2533,169 @@ fn plugin_layout(root: &Path) -> PluginLayout {
             }
         }
     }
-    layout.mcp = root.join(".mcp.json").is_file() || manifest.get("mcpServers").is_some();
+    // Manifest `mcpServers`: a path, a list of paths, or the servers inline.
+    match manifest.get("mcpServers") {
+        None => {
+            let default = root.join(".mcp.json");
+            if default.is_file() {
+                layout.mcp_files.push(default);
+            }
+        }
+        Some(value @ JsonValue::Object(_)) => {
+            layout.mcp_inline = Some((manifest_path.clone(), value.clone()));
+        }
+        Some(value) => {
+            let declared: Vec<Option<&str>> = match value {
+                JsonValue::String(one) => vec![Some(one.as_str())],
+                JsonValue::Array(many) => many.iter().map(JsonValue::as_str).collect(),
+                _ => vec![None],
+            };
+            for rel in declared {
+                let Some(rel) = rel else {
+                    layout.problems.push(
+                        "manifest mcpServers must be a path, a list of paths, or an object".into(),
+                    );
+                    continue;
+                };
+                match component_path(root, rel) {
+                    Ok(path) if path.is_file() => layout.mcp_files.push(path),
+                    Ok(path) => layout
+                        .problems
+                        .push(format!("mcpServers file {} is missing", path.display())),
+                    Err(error) => layout
+                        .problems
+                        .push(format!("mcpServers path {rel}: {error}")),
+                }
+            }
+        }
+    }
     layout
+}
+
+/// One server entry from a plugin's MCP config, not yet parsed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginMcpServer {
+    pub name: String,
+    pub value: JsonValue,
+    /// The file that declared it (the manifest for inline servers).
+    pub file: PathBuf,
+}
+
+/// `{"mcpServers": {...}}` or a bare map of servers, as Claude and Grok
+/// plugins write `.mcp.json`.
+fn servers_in(value: &JsonValue) -> Option<&serde_json::Map<String, JsonValue>> {
+    match value.get("mcpServers") {
+        Some(inner) => inner.as_object(),
+        None => value.as_object(),
+    }
+}
+
+/// Every server the layout declares, with problems for unreadable files.
+/// A later file does not replace a name an earlier one declared.
+fn read_mcp_servers(layout: &PluginLayout) -> (Vec<PluginMcpServer>, Vec<String>) {
+    let mut servers: Vec<PluginMcpServer> = Vec::new();
+    let mut problems = Vec::new();
+    let mut add =
+        |file: &Path, value: &JsonValue, problems: &mut Vec<String>| match servers_in(value) {
+            Some(map) => {
+                for (name, entry) in map {
+                    if servers.iter().any(|server| &server.name == name) {
+                        problems.push(format!(
+                            "MCP server {name} is declared twice; {} is ignored",
+                            file.display()
+                        ));
+                        continue;
+                    }
+                    servers.push(PluginMcpServer {
+                        name: name.clone(),
+                        value: entry.clone(),
+                        file: file.to_path_buf(),
+                    });
+                }
+            }
+            None => problems.push(format!(
+                "MCP config {} must be an object of servers",
+                file.display()
+            )),
+        };
+    for file in &layout.mcp_files {
+        match fs::read_to_string(file)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<JsonValue>(&text).map_err(|error| error.to_string())
+            }) {
+            Ok(value) => add(file, &value, &mut problems),
+            Err(error) => {
+                problems.push(format!("MCP config {} unreadable: {error}", file.display()))
+            }
+        }
+    }
+    if let Some((file, value)) = &layout.mcp_inline {
+        add(file, value, &mut problems);
+    }
+    (servers, problems)
+}
+
+/// One installed plugin that declares MCP servers, for MCP discovery.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PluginMcpSource {
+    pub plugin: String,
+    pub scope: String,
+    pub root: PathBuf,
+    pub data: PathBuf,
+    pub revision: String,
+    /// Enabled, trusted, present, and not shadowed: only then are its
+    /// servers mounted.
+    pub active: bool,
+    pub status: String,
+    pub servers: Vec<PluginMcpServer>,
+    pub problems: Vec<String>,
+}
+
+/// Every installed plugin (any state) whose layout declares MCP servers,
+/// in name order. Reads registry, trust, config, and the MCP config files;
+/// it starts nothing.
+pub fn mcp_sources(
+    grok_home: &Path,
+    cwd: &Path,
+    workspace_trusted: bool,
+    env: &BTreeMap<String, String>,
+) -> Vec<PluginMcpSource> {
+    let ctx = Context {
+        grok_home: grok_home.to_path_buf(),
+        cwd: cwd.to_path_buf(),
+        env: env.clone(),
+        workspace_trusted,
+    };
+    installed_views(&ctx, false)
+        .into_iter()
+        .filter(|plugin| plugin.status != "shadowed" && plugin.path.is_dir())
+        .filter_map(|plugin| {
+            let layout = plugin_layout(&plugin.path);
+            if !layout.has_mcp() {
+                return None;
+            }
+            let (servers, mut problems) = read_mcp_servers(&layout);
+            problems.extend(
+                layout
+                    .problems
+                    .iter()
+                    .filter(|problem| problem.contains("mcpServers"))
+                    .cloned(),
+            );
+            Some(PluginMcpSource {
+                data: ctx.data_dir().join(&plugin.name),
+                active: plugin.status == "active",
+                plugin: plugin.name,
+                scope: plugin.scope,
+                root: plugin.path,
+                revision: plugin.revision,
+                status: plugin.status,
+                servers,
+                problems,
+            })
+        })
+        .collect()
 }
 
 fn component_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
@@ -2465,7 +2866,6 @@ fn contributions_for(ctx: &Context, name: &str, root: &Path) -> Contributions {
         crate::workflow_catalog::plugin_workflow_names(name, &layout.workflow_dirs);
     out.workflows = workflows;
     out.problems.extend(problems);
-    out.mcp = layout.mcp;
     out
 }
 
@@ -2483,10 +2883,8 @@ fn contribution_lines(contributions: &Contributions, indent: &str) -> Vec<String
             lines.push(format!("{indent}{label} {}", items.join(", ")));
         }
     }
-    if contributions.mcp {
-        lines.push(format!(
-            "{indent}mcp config present; plugin MCP servers are not started by this build"
-        ));
+    if !contributions.mcp.is_empty() {
+        lines.push(format!("{indent}mcp {}", mcp_line(&contributions.mcp)));
     }
     for problem in &contributions.problems {
         lines.push(format!("{indent}problem {problem}"));
@@ -2495,7 +2893,8 @@ fn contribution_lines(contributions: &Contributions, indent: &str) -> Vec<String
 }
 
 /// The expanded `/plugins` row: state, location, and every contribution by
-/// the name a user types, in at most four lines.
+/// the name a user types, its MCP servers with their session state, and
+/// problems: at most five lines.
 fn extension_view(plugin: &InstalledView) -> Vec<String> {
     let c = &plugin.contributions;
     let mut lines = vec![
@@ -2521,14 +2920,25 @@ fn extension_view(plugin: &InstalledView) -> Vec<String> {
     } else {
         format!("    provides {}: {}", c.summary(), names.join(", "))
     });
-    let mut notes: Vec<String> = c.problems.clone();
-    if c.mcp {
-        notes.insert(0, "plugin MCP servers are not started".into());
+    if !c.mcp.is_empty() {
+        lines.push(format!("    mcp {}", mcp_line(&c.mcp)));
     }
-    if !notes.is_empty() {
-        lines.push(format!("    note {}", notes.join("; ")));
+    if !c.problems.is_empty() {
+        lines.push(format!("    note {}", c.problems.join("; ")));
     }
     lines
+}
+
+/// `name state (detail)` for each MCP server, comma separated.
+fn mcp_line(servers: &[McpContribution]) -> String {
+    servers
+        .iter()
+        .map(|server| match &server.detail {
+            Some(detail) => format!("{} {} ({detail})", server.name, server.state),
+            None => format!("{} {}", server.name, server.state),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Active plugins: enabled, trusted, present, and not shadowed. This is the
@@ -4061,6 +4471,433 @@ mod tests {
             format!(r#"{{"name":"Fixtures","plugins":[{}]}}"#, entries.join(",")),
         )
         .unwrap();
+    }
+
+    fn write_mcp_plugin(path: &Path, name: &str, mcp: &str) {
+        fs::create_dir_all(path.join("bin")).unwrap();
+        fs::write(
+            path.join("plugin.json"),
+            format!(r#"{{"name":"{name}","version":"1.0.0","description":"fixture"}}"#),
+        )
+        .unwrap();
+        fs::write(path.join("bin/server"), "#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path.join("bin/server"), fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        fs::write(path.join(".mcp.json"), mcp).unwrap();
+    }
+
+    fn discover_mcp(env: &Context) -> crate::mcp::Discovery {
+        crate::mcp::discover(&crate::mcp::DiscoverInput {
+            grok_home: &env.grok_home,
+            config_path: &env.config_path(),
+            home: &env.cwd,
+            cwd: &env.cwd,
+            trusted: env.workspace_trusted,
+            env: &env.env,
+        })
+    }
+
+    fn run_ok(env: &Context, command: PluginCommand) -> String {
+        run(&env.grok_home, &env.cwd, &env.env, true, &command).unwrap()
+    }
+
+    #[test]
+    fn plugin_mcp_servers_follow_trust_and_enable_and_lose_grants() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let source = dir.path().join("src-echo");
+        write_mcp_plugin(
+            &source,
+            "echo",
+            r#"{"mcpServers":{
+                "echo":{"command":"./bin/server","args":["${CLAUDE_PLUGIN_ROOT}/x"],
+                        "env":{"STATE":"${GROK_PLUGIN_DATA}/state"}},
+                "escape":{"command":"../outside/server"}
+            }}"#,
+        );
+        let untrusted = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: source.display().to_string(),
+                trust: false,
+            },
+        );
+        assert!(untrusted.is_err(), "an untrusted install needs --trust");
+        run_ok(
+            &env,
+            PluginCommand::Install {
+                source: source.display().to_string(),
+                trust: true,
+            },
+        );
+        // Installed is not enabled: nothing mounts and nothing is granted.
+        let installed = discover_mcp(&env);
+        assert!(installed.get("echo").is_none());
+        let view = list_installed_views(&env);
+        let echo = view.iter().find(|plugin| plugin.name == "echo").unwrap();
+        assert_eq!(echo.contributions.mcp.len(), 2);
+        assert!(
+            echo.contributions
+                .mcp
+                .iter()
+                .all(|server| server.state != "ready"),
+            "{:?}",
+            echo.contributions.mcp
+        );
+
+        run_ok(
+            &env,
+            PluginCommand::Enable {
+                name: "echo".into(),
+            },
+        );
+        let active = discover_mcp(&env);
+        let entry = active.get("echo").expect("enabled plugin server mounts");
+        assert_eq!(entry.state, crate::mcp::State::Ready);
+        let origin = entry.def.source.plugin().unwrap();
+        assert_eq!(origin.plugin, "echo");
+        assert_eq!(entry.def.source.display_scope(), "plugin: echo");
+        let crate::mcp::Transport::Stdio {
+            command,
+            args,
+            env: vars,
+            ..
+        } = &entry.def.transport
+        else {
+            panic!("stdio expected");
+        };
+        assert_eq!(Path::new(command), origin.root.join("bin/server"));
+        assert_eq!(args, &vec![format!("{}/x", origin.root.display())]);
+        let data = env.data_dir().join("echo");
+        assert_eq!(
+            vars.get("STATE").unwrap(),
+            &format!("{}/state", data.display())
+        );
+        assert_eq!(
+            vars.get("CLAUDE_PLUGIN_DATA").unwrap(),
+            &data.display().to_string()
+        );
+        assert!(matches!(
+            active.get("escape").unwrap().state,
+            crate::mcp::State::Invalid(ref reason) if reason.contains("leaves the plugin root")
+        ));
+        let states = list_installed_views(&env)
+            .into_iter()
+            .find(|plugin| plugin.name == "echo")
+            .unwrap()
+            .contributions
+            .mcp;
+        let state_of = |name: &str| {
+            states
+                .iter()
+                .find(|server| server.name == name)
+                .map(|server| server.state.clone())
+                .unwrap()
+        };
+        assert_eq!(state_of("echo"), "ready");
+        assert_eq!(state_of("escape"), "invalid");
+
+        // A remembered approval for the plugin's tools does not survive the
+        // plugin being withdrawn; other servers' grants and denials stay.
+        let grants = crate::permission::grants_path(&env.grok_home, Path::new("/work/p"));
+        let store = crate::permission::GrantStore {
+            allowed_mcp: vec!["echo__ping".into(), "echoes__x".into(), "other__y".into()],
+            denied_mcp: vec!["echo__bad".into()],
+            ..Default::default()
+        };
+        crate::permission::persist_grants(&grants, &store).unwrap();
+        let disabled = run_ok(
+            &env,
+            PluginCommand::Disable {
+                name: "echo".into(),
+            },
+        );
+        assert!(
+            disabled.contains("withdrawn from the next prompt: echo"),
+            "{disabled}"
+        );
+        assert!(
+            disabled.contains("forgot 1 remembered approval"),
+            "{disabled}"
+        );
+        let left = crate::permission::load_grants(&grants);
+        assert_eq!(left.allowed_mcp, vec!["echoes__x", "other__y"]);
+        assert_eq!(left.denied_mcp, vec!["echo__bad"]);
+        assert!(discover_mcp(&env).get("echo").is_none());
+    }
+
+    #[test]
+    fn plugin_mcp_servers_yield_to_config_and_to_earlier_plugins() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        for (name, body) in [
+            (
+                "alpha",
+                r#"{"mcpServers":{"shared":{"command":"./bin/server"},"mine":{"command":"./bin/server"}}}"#,
+            ),
+            ("beta", r#"{"shared":{"command":"./bin/server"}}"#),
+            ("broken", "{not json"),
+        ] {
+            let source = dir.path().join(format!("src-{name}"));
+            write_mcp_plugin(&source, name, body);
+            run_ok(
+                &env,
+                PluginCommand::Install {
+                    source: source.display().to_string(),
+                    trust: true,
+                },
+            );
+            run_ok(&env, PluginCommand::Enable { name: name.into() });
+        }
+        let discovery = discover_mcp(&env);
+        let shared = discovery.get("shared").unwrap();
+        assert_eq!(shared.def.source.plugin().unwrap().plugin, "alpha");
+        assert!(discovery.shadowed.iter().any(|shadow| {
+            shadow
+                .def
+                .source
+                .plugin()
+                .map(|origin| origin.plugin.as_str())
+                == Some("beta")
+                && shadow.by == shared.def.source.label()
+        }));
+        // One plugin's broken MCP file is reported without hiding the others.
+        assert!(discovery.get("mine").is_some());
+        assert!(
+            discovery
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with("plugin broken:")),
+            "{:?}",
+            discovery.warnings
+        );
+
+        // A user definition of the same name wins over any plugin, and the
+        // plugin view says so instead of claiming the server is ready.
+        let config = fs::read_to_string(env.config_path()).unwrap();
+        fs::write(
+            env.config_path(),
+            format!("{config}\n[mcp_servers.shared]\ncommand = \"user-server\"\n"),
+        )
+        .unwrap();
+        let discovery = discover_mcp(&env);
+        assert_eq!(
+            discovery.get("shared").unwrap().def.transport.target(),
+            "user-server"
+        );
+        let views = list_installed_views(&env);
+        let alpha = views.iter().find(|plugin| plugin.name == "alpha").unwrap();
+        let shared_row = alpha
+            .contributions
+            .mcp
+            .iter()
+            .find(|server| server.name == "shared")
+            .unwrap();
+        assert_eq!(shared_row.state, "shadowed", "{shared_row:?}");
+
+        // Withdrawal is per server: disabling alpha hands `mine` back and
+        // leaves the user's `shared` alone.
+        let disabled = run_ok(
+            &env,
+            PluginCommand::Disable {
+                name: "alpha".into(),
+            },
+        );
+        assert!(
+            disabled.contains("withdrawn from the next prompt: mine"),
+            "{disabled}"
+        );
+        assert!(!disabled.contains("shared"), "{disabled}");
+    }
+
+    #[test]
+    fn live_dsh_is_replaced_only_when_plugin_servers_change() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let dsh_home = dir.path().join("dsh");
+        let source = dir.path().join("src-echo");
+        write_mcp_plugin(&source, "echo", r#"{"echo":{"command":"./bin/server"}}"#);
+        run_ok(
+            &env,
+            PluginCommand::Install {
+                source: source.display().to_string(),
+                trust: true,
+            },
+        );
+        let mount = || {
+            let discovery = discover_mcp(&env);
+            let path =
+                crate::mcp::write_plan(&dsh_home, "main", &discovery, &env.cwd, &env.env).unwrap();
+            (crate::mcp::read_plan(&path).unwrap(), path)
+        };
+        let differs = |mounted: &JsonValue, path: &Path| {
+            crate::mcp::plugin_servers_differ(
+                mounted,
+                path,
+                &discover_mcp(&env),
+                &env.cwd,
+                &env.env,
+            )
+        };
+        let (before, path) = mount();
+        assert!(!differs(&before, &path));
+        run_ok(
+            &env,
+            PluginCommand::Enable {
+                name: "echo".into(),
+            },
+        );
+        assert!(differs(&before, &path), "an enabled plugin mounts");
+        let (enabled, path) = mount();
+        assert!(!differs(&enabled, &path));
+        let data = env.data_dir().join("echo");
+        assert!(data.is_dir(), "the plan creates the plugin data directory");
+
+        // /mcps and /plugins read what the session mounted even when the
+        // plan file was rewritten under it.
+        let (rows, _) =
+            crate::mcp::live_rows(Some(&path), Some(&before), None, &BTreeMap::new()).unwrap();
+        assert!(rows.iter().all(|row| row.name != "echo"));
+        let (rows, _) =
+            crate::mcp::live_rows(Some(&path), Some(&enabled), None, &BTreeMap::new()).unwrap();
+        let echo = rows.iter().find(|row| row.name == "echo").unwrap();
+        assert_eq!(echo.scope, "plugin: echo");
+        let mut snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        annotate_live_mcp(&mut snapshot, &rows);
+        let server = &snapshot
+            .installed
+            .iter()
+            .find(|plugin| plugin.name == "echo")
+            .unwrap()
+            .contributions
+            .mcp[0];
+        assert_eq!(server.state, "connected");
+
+        // Editing unrelated MCP config keeps its /mcp reload path.
+        let config = fs::read_to_string(env.config_path()).unwrap();
+        fs::write(
+            env.config_path(),
+            format!("{config}\n[mcp_servers.user]\ncommand = \"user-server\"\n"),
+        )
+        .unwrap();
+        assert!(!differs(&enabled, &path));
+
+        // Updating the plugin changes its revision: remount.
+        fs::write(source.join("README.md"), "v2\n").unwrap();
+        let registry = env.install_dir().join("registry.json");
+        let text = fs::read_to_string(&registry).unwrap();
+        let mut json: JsonValue = serde_json::from_str(&text).unwrap();
+        bump_updated_at(&mut json);
+        fs::write(&registry, serde_json::to_string(&json).unwrap()).unwrap();
+        assert!(differs(&enabled, &path), "a new plugin revision remounts");
+
+        run_ok(
+            &env,
+            PluginCommand::Disable {
+                name: "echo".into(),
+            },
+        );
+        let mut snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        annotate_live_mcp(&mut snapshot, &rows);
+        let server = &snapshot
+            .installed
+            .iter()
+            .find(|plugin| plugin.name == "echo")
+            .unwrap()
+            .contributions
+            .mcp[0];
+        assert_eq!(server.state, "disabled");
+        assert_eq!(
+            server.detail.as_deref(),
+            Some("still mounted; withdrawn with the next prompt")
+        );
+    }
+
+    fn bump_updated_at(value: &mut JsonValue) {
+        match value {
+            JsonValue::Object(map) => {
+                for (key, item) in map.iter_mut() {
+                    if key == "updated_at" || key == "updatedAt" {
+                        *item = JsonValue::String("2099-01-01T00:00:00Z".into());
+                    } else {
+                        bump_updated_at(item);
+                    }
+                }
+            }
+            JsonValue::Array(items) => items.iter_mut().for_each(bump_updated_at),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn plugin_mcp_config_forms_in_the_manifest() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let inline = dir.path().join("src-inline");
+        fs::create_dir_all(inline.join("bin")).unwrap();
+        fs::write(
+            inline.join("plugin.json"),
+            r#"{"name":"inline","version":"1.0.0","mcpServers":{"inl":{"command":"./bin/server"}}}"#,
+        )
+        .unwrap();
+        fs::write(inline.join("bin/server"), "#!/bin/sh\n").unwrap();
+        let pathed = dir.path().join("src-pathed");
+        fs::create_dir_all(pathed.join("config")).unwrap();
+        fs::write(
+            pathed.join("plugin.json"),
+            r#"{"name":"pathed","version":"1.0.0","mcpServers":"./config/servers.json"}"#,
+        )
+        .unwrap();
+        fs::write(
+            pathed.join("config/servers.json"),
+            r#"{"mcpServers":{"web":{"type":"http","url":"http://127.0.0.1:9/mcp"}}}"#,
+        )
+        .unwrap();
+        for (name, source) in [("inline", &inline), ("pathed", &pathed)] {
+            run_ok(
+                &env,
+                PluginCommand::Install {
+                    source: source.display().to_string(),
+                    trust: true,
+                },
+            );
+            run_ok(&env, PluginCommand::Enable { name: name.into() });
+        }
+        let discovery = discover_mcp(&env);
+        assert_eq!(
+            discovery.get("inl").unwrap().state,
+            crate::mcp::State::Ready
+        );
+        let web = discovery.get("web").unwrap();
+        assert_eq!(web.def.transport.kind(), "http");
+        assert_eq!(web.def.source.plugin().unwrap().plugin, "pathed");
+        let listing = run_ok(
+            &env,
+            PluginCommand::List {
+                json: true,
+                available: false,
+            },
+        );
+        let json: JsonValue = serde_json::from_str(&listing).unwrap();
+        let pathed_json = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|plugin| plugin["name"] == "pathed")
+            .unwrap()
+            .clone();
+        assert_eq!(pathed_json["contributions"]["mcp"], true, "{pathed_json}");
+        assert_eq!(
+            pathed_json["contributions"]["mcpServers"][0]["name"], "web",
+            "{pathed_json}"
+        );
     }
 
     #[test]

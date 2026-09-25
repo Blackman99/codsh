@@ -181,8 +181,8 @@ Hook 看到的 `tool_name` 是 `server__tool` 而不是分发器，Ctrl+C 或 AC
 会在配置的服务器之后挂载。已知限制：dsh 只渲染结果中的文本部分（`use_tool` 仅在没有文本时
 返回 `structuredContent`）；超过 64 个字符的工具名会被 dsh 哈希；直接的 `mcp__*` 工具与
 `search_tool`/`use_tool` 同时可见；SSE 服务器只列出不启动（dsh 没有 SSE 传输）；这里不处理
-OAuth；插件提供的服务器属于后续工单；托管的 MCP allow/deny 策略和 `disabled_mcp_tools`
-尚未生效。经 `codsh --rust` 启动时，只有上面列出的 MCP 变量和 `*_API_KEY` 会从宿主环境传入，
+OAuth；托管的 MCP allow/deny 策略（`allowedMcpServers`/`deniedMcpServers`）和
+`disabled_mcp_tools` 尚未生效。已启用插件的服务器会加入同一列表（见插件一节）。经 `codsh --rust` 启动时，只有上面列出的 MCP 变量和 `*_API_KEY` 会从宿主环境传入，
 其他值请写在服务器的 `env` 表中。本次在 Linux 上用真实的 stdio 测试服务器验证，未在 macOS
 或 Windows 上验证。
 
@@ -443,7 +443,19 @@ agent 定义。
 （若 Hook 或 agent 变化，dsh 会在同一会话上重启）；更新、停用和卸载会撤回旧内容。
 `plugin list --json`、`inspect` 与 `/plugins` 展开行会显示每个插件的 `state`
 （`active`、`disabled`、`blocked`、`missing`、`shadowed`）、贡献与插件级问题；
-单个损坏文件不会影响其他插件。插件 MCP 服务器暂不启动。
+单个损坏文件不会影响其他插件。
+插件声明的 MCP 服务器（插件根目录的 `.mcp.json`，或清单中的 `mcpServers`：路径、路径列表
+或内联表）经由与你自己的服务器相同的发现、计划、dsh MCP 客户端和审批门挂载到会话：仅在插件
+处于 active 时生效，优先级低于所有其他来源（同名的用户、项目或导入服务器胜出；插件之间按
+名称先到先得）；相对的 `command`/`cwd` 在插件目录内解析（越出插件目录则该服务器无效）；
+进程环境与 `${...}` 展开中提供 `GROK_PLUGIN_ROOT`/`GROK_PLUGIN_DATA`（以及 `CLAUDE_PLUGIN_*`
+别名）。`mcp list` 与 `/mcps` 以 `plugin: <名称>` 标注来源，`mcp enable|disable` 认得这些
+名称；`plugin list --json`（`contributions.mcpServers`）与 `/plugins` 展开行给出每个服务器
+的状态（`ready`、缺少程序时的 `failed`、`shadowed`、`invalid`、`disabled` 或插件自身状态；
+TUI 中还会显示实时的 `connected (N tools)` 或“下一次提示时撤回”）。安装或启用插件不授予任何
+工具权限：除非规则或已记住的批准覆盖，每次调用都会询问。停用、更新、卸载插件，或服务器名称被
+其他插件接管时，会忘记该服务器已记住的批准（拒绝保留）；运行中的 TUI 或编辑器会话会在下一次
+提示前于新的 dsh 中恢复，旧工具随之消失；更新会挂载新的定义。
 Ship 是 `codsh --rust` 的可选一方插件，不属于默认界面。
 `codsh --rust plugin install bundled:ship --trust` 从安装包复制它（`bundled:<名称>`
 只读取启动器自带的 `extensions/` 目录）；安装后仍是停用状态，`plugin enable ship`

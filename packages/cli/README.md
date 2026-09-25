@@ -172,7 +172,11 @@ and `--remote ssh://…` to clone on another host (see the root README).
 `mcp list|add|remove|enable|disable|doctor` and `/mcps` manage local MCP
 servers that dsh starts for each session; `search_tool`/`use_tool` and every
 direct `mcp__*` call go through the same permission, Hook, and cancellation
-path (see the root README).
+path (see the root README). An active plugin's `.mcp.json` (or manifest
+`mcpServers`) servers join that list below every other source, labelled
+`plugin: <name>`; installing or enabling grants no permission, and disabling,
+updating, or uninstalling the plugin forgets their remembered approvals and
+withdraws their tools before a live session's next prompt.
 `--minimal` / `--fullscreen` and `/minimal` / `/fullscreen` switch the official
 alternate-screen and native-history renderers in the current process without
 rewriting isolated `[ui] screen_mode`. Official `xai-grok-markdown` renders Markdown, tables, code, mermaid labels, thoughts, and dsh tool cards/diffs; Tab then `l`/`r`/Enter/`y` fold, expand, show raw markdown, open full content, or copy original bytes. `/expand` reprints the last folded block in minimal; `/transcript` opens the exact transcript in `$PAGER`. `/rewind` and `/fork` in minimal replace

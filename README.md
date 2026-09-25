@@ -233,8 +233,9 @@ the configured ones. Known limits: dsh renders only the text part of a result
 tool names longer than 64 characters are hashed by dsh, the direct
 `mcp__*` tools stay visible next to `search_tool`/`use_tool`, SSE servers are
 listed but not started (dsh has no SSE transport), OAuth is not handled here,
-plugin-provided servers belong to a later ticket, and managed allow/deny MCP
-policy and `disabled_mcp_tools` are not applied. Through `codsh --rust` only
+and managed allow/deny MCP policy (`allowedMcpServers`/`deniedMcpServers`) and
+`disabled_mcp_tools` are not applied. Servers from enabled plugins join the
+same list (see Plugins). Through `codsh --rust` only
 the listed MCP variables and `*_API_KEY` pass from the host environment, so put
 other values in the server's `env` table. Checked on Linux with a real stdio
 fixture server; not on macOS or Windows.
@@ -770,8 +771,26 @@ prompt (dsh is restarted on the same session when hooks or agents changed);
 update, disable, and uninstall withdraw the old content. `plugin list --json`,
 `inspect`, and the expanded `/plugins` row show each plugin's `state`
 (`active`, `disabled`, `blocked`, `missing`, `shadowed`), its contributions,
-and per-plugin problems; one broken file does not stop other plugins. Plugin
-MCP servers are not started yet.
+and per-plugin problems; one broken file does not stop other plugins.
+MCP servers a plugin declares (`.mcp.json` at its root, or manifest
+`mcpServers` as a path, list of paths, or inline table) join the session's
+MCP servers through the same discovery, plan, dsh MCP client, and approval
+gate as your own: only while the plugin is active, below every other source
+(a user, project, or imported server of the same name wins; between plugins,
+the first by name), with a relative `command`/`cwd` resolved inside the plugin
+(escaping it makes the server invalid) and `GROK_PLUGIN_ROOT`/`GROK_PLUGIN_DATA`
+(plus the `CLAUDE_PLUGIN_*` aliases) in its env and for `${...}` expansion.
+`mcp list` and `/mcps` label them `plugin: <name>`, `mcp enable|disable`
+knows their names, and `plugin list --json` (`contributions.mcpServers`) and
+the expanded `/plugins` row give each server's state (`ready`, `failed` with
+the missing program, `shadowed`, `invalid`, `disabled`, or the plugin's own
+state; live `connected (N tools)` or "withdrawn with the next prompt" in the
+TUI). Installing or enabling grants no tool permission: every call asks unless
+a rule or a remembered approval covers it. Disabling, updating, uninstalling,
+or losing a server name to another plugin forgets that server's remembered
+approvals (denials stay), and a live TUI or editor session resumes in a fresh
+dsh before its next prompt so the old tools are gone; an update remounts the
+new definition.
 Ship is an optional first-party plugin for `codsh --rust`, not part of the
 default interface. `codsh --rust plugin install bundled:ship --trust` copies it
 from the package (`bundled:<name>` reads only the launcher's own `extensions/`

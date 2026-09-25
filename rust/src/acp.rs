@@ -361,6 +361,9 @@ pub struct AcpClient {
     /// MCP plan file (`CODSH_MCP_PLAN`) read on every session/new and
     /// session/resume, so a rewritten plan applies to the next session.
     mcp_plan: Option<PathBuf>,
+    /// The plan the current session was created or resumed with: what dsh
+    /// actually mounted, even if the plan file was rewritten since.
+    mounted_mcp: Option<Value>,
     /// Servers dsh could not start for the current session, with the reason.
     pub mcp_failed: std::collections::BTreeMap<String, String>,
     /// Extra ACP `mcpServers` an editor passed on session/new or resume.
@@ -754,6 +757,7 @@ impl AcpClient {
             control,
             control_unavailable,
             mcp_plan,
+            mounted_mcp: None,
             mcp_failed: std::collections::BTreeMap::new(),
             editor_mcp: Vec::new(),
             last_error_details: None,
@@ -879,6 +883,11 @@ impl AcpClient {
         self.mcp_plan.as_deref()
     }
 
+    /// The plan the current session mounted, once a session exists.
+    pub fn mounted_mcp_plan(&self) -> Option<&Value> {
+        self.mounted_mcp.as_ref()
+    }
+
     /// Send session/new or session/resume with the MCP plan. A server dsh
     /// reports as `mcp-client(<name>)` during startup is recorded with its
     /// reason and the request is retried without it, so one broken server
@@ -925,7 +934,10 @@ impl AcpClient {
             self.last_error_details = None;
             let id = self.request(method, params.clone(), kind())?;
             match self.wait_result(id, timeout + Duration::from_millis(budget)) {
-                Ok(result) => return Ok(result),
+                Ok(result) => {
+                    self.mounted_mcp = Some(plan);
+                    return Ok(result);
+                }
                 Err(error) => {
                     let details = self.last_error_details.take().unwrap_or_default();
                     let failed = crate::mcp::failed_server(&details)
