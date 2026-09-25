@@ -83,6 +83,10 @@ pub enum AcpEvent {
     Subagent {
         event: Value,
     },
+    /// A background-command lifecycle line from rust-acp-background (ticket 175).
+    Job {
+        event: Value,
+    },
     Usage {
         used: Option<u64>,
         size: Option<u64>,
@@ -354,6 +358,9 @@ pub struct AcpClient {
     /// Extra ACP `mcpServers` an editor passed on session/new or resume.
     pub editor_mcp: Vec<Value>,
     last_error_details: Option<String>,
+    /// Background commands are running: shutdown lets dsh stop them before
+    /// its process group is killed (dsh starts each command in its own group).
+    linger: bool,
 }
 
 enum Line {
@@ -447,8 +454,11 @@ pub const INHERITED_ENV: &[&str] = &[
 /// A marked subagent lifecycle line becomes its own event; any other stderr
 /// line stays raw.
 fn stderr_event(text: String) -> AcpEvent {
-    match crate::subagents::parse_line(&text) {
-        Some(event) => AcpEvent::Subagent { event },
+    if let Some(event) = crate::subagents::parse_line(&text) {
+        return AcpEvent::Subagent { event };
+    }
+    match crate::background::parse_line(&text) {
+        Some(event) => AcpEvent::Job { event },
         None => AcpEvent::Stderr { text },
     }
 }
@@ -644,6 +654,7 @@ impl AcpClient {
             mcp_failed: std::collections::BTreeMap::new(),
             editor_mcp: Vec::new(),
             last_error_details: None,
+            linger: false,
         })
     }
 
@@ -790,6 +801,25 @@ impl AcpClient {
                 }
             }
         }
+    }
+
+    /// Move this session's running foreground command to the background.
+    /// `reason` is `user` (Ctrl+B) or `message` (a send-now).
+    pub fn send_background(&self, id: &str, reason: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::background_message(id, session, reason))
+    }
+
+    /// Stop one background command of this session (the tasks pane).
+    pub fn send_job_kill(&self, id: &str, job_id: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::job_kill_message(id, session, job_id))
     }
 
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
@@ -1265,12 +1295,35 @@ impl AcpClient {
         self.child.id()
     }
 
+    pub fn set_linger(&mut self, linger: bool) {
+        self.linger = linger;
+    }
+
     pub fn shutdown(&mut self) {
         if let Some(pending) = self.pending_permission.clone() {
             let _ = self.cancel_permission(&pending.request_id);
         }
-        let _ = self.close_session(Duration::from_millis(400));
+        let close = if self.linger {
+            // Closing the session disposes its agent, and dsh stops that
+            // agent's jobs before it answers.
+            Duration::from_millis(LINGER_MS)
+        } else {
+            Duration::from_millis(400)
+        };
+        let _ = self.close_session(close);
         self.stdin.take();
+        if self.linger {
+            // dsh runs each command in its own process group, which the
+            // group kill below does not reach. With stdin closed dsh tears
+            // down every remaining job and exits; wait for that, bounded.
+            let deadline = Instant::now() + Duration::from_millis(LINGER_MS);
+            while Instant::now() < deadline {
+                if matches!(self.child.try_wait(), Ok(Some(_))) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
         kill_process_group(self.child.id());
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -1681,6 +1734,9 @@ impl AcpClient {
 /// Signal the whole group. `id` is the process-group id because spawn
 /// called `process_group(0)`. A direct `child.kill()` would leave a
 /// grandchild running after the session ends.
+/// Upper bound for each shutdown step while background commands run.
+const LINGER_MS: u64 = 3000;
+
 fn kill_process_group(pid: u32) {
     #[cfg(unix)]
     {

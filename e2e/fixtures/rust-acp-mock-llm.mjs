@@ -11,7 +11,8 @@
  * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
  * steer-probe (three read steps, then reports the latest user text it saw),
  * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
- * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt). A side question
+ * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt),
+ * background (ticket 175 background commands; see backgroundTurn). A side question
  * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
  * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
@@ -564,6 +565,96 @@ function turnToolResults(options, marker) {
   return options.messages.slice(start + 1).flatMap(message => message.content.filter(block => block.type === 'tool-result'))
 }
 
+// Background commands (ticket 175). The typed prompt picks the scenario;
+// each command sleeps for a distinct time so a test can find its process.
+//   BG_FAST     foreground command with stdout, stderr, and exit 3.
+//   BG_AUTO     foreground command that outlives the auto-background budget.
+//   BG_CTRLB    foreground command the test moves with Ctrl+B.
+//   BG_SENDNOW  foreground command a send-now moves.
+//   BG_WAIT     explicit run_in_background, then a blocking job_output wait.
+//   BG_KEEP     explicit run_in_background of a long command, then answers.
+// A dsh completion notice (a user message `background job <id> ...`) is
+// answered by reading the job with job_output and reporting the output.
+const BG_COMMANDS = {
+  BG_FAST: { command: "printf 'FAST_OUT\\n'; printf 'FAST_ERR\\n' >&2; exit 3", description: 'fast probe' },
+  BG_AUTO: { command: "printf 'AUTO_START\\n'; sleep 3.175; printf 'AUTO_END\\n' > bg-auto-done.txt; printf 'AUTO_OUT\\n'", description: 'auto probe' },
+  BG_CTRLB: { command: "printf 'CTRLB_START\\n'; : > bg-ctrlb-started.txt; sleep 4.175; printf 'CTRLB_OUT\\n'", description: 'ctrl-b probe' },
+  BG_SENDNOW: { command: "printf 'SENDNOW_START\\n'; : > bg-sendnow-started.txt; sleep 4.275; printf 'SENDNOW_OUT\\n'", description: 'send-now probe' },
+  BG_WAIT: { command: "printf 'WAIT_START\\n'; sleep 41.175; printf 'WAIT_OUT\\n'", description: 'wait probe', run_in_background: true },
+  BG_KEEP: { command: "printf 'KEEP_START\\n'; sleep 42.175; printf 'KEEP_OUT\\n'", description: 'keep probe', run_in_background: true },
+}
+
+function oneLine(text) {
+  return String(text ?? '').replaceAll('\n', '⏎').slice(0, 400)
+}
+
+/** Tool results since the newest user message that carries text. */
+function resultsSinceUser(options) {
+  let start = -1
+  options.messages.forEach((message, index) => {
+    if (message.role === 'user' && message.content.some(block => block.type === 'text')) start = index
+  })
+  return options.messages.slice(start + 1).flatMap(message => message.content.filter(block => block.type === 'tool-result'))
+}
+
+// A short answer line: how the command left the foreground and its last
+// output line. The tool card shows the full result.
+function resultSummary(text) {
+  const how = !text.includes('[Command moved to background]')
+    ? 'no'
+    : /automatically moved to background/.test(text)
+      ? 'auto'
+      : /^User moved command/m.test(text)
+        ? 'user'
+        : /because the user sent a new message/.test(text) ? 'message' : 'yes'
+  const tail = String(text ?? '').trim().split('\n').at(-1) ?? ''
+  return `moved=${how} tail=${oneLine(tail).slice(0, 80)}`
+}
+
+function jobIdOf(text) {
+  return /Job id: (\S+?)\./.exec(text)?.[1] ?? /started background job (\S+)/.exec(text)?.[1] ?? ''
+}
+
+function * backgroundTurn(options) {
+  const latest = latestUserText(options)
+  const since = resultsSinceUser(options)
+  const notice = /^background job (\S+) /.exec(latest)
+  if (notice) {
+    const id = notice[1]
+    if (latest.includes('was stopped by the user')) {
+      yield* mockText(`RUST_BG_STOPPED job=${id}`)
+      return
+    }
+    if (since.length === 0) {
+      yield* mockToolCall(`rust-bg-read-${id}-${Date.now().toString(36)}`, 'job_output', { job_id: id })
+      return
+    }
+    yield* mockText(`RUST_BG_WOKE job=${id} out=${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  const scenario = Object.keys(BG_COMMANDS).find(key => latest.includes(key))
+  if (scenario === undefined) {
+    yield* mockText(`RUST_BG_REPLY ${oneLine(latest)}`)
+    return
+  }
+  const spec = BG_COMMANDS[scenario]
+  if (since.length === 0) {
+    yield* mockToolCall(`rust-bg-${scenario.toLowerCase()}-${Date.now().toString(36)}`, 'bash', spec)
+    return
+  }
+  const first = resultText(since[0])
+  if (scenario === 'BG_WAIT' && since.length === 1) {
+    yield* mockToolCall(`rust-bg-wait-${Date.now().toString(36)}`, 'job_output', { job_id: jobIdOf(first), wait: true, timeout_ms: 120000 })
+    return
+  }
+  if (scenario === 'BG_FAST') {
+    yield* mockText(`RUST_BG_FAST result=${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  const label = spec.run_in_background ? 'RUST_BG_STARTED' : 'RUST_BG_MOVED'
+  yield* mockText(`${label} job=${jobIdOf(first)} ${resultSummary(resultText(since.at(-1)))}`)
+}
+
 async function * subagentChildTurn(options, kind, signal) {
   const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name).sort().join(',') : ''
   const done = toolResults(options)
@@ -852,6 +943,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'interaction') {
       yield* interactionTurn(options)
+      return
+    }
+    if (MODE === 'background') {
+      yield* backgroundTurn(options)
       return
     }
     if (MODE === 'steer-probe') {

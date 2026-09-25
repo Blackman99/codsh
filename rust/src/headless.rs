@@ -348,6 +348,9 @@ impl HeadlessOutput {
                     self.diagnostics.push(text.clone());
                 }
             }
+            // Lifecycle lines of background commands; a plain turn prints
+            // only what dsh answered.
+            AcpEvent::Job { .. } => {}
             AcpEvent::Subagent { event } => {
                 // A settled or refused child is a diagnostic line on stderr;
                 // the answer stays the parent's.

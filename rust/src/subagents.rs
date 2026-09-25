@@ -658,6 +658,10 @@ pub struct Board {
     pub entries: Vec<Entry>,
     pub hide_completed: bool,
     pub workflows: Vec<WorkflowRun>,
+    /// Background commands (ticket 175) share the status line and the pane.
+    pub jobs: crate::background::Jobs,
+    /// The live session, so the wait hint names only this session's model.
+    pub session: Option<String>,
 }
 
 /// A line the client shows once, e.g. a background child finishing.
@@ -857,13 +861,35 @@ impl Board {
             .count()
     }
 
-    /// `◎ 1 subagent still running`, or empty.
+    /// `◎ 1 subagent still running`, `◎ 1 command · 1 subagent still
+    /// running`, or empty. While the model is blocked waiting on a command,
+    /// a message interrupts the wait, and the line says so.
     pub fn status_text(&self) -> String {
-        match self.running() {
-            0 => String::new(),
-            1 => "◎ 1 subagent still running · Ctrl+G or /tasks".into(),
-            count => format!("◎ {count} subagents still running · Ctrl+G or /tasks"),
+        let commands = self.jobs.running();
+        let children = self.running();
+        let mut parts = Vec::new();
+        match commands {
+            0 => {}
+            1 => parts.push("1 command".to_string()),
+            count => parts.push(format!("{count} commands")),
         }
+        match children {
+            0 => {}
+            1 => parts.push("1 subagent".to_string()),
+            count => parts.push(format!("{count} subagents")),
+        }
+        if parts.is_empty() {
+            return String::new();
+        }
+        let waiting = if self.jobs.is_waiting(self.session.as_deref()) {
+            " · send a message to interrupt"
+        } else {
+            ""
+        };
+        format!(
+            "◎ {} still running{waiting} · Ctrl+G or /tasks",
+            parts.join(" · ")
+        )
     }
 
     /// Entries the tasks pane lists, newest last.
@@ -872,6 +898,11 @@ impl Board {
             .iter()
             .filter(|entry| !self.hide_completed || entry.status.live())
             .collect()
+    }
+
+    /// Commands the tasks pane lists after the subagents.
+    pub fn visible_jobs(&self) -> Vec<&crate::background::Job> {
+        self.jobs.visible(self.hide_completed)
     }
 }
 
@@ -902,8 +933,16 @@ impl TasksModal {
         board.visible().get(self.cursor).copied()
     }
 
+    /// The selected command; the cursor runs over subagents, then commands.
+    pub fn selected_job<'a>(&self, board: &'a Board) -> Option<&'a crate::background::Job> {
+        let children = board.visible().len();
+        self.cursor
+            .checked_sub(children)
+            .and_then(|index| board.visible_jobs().get(index).copied())
+    }
+
     pub fn clamp(&mut self, board: &Board) {
-        let count = board.visible().len();
+        let count = board.visible().len() + board.visible_jobs().len();
         if count == 0 {
             self.cursor = 0;
         } else if self.cursor >= count {
@@ -925,13 +964,15 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             ""
         }
     )];
-    if visible.is_empty() {
+    // With only commands on the board, the subagent line has nothing to say.
+    if visible.is_empty() && !(board.entries.is_empty() && !board.jobs.entries.is_empty()) {
         lines.push(if board.entries.is_empty() {
             "No subagents in this session yet.".into()
         } else {
             "No running subagents. h shows completed ones.".into()
         });
     }
+    let jobs = board.visible_jobs();
     for (index, entry) in visible.iter().enumerate() {
         let mark = if index == modal.cursor { ">" } else { " " };
         lines.push(format!(
@@ -960,9 +1001,39 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             lines.push(format!("    {}", entry.detail.lines().next().unwrap_or("")));
         }
     }
+    if !board.jobs.entries.is_empty() {
+        lines.push(format!(
+            "Commands ({} running, {} total)",
+            board.jobs.running(),
+            board.jobs.entries.len()
+        ));
+        if jobs.is_empty() {
+            lines.push("No running commands. h shows finished ones.".into());
+        }
+    }
+    for (offset, job) in jobs.iter().enumerate() {
+        let index = visible.len() + offset;
+        let selected = index == modal.cursor;
+        lines.push(format!(
+            "{} {}",
+            if selected { ">" } else { " " },
+            job.row()
+        ));
+        if selected {
+            if !job.detail.is_empty() {
+                lines.push(format!("    {}", job.detail.lines().next().unwrap_or("")));
+            }
+            // The newest output the model has seen, or the partial output at
+            // the move. dsh keeps the full stream; job_output reads it.
+            let output: Vec<&str> = job.output.lines().collect();
+            for line in output.iter().skip(output.len().saturating_sub(6)) {
+                lines.push(format!("    │ {line}"));
+            }
+        }
+    }
     lines.push(String::new());
     lines.push(
-        "↑/↓ select · Enter/Ctrl+F inspect · x cancel · h hide completed · Esc/q close".into(),
+        "↑/↓ select · Enter/Ctrl+F inspect · x cancel/stop · h hide completed · Esc/q close".into(),
     );
     if !modal.notice.is_empty() {
         lines.push(modal.notice.clone());
@@ -1469,5 +1540,72 @@ mod tests {
         cleanup(&home);
         assert!(!dir.exists());
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn commands_share_the_status_line_and_the_tasks_pane() {
+        let mut board = Board::default();
+        board.jobs.apply(&json!({"event":"start","id":"j1","session":"s1","label":"sleep 30","reason":"user","output":"tick\n"}));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 command still running · Ctrl+G or /tasks"
+        );
+        board
+            .apply(&json!({"event":"start","id":"c1","type":"explore","label":"look","model":"m"}));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 command · 1 subagent still running · Ctrl+G or /tasks"
+        );
+        board.session = Some("s1".into());
+        board
+            .jobs
+            .apply(&json!({"event":"wait","session":"s1","job":"j1","on":true}));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 command · 1 subagent still running · send a message to interrupt · Ctrl+G or /tasks"
+        );
+        board.session = Some("s2".into());
+        assert!(
+            !board.status_text().contains("interrupt"),
+            "another session's wait is not ours"
+        );
+        let mut modal = TasksModal {
+            cursor: 1,
+            ..TasksModal::default()
+        };
+        modal.clamp(&board);
+        assert_eq!(modal.cursor, 1);
+        assert!(modal.selected(&board).is_none());
+        assert_eq!(
+            modal.selected_job(&board).map(|job| job.id.as_str()),
+            Some("j1")
+        );
+        let lines = list_lines(&board, &modal);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Commands (1 running, 1 total)")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("> [running] sleep 30 · command"))
+        );
+        assert!(lines.iter().any(|line| line == "    │ tick"));
+        board
+            .jobs
+            .apply(&json!({"event":"end","id":"j1","status":"killed","detail":"signal: SIGTERM"}));
+        board.hide_completed = true;
+        modal.clamp(&board);
+        assert_eq!(modal.cursor, 0);
+        assert!(
+            list_lines(&board, &modal)
+                .iter()
+                .any(|line| line.starts_with("No running commands"))
+        );
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 subagent still running · Ctrl+G or /tasks"
+        );
     }
 }

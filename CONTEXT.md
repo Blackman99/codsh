@@ -309,7 +309,22 @@ hidden `__workflow-engine` subcommand (dsh gets its path in
 budget, and agent options, and asks the host for each agent call; the host
 starts it as a dsh child through the subagent planner (type, capability, model,
 effort, isolation) with a per-run live cap, reports `event: "workflow"` lines
-for the tool block, and never offers the tool to a child. Deny and hook blocks have
+for the tool block, and never offers the tool to a child.
+Background commands stay dsh jobs
+(`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
+(from `[toolset.bash] auto_background_on_timeout` and
+`foreground_block_budget_ms`) makes a parent's foreground `bash` call run as a
+dsh job that the tool call waits on. A result inside the budget is the normal
+foreground result; past the budget, on Ctrl+B, or on send-now the call returns
+the job id with the reference "moved to background" text and the command keeps
+running; a turn cancel kills it and fails the call like dsh does. Children,
+plain `-p`, and editor ACP keep dsh's own foreground bash. The plugin reports
+job start, end, output, waits, completion notices, and agent status on stderr;
+the Rust client feeds the status line, the tasks pane (`x` stops a command
+through the control channel), and wake turns started by dsh's tool-jobs
+completion notice. Closing a dsh session disposes its owner and stops its
+commands; the client waits briefly for that before it kills the process group.
+A restored history never shows a command as running. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

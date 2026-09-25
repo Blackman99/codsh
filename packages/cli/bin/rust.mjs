@@ -283,6 +283,7 @@ export async function launchRust(args) {
       const control = fileURLToPath(new URL('./rust-acp-control.mjs', import.meta.url))
       const plan = fileURLToPath(new URL('./rust-acp-plan.mjs', import.meta.url))
       const mcp = fileURLToPath(new URL('./rust-acp-mcp.mjs', import.meta.url))
+      const background = fileURLToPath(new URL('./rust-acp-background.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
       const lsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
       const toolLsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
@@ -329,6 +330,8 @@ export async function launchRust(args) {
         `      name: '${pathToFileURL(web).href}'`,
         `    - id: rust-acp-plan`,
         `      name: '${pathToFileURL(plan).href}'`,
+        `    - id: rust-acp-background`,
+        `      name: '${pathToFileURL(background).href}'`,
         `    - id: rust-acp-control`,
         `      name: '${pathToFileURL(control).href}'`,
         `    - id: rust-acp-mcp`,

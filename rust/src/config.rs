@@ -2029,6 +2029,16 @@ pub fn subagent_policy(config: &EffectiveConfig) -> crate::subagents::Policy {
     )
 }
 
+/// `[toolset.bash]` background-command policy (ticket 175).
+pub fn bash_policy(config: &EffectiveConfig) -> crate::background::Policy {
+    crate::background::resolve(&config.merged_table)
+}
+
+/// CODSH_BASH_POLICY for an interactive dsh child.
+pub fn bash_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    crate::background::dsh_env(&bash_policy(config), false)
+}
+
 /// CODSH_SUBAGENT_POLICY and the control directory for dsh.
 pub fn subagent_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     crate::subagents::dsh_env(&subagent_policy(config), &config.dsh_home)
@@ -2248,6 +2258,7 @@ pub fn inspect_text(config: &EffectiveConfig) -> String {
     lines.push(crate::plugin::inspect_text(&config.plugins));
     lines.push(crate::assets::inspect_text(&config.assets));
     lines.extend(subagent_policy(config).inspect_lines());
+    lines.extend(bash_policy(config).inspect_lines());
     lines.push(crate::filesystem_sandbox::status_line(
         crate::filesystem_sandbox::active(),
     ));
@@ -2328,6 +2339,7 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
             "disclosure": config.voice.disclosure(),
         },
     });
+    value["backgroundCommands"] = bash_policy(config).to_json();
     if let Some(object) = value.as_object_mut() {
         object.insert(
             "web".into(),

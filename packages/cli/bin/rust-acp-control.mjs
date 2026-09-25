@@ -9,6 +9,10 @@
  * - btw: a side question answered by a one-shot model request built from a
  *   copy of the session history. Nothing is appended to the session, so the
  *   main history never sees the question or the answer.
+ * - background / job_kill: Ctrl+B and the tasks pane, handed to the
+ *   rust-acp-background plugin (ticket 175). A steer also moves a running
+ *   foreground command to the background, so the message is not stuck
+ *   behind it.
  *
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
@@ -32,6 +36,12 @@ export const BTW_SYSTEM = [
 ].join(' ')
 
 const MAX_LINE = 4 * 1024 * 1024
+/** rust-acp-background registers itself here; see that plugin. */
+const BACKGROUND = Symbol.for('codsh.rust.background')
+
+function backgroundPlugin() {
+  return globalThis[BACKGROUND]
+}
 
 /**
  * Keep only complete tool exchanges. A tool call without its result (the turn
@@ -148,6 +158,31 @@ export function createControl(ctx, send, options = {}) {
     } catch (error) {
       ctx.logger?.warn?.(`rust-acp-control: steer failed: ${String(error)}`)
       returnSteer(message.id)
+      return
+    }
+    // The steer is taken at the next step boundary. A foreground command
+    // would hold that boundary until it exits, so it moves to the background.
+    backgroundPlugin()?.promote(request.sessionId, 'message')
+  }
+
+  const background = (request) => {
+    const plugin = backgroundPlugin()
+    const reason = request.reason === 'message' ? 'message' : 'user'
+    const count = plugin === undefined ? 0 : plugin.promote(request.sessionId, reason)
+    send({ type: 'background_result', id: request.id, count, available: plugin !== undefined })
+  }
+
+  const jobKill = (request) => {
+    const plugin = backgroundPlugin()
+    const agent = agents.get(request.sessionId)
+    const jobId = typeof request.jobId === 'string' ? request.jobId : ''
+    try {
+      if (plugin === undefined) throw new Error('background commands are unavailable in this dsh')
+      if (agent === undefined) throw new Error('no live dsh session for this command')
+      const outcome = plugin.kill(agent, jobId)
+      send({ type: 'job_kill_result', id: request.id, jobId, outcome })
+    } catch (error) {
+      send({ type: 'job_kill_result', id: request.id, jobId, error: String(error?.message ?? error) })
     }
   }
 
@@ -234,6 +269,8 @@ export function createControl(ctx, send, options = {}) {
       if (request.type === 'steer') steer(request)
       else if (request.type === 'btw') void btw(request)
       else if (request.type === 'btw_cancel') btws.get(request.id)?.abort()
+      else if (request.type === 'background') background(request)
+      else if (request.type === 'job_kill') jobKill(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()

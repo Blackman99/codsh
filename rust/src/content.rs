@@ -540,6 +540,11 @@ pub fn shell_exit_line(title: &str, result: &str, status: &str) -> Option<String
     if result.contains("[exit code:") || result.contains("[killed by signal:") {
         return None;
     }
+    // A command moved to the background has not exited; its completion
+    // arrives later as its own notice.
+    if crate::background::mentions_background(result) {
+        return None;
+    }
     if result.contains("[timed out after") {
         return Some("[exit timed out]".into());
     }
@@ -551,7 +556,7 @@ pub fn shell_exit_line(title: &str, result: &str, status: &str) -> Option<String
     }
 }
 
-fn is_shell_tool(title: &str) -> bool {
+pub fn is_shell_tool(title: &str) -> bool {
     matches!(
         title,
         "bash" | "run_terminal_cmd" | "run_terminal_command" | "terminal_send" | "terminal_open"
@@ -890,6 +895,19 @@ mod tests {
             Some("[exit failed]")
         );
         assert_eq!(shell_exit_line("bash", "", "completed"), None);
+        assert_eq!(
+            shell_exit_line(
+                "bash",
+                "[Command moved to background]\nUser moved command \"sleep 9\" to background. Process is still running.\n",
+                "completed"
+            ),
+            None,
+            "a moved command has not exited"
+        );
+        assert_eq!(
+            shell_exit_line("bash", "started background job bash-1", "completed"),
+            None
+        );
         assert_eq!(shell_exit_line("read", "hello\n", "completed"), None);
     }
 

@@ -64,6 +64,18 @@ pub enum ControlEvent {
         session_id: String,
         todos: Option<Value>,
     },
+    /// Ctrl+B or a send-now: how many foreground commands dsh moved to the
+    /// background (0 when none was running).
+    BackgroundResult {
+        id: String,
+        count: u64,
+    },
+    /// The tasks pane's stop request: dsh's kill outcome, or why it failed.
+    JobKillResult {
+        id: String,
+        job: String,
+        outcome: Result<String, String>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -138,6 +150,18 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
             session_id: text("sessionId"),
             todos: value.get("todos").filter(|v| v.is_array()).cloned(),
         },
+        "background_result" => ControlEvent::BackgroundResult {
+            id: id()?,
+            count: value.get("count").and_then(Value::as_u64).unwrap_or(0),
+        },
+        "job_kill_result" => ControlEvent::JobKillResult {
+            id: id()?,
+            job: text("jobId"),
+            outcome: match value.get("error").and_then(Value::as_str) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(text("outcome")),
+            },
+        },
         _ => return None,
     })
 }
@@ -186,6 +210,15 @@ pub fn plan_quit_message(id: &str) -> Value {
 
 pub fn plan_set_message(id: &str, session_id: &str, active: bool) -> Value {
     json!({ "type": "plan_set", "id": id, "sessionId": session_id, "active": active })
+}
+
+/// `reason` is `user` (Ctrl+B) or `message` (a send-now interrupting a command).
+pub fn background_message(id: &str, session_id: &str, reason: &str) -> Value {
+    json!({ "type": "background", "id": id, "sessionId": session_id, "reason": reason })
+}
+
+pub fn job_kill_message(id: &str, session_id: &str, job_id: &str) -> Value {
+    json!({ "type": "job_kill", "id": id, "sessionId": session_id, "jobId": job_id })
 }
 
 pub struct ControlChannel {
@@ -513,6 +546,13 @@ mod tests {
             })
         );
         assert_eq!(
+            parse_event(r#"{"type":"background_result","id":"g1","count":1}"#),
+            Some(ControlEvent::BackgroundResult {
+                id: "g1".into(),
+                count: 1
+            })
+        );
+        assert_eq!(
             parse_event(
                 r#"{"type":"plan_state","sessionId":"s","active":true,"pending":false,"planFile":"/p"}"#
             ),
@@ -540,6 +580,32 @@ mod tests {
         assert_eq!(
             parse_event(r#"{"type":"plan_state","sessionId":"s"}"#),
             None
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"job_kill_result","id":"k1","jobId":"j1","outcome":"requested"}"#
+            ),
+            Some(ControlEvent::JobKillResult {
+                id: "k1".into(),
+                job: "j1".into(),
+                outcome: Ok("requested".into())
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"job_kill_result","id":"k2","jobId":"j1","error":"gone"}"#),
+            Some(ControlEvent::JobKillResult {
+                id: "k2".into(),
+                job: "j1".into(),
+                outcome: Err("gone".into())
+            })
+        );
+        assert_eq!(
+            background_message("g1", "s1", "user"),
+            serde_json::json!({"type":"background","id":"g1","sessionId":"s1","reason":"user"})
+        );
+        assert_eq!(
+            job_kill_message("k1", "s1", "j1"),
+            serde_json::json!({"type":"job_kill","id":"k1","sessionId":"s1","jobId":"j1"})
         );
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);

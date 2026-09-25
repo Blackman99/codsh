@@ -2002,6 +2002,12 @@ fn paint_line(
     selection: Option<SelectionSpan>,
     abs: usize,
 ) -> Line<'static> {
+    // With `Wrap { trim: false }` ratatui paints a whitespace-only row as two
+    // rows, which the follow scroll does not count, so every blank row of an
+    // unselected turn would push the transcript tail below the slot.
+    if prefix.trim().is_empty() && line.text.trim().is_empty() {
+        return Line::default();
+    }
     let mut spans = vec![Span::raw(prefix.to_string())];
     spans.extend(line.spans.clone());
     if spans.len() == 1 {
@@ -2266,6 +2272,47 @@ mod tests {
             row,
             modifiers: KeyModifiers::empty(),
         }
+    }
+
+    #[test]
+    fn blank_rows_of_unselected_turns_paint_one_row_each() {
+        use ratatui::widgets::{Paragraph, Widget, Wrap};
+        let card = |user: &str| {
+            let mut entry = NavEntry::from_parts(
+                user,
+                "",
+                "ANSWER",
+                vec![(
+                    "job_output".to_string(),
+                    "OUT\n[status: completed]".to_string(),
+                )],
+            );
+            entry.tool_meta = vec![("call".to_string(), "completed".to_string())];
+            entry.done = true;
+            entry
+        };
+        let mut state = NavState::new(NavigationPrefs::default(), true);
+        state.rebuild(vec![card("first"), card("second")], 40, 30);
+        let painted = state.painted_transcript();
+        assert_eq!(painted.len(), state.lines.len());
+        let area = ratatui::layout::Rect::new(0, 0, 42, 30);
+        let mut buf = ratatui::buffer::Buffer::empty(area);
+        Paragraph::new(painted)
+            .wrap(Wrap { trim: false })
+            .render(area, &mut buf);
+        let rows: Vec<String> = (0..30)
+            .map(|y| {
+                (0..42)
+                    .map(|x| buf[(x, y)].symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect();
+        // Row n shows layout line n: the tail (the last answer) stays in place.
+        let last = state.lines.len() - 1;
+        assert_eq!(rows[last], "> ANSWER");
+        assert!(rows[last + 1].is_empty(), "{rows:#?}");
     }
 
     fn sample() -> NavState {

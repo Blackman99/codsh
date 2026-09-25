@@ -223,6 +223,22 @@ function isDirectUser(event) {
   return true
 }
 
+/** The line a background completion notice shows as (ticket 175). */
+export const JOB_NOTICE_PREFIX = '◎ Task completed'
+
+/**
+ * A dsh tool-jobs completion notice: the model read it as a user message
+ * that nobody typed. The transcript shows it as its own marked turn, the way
+ * the live client does, and never as a prompt.
+ */
+function jobNotice(event) {
+  if (event?.type !== 'user/message') return undefined
+  const source = eventSource(event)
+  if (source?.kind !== 'plugin' || source?.plugin !== 'tool-jobs') return undefined
+  const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
+  return summary === '' ? JOB_NOTICE_PREFIX : `${JOB_NOTICE_PREFIX} · ${summary}`
+}
+
 function summarizePrompt(event) {
   const message = event?.data?.message ?? event?.data ?? {}
   const line = textBlocks(message.content)
@@ -423,6 +439,16 @@ export function projectTurns(events, options = {}) {
       const id = String(data.callId ?? data.toolCallId ?? '')
       if (!liveTools.has(id)) continue
     }
+    const notice = jobNotice(event)
+    if (notice !== undefined) {
+      // A wake turn starts with its notice; a notice taken mid-turn opens a
+      // new transcript turn for the answer that follows it.
+      const empty = current !== null && current.user === '' && current.answer === ''
+        && current.thought === '' && current.tools.length === 0
+      if (!empty) openTurn()
+      current.user = notice
+      continue
+    }
     if (type === 'turn/start' || (type === 'user/message' && current === null && isDirectUser(event))) {
       openTurn()
     }
@@ -608,10 +634,14 @@ function promptLines(events) {
   const lines = []
   for (const event of events ?? []) {
     if (event?.type !== 'user/message') continue
+    // A completion notice and the runtime snapshot a wake turn records were
+    // never typed; the picker lists prompts only.
+    if (jobNotice(event) !== undefined) continue
     const message = event.data?.message ?? event.data ?? {}
     const content = Array.isArray(message.content) ? message.content : Array.isArray(event.data?.content) ? event.data.content : []
     const text = content.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('\n')
     const line = text.split('\n').map(part => part.trim()).find(part => part !== '' && !part.startsWith('<pasted-image '))
+    if (line && /^Current runtime context\b/.test(line)) continue
     if (line) lines.push(line.slice(0, 160))
   }
   return lines
