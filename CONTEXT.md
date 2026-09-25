@@ -338,8 +338,28 @@ contracts in `rust/src/workflow_host.rs`: `output_schema` compiles with the
 keeps a contract child open (`open: true` in the reply) so the engine can send
 one `resume_agent` correction turn to the same dsh child, then a `close` line
 ends it. Scratch files live under the session's plan directory
-(`workflows/<call>/scratch`, sent as `scratchDir`), and `git_diff_since` runs
-git in the engine. Open children are closed when the run ends.
+(`workflows/<run id>/scratch`, sent as `scratchDir`), and `git_diff_since` runs
+git in the engine. Open children are closed when the run ends. Since ticket 183
+a run is a background run of its session: the plugin's run manager
+(`createWorkflowRuns`, helpers in `rust-acp-workflow-runs.mjs`) answers the
+tool once the engine's `started` line arrives, gives the run a session-unique
+display name, and keeps `run.json`, the immutable `script.rhai` and
+`launch.json` (args), and the engine's `journal.jsonl` under
+`workflows/<run id>/`. The engine takes `journal: {path, resume,
+pruneHostError}` on its start line and replays journaled agent results on a
+resume; the host re-runs anything not journaled, so nothing is exactly-once.
+Pause and stop abort the engine and its children; resume, only in the same dsh
+process (restored runs refuse, an active one becomes `interrupted`), waits for
+the old engine and starts the stored script again. A run that ends or stops at
+its budget is reported once per launch epoch as a `followup` message
+(`source.plugin: rust-acp-workflow`, `form: notice`), which
+`rust-acp-background.mjs` puts back when a cancel discards it and announces as
+a `notice` line. `/workflow` reaches the manager through the control channel
+(`{type: "workflow"}` → `workflow_result`); the Rust client shows the reply in
+the hint line, and the board's `event: "workflow"` lines (run id, `call`,
+`session`, status, `elapsedMs`) feed the block title, the tasks pane's
+Workflows section, and the status line. A plain `-p` prompt sets
+`CODSH_WORKFLOW_FOREGROUND=1`, so there the tool waits for its run.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and

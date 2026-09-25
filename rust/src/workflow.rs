@@ -410,6 +410,40 @@ pub struct Start {
     pub agent_budget: u64,
     /// This run's scratch directory; `None` refuses scratch files.
     pub scratch_dir: Option<PathBuf>,
+    /// The run's journal (ticket 183); `None` keeps it in memory only.
+    pub journal: Option<JournalSpec>,
+}
+
+/// Where the run's journal lives, and whether this start resumes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JournalSpec {
+    pub path: PathBuf,
+    /// Load the recorded entries: finished host calls replay instead of
+    /// running again.
+    pub resume: bool,
+    /// The failed run's error; a trailing host-error entry it names is
+    /// pruned so the failed step runs again (reference manager).
+    pub prune_host_error: Option<String>,
+}
+
+/// Open the run's journal as the reference manager does: a new run starts
+/// an empty file-backed journal, a resume loads it (and prunes a trailing
+/// host error of a failed run).
+pub fn open_journal(spec: Option<&JournalSpec>) -> Result<Journal, String> {
+    let Some(spec) = spec else {
+        return Ok(Journal::new(None));
+    };
+    if !spec.resume {
+        return Ok(Journal::new(Some(spec.path.clone())));
+    }
+    let mut journal =
+        Journal::load(spec.path.clone()).map_err(|error| format!("journal error: {error}"))?;
+    if let Some(detail) = spec.prune_host_error.as_deref() {
+        journal
+            .prune_trailing_host_error(detail)
+            .map_err(|error| format!("journal error: {error}"))?;
+    }
+    Ok(journal)
 }
 
 pub fn parse_start(line: &str) -> Result<Start, String> {
@@ -485,6 +519,23 @@ pub fn parse_start(line: &str) -> Result<Start, String> {
             .and_then(Value::as_str)
             .filter(|dir| Path::new(dir).is_absolute())
             .map(PathBuf::from),
+        journal: match value.get("journal") {
+            None | Some(Value::Null) => None,
+            Some(journal) => Some(JournalSpec {
+                path: journal
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .filter(|path| Path::new(path).is_absolute())
+                    .map(PathBuf::from)
+                    .ok_or("invalid engine request: journal.path must be an absolute path")?,
+                resume: journal.get("resume").and_then(Value::as_bool) == Some(true),
+                prune_host_error: journal
+                    .get("pruneHostError")
+                    .and_then(Value::as_str)
+                    .filter(|detail| !detail.is_empty())
+                    .map(str::to_string),
+            }),
+        },
     })
 }
 
@@ -672,9 +723,21 @@ where
         return 3;
     }
 
+    let journal = match open_journal(start.journal.as_ref()) {
+        Ok(journal) => journal,
+        Err(error) => {
+            write_line(
+                &mut output,
+                &json!({"type": "rejected", "code": "workflow_journal_failed", "error": error}),
+            );
+            return 0;
+        }
+    };
+    // A resumed run has already spent one agent per journaled spawn
+    // (reference `reconcile_agents_used`).
     let mut budget = Budget {
         total: start.agent_budget,
-        used: 0,
+        used: journal.agent_reservation_count(),
     };
     write_line(
         &mut output,
@@ -682,7 +745,10 @@ where
             "type": "started",
             "meta": meta_json(&resolved.meta),
             "path": resolved.path.as_ref().map(|path| path.display().to_string()),
+            "script": resolved.script,
             "agentBudget": budget.total,
+            "agentsUsed": budget.used,
+            "replay": journal.len(),
         }),
     );
 
@@ -708,7 +774,7 @@ where
             let outcome = run_workflow(WorkflowRunParams {
                 script,
                 args,
-                journal: Journal::new(None),
+                journal,
                 host_tx,
                 cancel,
                 max_ops,
@@ -792,9 +858,14 @@ where
                         }
                     }
                 }
+                // A replayed phase still moves the run's current phase (the
+                // reference host emits it without recording history).
                 WorkflowHostRequest::Phase { title, replayed } => {
-                    if !replayed && title.len() <= MAX_PHASE_BYTES {
-                        write_line(&mut output, &json!({"type": "phase", "title": title}));
+                    if title.len() <= MAX_PHASE_BYTES {
+                        write_line(
+                            &mut output,
+                            &json!({"type": "phase", "title": title, "replayed": replayed}),
+                        );
                     }
                 }
                 WorkflowHostRequest::Log { message, replayed } => {
@@ -1630,6 +1701,126 @@ mod tests {
         );
         let (_, lines) = session.finish();
         assert_eq!(lines.last().unwrap()["result"], json!({"report": "R"}));
+    }
+
+    fn journaled(
+        script: &str,
+        path: &Path,
+        resume: bool,
+        budget: u64,
+        prune: Option<&str>,
+    ) -> Value {
+        json!({"op": "run", "source": {"type": "script", "script": script}, "cwd": "/", "agentBudget": budget,
+            "journal": {"path": path, "resume": resume, "pruneHostError": prune}})
+    }
+
+    #[test]
+    fn a_resumed_run_replays_journaled_children_and_reruns_cancelled_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("wf").join("journal.jsonl");
+        let script = format!(
+            "{META}phase(\"one\");\nlet a = agent(\"a\");\nphase(\"two\");\nlet b = agent(\"b\");\n[a.output, b.output]"
+        );
+        let session = Session::start(journaled(&script, &path, false, 8, None), 1_000_000);
+        let first = session.sink.wait(|line| line["type"] == "request");
+        assert_eq!(first["opts"]["prompt"], "a");
+        session.send(json!({"type": "reply", "id": first["id"], "ok": ok_result("c1", "A")}));
+        session
+            .sink
+            .wait(|line| line["type"] == "request" && line["opts"]["prompt"] == "b");
+        session.send(json!({"type": "cancel"}));
+        let (_, lines) = session.finish();
+        assert_eq!(lines.last().unwrap()["outcome"], "cancelled");
+        assert!(path.is_file());
+
+        let session = Session::start(journaled(&script, &path, true, 8, None), 1_000_000);
+        let started = session.sink.wait(|line| line["type"] == "started");
+        assert_eq!(started["agentsUsed"], 1);
+        assert_eq!(started["script"], script.as_str());
+        let request = session.sink.wait(|line| line["type"] == "request");
+        assert_eq!(
+            request["opts"]["prompt"], "b",
+            "the finished child is replayed"
+        );
+        session.send(json!({"type": "reply", "id": request["id"], "ok": ok_result("c2", "B")}));
+        let (_, lines) = session.finish();
+        let requests = lines
+            .iter()
+            .filter(|line| line["type"] == "request")
+            .count();
+        assert_eq!(requests, 1);
+        let phases: Vec<(&str, bool)> = lines
+            .iter()
+            .filter(|line| line["type"] == "phase")
+            .map(|line| (line["title"].as_str().unwrap(), line["replayed"] == true))
+            .collect();
+        assert_eq!(phases, [("one", true), ("two", false)]);
+        let outcome = lines.last().unwrap();
+        assert_eq!(outcome["result"], json!(["A", "B"]));
+        assert_eq!(outcome["agentsUsed"], 2);
+    }
+
+    #[test]
+    fn a_budget_stop_continues_under_a_raised_cap_and_a_failed_step_runs_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        let script =
+            format!("{META}let a = agent(\"a\");\nlet b = agent(\"b\");\n[a.output, b.output]");
+        let session = Session::start(journaled(&script, &path, false, 1, None), 1_000_000);
+        let first = session.sink.wait(|line| line["type"] == "request");
+        session.send(json!({"type": "reply", "id": first["id"], "ok": ok_result("c1", "A")}));
+        let (_, lines) = session.finish();
+        let outcome = lines.last().unwrap();
+        assert_eq!(outcome["outcome"], "budget_exceeded", "{outcome}");
+        assert_eq!(outcome["agentsUsed"], 1);
+
+        let session = Session::start(journaled(&script, &path, true, 2, None), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        assert_eq!(request["opts"]["prompt"], "b");
+        session.send(json!({"type": "reply", "id": request["id"], "error": {"kind": "failed", "message": "host broke"}}));
+        let (_, lines) = session.finish();
+        let outcome = lines.last().unwrap();
+        assert_eq!(outcome["outcome"], "failed");
+        let error = outcome["error"].as_str().unwrap().to_string();
+        assert!(error.contains("host broke"), "{error}");
+
+        // Without pruning, the recorded host error replays and fails again.
+        let session = Session::start(journaled(&script, &path, true, 3, None), 1_000_000);
+        let (_, lines) = session.finish();
+        assert!(lines.iter().all(|line| line["type"] != "request"));
+        assert_eq!(lines.last().unwrap()["outcome"], "failed");
+
+        let session = Session::start(journaled(&script, &path, true, 3, Some(&error)), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        assert_eq!(request["opts"]["prompt"], "b");
+        session.send(json!({"type": "reply", "id": request["id"], "ok": ok_result("c3", "B")}));
+        let (_, lines) = session.finish();
+        assert_eq!(lines.last().unwrap()["result"], json!(["A", "B"]));
+    }
+
+    #[test]
+    fn a_bad_journal_is_refused_before_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.jsonl");
+        std::fs::write(&path, "not json\n{}\n").unwrap();
+        let session = Session::start(
+            journaled(&format!("{META}1"), &path, true, 8, None),
+            1_000_000,
+        );
+        let (_, lines) = session.finish();
+        assert_eq!(lines[0]["code"], "workflow_journal_failed");
+        assert!(
+            lines[0]["error"]
+                .as_str()
+                .unwrap()
+                .starts_with("journal error: ")
+        );
+        let session = Session::start(
+            json!({"op": "run", "source": {"type": "script", "script": META}, "cwd": "/", "journal": {"path": "rel.jsonl"}}),
+            1_000_000,
+        );
+        let (_, lines) = session.finish();
+        assert_eq!(lines[0]["code"], "workflow_invalid_input");
     }
 
     #[test]

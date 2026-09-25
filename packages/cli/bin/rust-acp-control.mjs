@@ -19,6 +19,9 @@
  *
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
+ * - workflow: `/workflow [runs | pause | resume | stop | save] [name]`,
+ *   answered by the workflow run manager of rust-acp-subagents (ticket 183)
+ *   with the reference reply text.
  *
  * The client passes a Unix socket path and a one-time token in the
  * environment. Both are removed from `process.env` before anything else runs,
@@ -41,6 +44,8 @@ export const BTW_SYSTEM = [
 const MAX_LINE = 4 * 1024 * 1024
 /** rust-acp-background registers itself here; see that plugin. */
 const BACKGROUND = Symbol.for('codsh.rust.background')
+/** rust-acp-workflow publishes its run manager here. */
+const WORKFLOW = Symbol.for('codsh.rust.workflow')
 
 function backgroundPlugin() {
   return globalThis[BACKGROUND]
@@ -206,6 +211,17 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  const workflow = async (request) => {
+    const runs = globalThis[WORKFLOW]
+    try {
+      if (runs === undefined) throw new Error('workflows are not available in this dsh (subagents are disabled or the workflow tool is not loaded)')
+      const text = await runs.command(String(request.sessionId ?? ''), typeof request.text === 'string' ? request.text : '')
+      send({ type: 'workflow_result', id: request.id, text })
+    } catch (error) {
+      send({ type: 'workflow_result', id: request.id, error: String(error?.message ?? error) })
+    }
+  }
+
   const btw = async (request) => {
     const id = request.id
     const agent = agents.get(request.sessionId)
@@ -292,6 +308,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'background') background(request)
       else if (request.type === 'job_kill') jobKill(request)
       else if (request.type === 'schedule_delete') scheduleDelete(request)
+      else if (request.type === 'workflow') void workflow(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()

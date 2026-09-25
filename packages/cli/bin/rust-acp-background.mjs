@@ -24,6 +24,10 @@
  * lost; one for a job this plugin already answered in the foreground is
  * removed, so it is never duplicated.
  *
+ * A workflow completion message (rust-acp-workflow, ticket 183) takes the
+ * same path: it is announced when the model claims it and put back when a
+ * cancel discards it.
+ *
  * Lifecycle lines go to stderr as `\u241ejob\u241e{json}` for the client's task
  * board, status line, and transcript. Jobs die with the dsh process and are
  * cancelled by dsh when their owner agent is disposed; nothing here revives
@@ -135,6 +139,12 @@ function noticeJobId(message) {
 
 function isJobsNotice(message) {
   return message?.source?.kind === 'plugin' && message.source.plugin === 'tool-jobs'
+}
+
+/** A workflow completion message (ticket 183) shares the wake path. */
+export const WORKFLOW_NOTICE_PLUGIN = 'rust-acp-workflow'
+function isWorkflowNotice(message) {
+  return message?.source?.kind === 'plugin' && message.source.plugin === WORKFLOW_NOTICE_PLUGIN && message.source.form === 'notice'
 }
 
 /**
@@ -353,7 +363,7 @@ export function createBackground(deps) {
     },
     /** `agent/inbox/discarded`: a cancel cleared a notice the model never saw. */
     onDiscarded(agent, message) {
-      if (!isJobsNotice(message)) return
+      if (!isJobsNotice(message) && !isWorkflowNotice(message)) return
       if (suppressed.delete(message.id)) return
       later(() => {
         if (!deps.live(agent)) return
@@ -362,7 +372,7 @@ export function createBackground(deps) {
           // Injected, not a follow-up: the user just stopped this turn, so
           // the notice waits for the next step instead of opening a turn.
           agent.inject(copy)
-          emit({ event: 'requeued', session: sessionOf(agent), job: noticeJobId(message) ?? '' })
+          emit({ event: 'requeued', session: sessionOf(agent), job: noticeJobId(message) ?? '', ...isWorkflowNotice(message) ? { what: String(message.source.summary ?? 'a workflow') } : {} })
         } catch {
           // A disposed agent has no inbox left; its jobs are gone with it.
         }
@@ -370,7 +380,7 @@ export function createBackground(deps) {
     },
     /** `agent/inbox/claimed`: a completion reached the model. */
     onClaimed(agent, message) {
-      if (isChildAgent(agent) || !isJobsNotice(message)) return
+      if (isChildAgent(agent) || (!isJobsNotice(message) && !isWorkflowNotice(message))) return
       const text = message.content?.find?.(block => block?.type === 'text')?.text ?? ''
       emit({
         event: 'notice',

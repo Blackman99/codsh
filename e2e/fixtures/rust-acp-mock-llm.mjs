@@ -658,6 +658,7 @@ function * backgroundTurn(options) {
 }
 
 const HOLD = { live: 0, peak: 0 }
+const ONCE = new Set()
 
 // Scheduled prompts (ticket 177).
 //   The /loop instruction (`# /loop -- schedule a recurring prompt`) is turned
@@ -844,11 +845,36 @@ async function * subagentChildTurn(options, kind, signal) {
     yield* mockText(`CHILD_HELD peak=${HOLD.peak}`)
     return
   }
+  // Ticket 183. ONCE holds its first turn for a tag (until cancelled, at
+  // most 60 s) and answers every later turn with that tag at once, so a
+  // resumed workflow can tell a re-run child from a replayed one.
+  if (kind === 'ONCE') {
+    const tag = /CHILD_ONCE (\S+)/.exec(rawUserTexts(options).join('\n'))?.[1] ?? ''
+    if (!ONCE.has(tag)) {
+      ONCE.add(tag)
+      try {
+        await sleep(60000, signal)
+      } catch {
+        return
+      }
+    }
+    yield* mockText(`CHILD_ONCE_DONE ${tag}`)
+    return
+  }
   yield* mockText(`CHILD_ECHO tools=${tools}`)
 }
 
 async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
+  // Ticket 183: a workflow completion message (the reminder plus the wake
+  // prompt) is answered by echoing the reminder.
+  const lastUser = [...options.messages].reverse().find(message => message.role === 'user' && message.content.some(block => block.type === 'text'))
+  const noticeTexts = lastUser ? lastUser.content.filter(block => block.type === 'text').map(block => block.text) : []
+  const reminder = noticeTexts.find(text => text.includes('background workflow run'))
+  if (reminder !== undefined) {
+    yield* mockText(`PARENT_WORKFLOW_NOTICE\n${reminder.replace(/^<system-reminder>\n/, '').replace(/<\/system-reminder>$/, '').trimEnd()}`)
+    return
+  }
   // Workflows (ticket 181): `WORKFLOW_CALL <json>` calls the workflow tool
   // with that input once, then reports the result.
   const lastStep = [...texts].reverse().find(text => text.includes('WORKFLOW_CALL ') || text.includes('SPAWN:'))

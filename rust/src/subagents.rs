@@ -595,23 +595,46 @@ impl Entry {
     }
 }
 
-/// One workflow run (ticket 181), keyed by its `workflow` tool call id. The
-/// run is foreground: its tool block shows this line while it runs.
+/// One workflow run (tickets 181 and 183), keyed by its run id. A run goes
+/// on in the background after the tool call that started it returns; every
+/// `workflow` call that launched or resumed it (`calls`) shows this line in
+/// its tool block. Statuses are the reference ones (`active`, `user_paused`,
+/// `budget_limited`, `complete`, `failed`, `cancelled`, `interrupted`, ...),
+/// and a paused, failed, or cancelled run may become active again on resume.
 #[derive(Clone, Debug)]
 pub struct WorkflowRun {
     pub id: String,
+    pub calls: Vec<String>,
+    /// The dsh session that owns the run.
+    pub session: String,
     pub name: String,
     pub status: String,
     pub phase: String,
     pub agents: u64,
     pub running: u64,
-    pub started: Instant,
-    pub elapsed: Option<Duration>,
+    /// Active time the plugin reported with the last line.
+    pub elapsed_ms: u64,
+    /// When that line arrived; an active run's clock goes on from there.
+    pub received: Instant,
 }
 
 impl WorkflowRun {
     pub fn live(&self) -> bool {
-        self.status == "running"
+        self.status == "active"
+    }
+
+    pub fn elapsed(&self) -> Duration {
+        let banked = Duration::from_millis(self.elapsed_ms);
+        if self.live() {
+            banked + self.received.elapsed()
+        } else {
+            banked
+        }
+    }
+
+    /// `user_paused` reads as `user paused`.
+    pub fn status_words(&self) -> String {
+        self.status.replace('_', " ")
     }
 
     fn quoted_name(&self) -> String {
@@ -646,12 +669,28 @@ impl WorkflowRun {
         } else {
             format!(
                 "Workflow {} in {}{}{phase} · {}",
-                self.status,
-                seconds(self.elapsed.unwrap_or_else(|| self.started.elapsed())),
+                self.status_words(),
+                seconds(self.elapsed()),
                 self.quoted_name(),
                 self.agents()
             )
         }
+    }
+
+    /// One row of the tasks pane's Workflows section.
+    pub fn row(&self) -> String {
+        format!(
+            "'{}' — {}{} · {} · {}",
+            if self.name.is_empty() {
+                self.id.as_str()
+            } else {
+                self.name.as_str()
+            },
+            self.status_words(),
+            activity(&self.phase),
+            self.agents(),
+            seconds(self.elapsed())
+        )
     }
 }
 
@@ -711,11 +750,34 @@ impl Board {
         self.entries.iter().find(|entry| entry.id == id)
     }
 
+    /// The run by its id or by any tool call that launched or resumed it.
     pub fn workflow(&self, id: &str) -> Option<&WorkflowRun> {
-        self.workflows.iter().find(|run| run.id == id)
+        self.workflows
+            .iter()
+            .find(|run| run.id == id || run.calls.iter().any(|call| call == id))
     }
 
-    /// A workflow status line. A settled run keeps its first final status.
+    /// Runs of the live session (every run before a session is known).
+    pub fn session_workflows(&self) -> Vec<&WorkflowRun> {
+        self.workflows
+            .iter()
+            .filter(|run| match self.session.as_deref() {
+                Some(session) if !run.session.is_empty() => run.session == session,
+                _ => true,
+            })
+            .collect()
+    }
+
+    /// Active runs of the live session.
+    pub fn active_workflows(&self) -> usize {
+        self.session_workflows()
+            .iter()
+            .filter(|run| run.live())
+            .count()
+    }
+
+    /// A workflow status line. The newest line wins: a resumed run is active
+    /// again, and the plugin sends every state change, not only the first.
     fn apply_workflow(&mut self, event: &Value) {
         let id = text(event, "id");
         if id.is_empty() {
@@ -726,40 +788,51 @@ impl Board {
             None => {
                 self.workflows.push(WorkflowRun {
                     id,
+                    calls: Vec::new(),
+                    session: String::new(),
                     name: String::new(),
-                    status: "running".into(),
+                    status: "active".into(),
                     phase: String::new(),
                     agents: 0,
                     running: 0,
-                    started: Instant::now(),
-                    elapsed: None,
+                    elapsed_ms: 0,
+                    received: Instant::now(),
                 });
                 self.workflows.len() - 1
             }
         };
         let run = &mut self.workflows[index];
-        if !run.live() {
-            return;
+        let call = text(event, "call");
+        if !call.is_empty() && !run.calls.contains(&call) {
+            run.calls.push(call);
+        }
+        let session = text(event, "session");
+        if !session.is_empty() {
+            run.session = session;
         }
         let name = text(event, "name");
         if !name.is_empty() {
             run.name = name;
+        }
+        let status = text(event, "status");
+        if !status.is_empty() {
+            run.status = status;
         }
         run.phase = text(event, "phase");
         run.agents = event
             .get("agents")
             .and_then(Value::as_u64)
             .unwrap_or(run.agents);
-        run.running = event.get("running").and_then(Value::as_u64).unwrap_or(0);
-        let status = text(event, "status");
-        match status.as_str() {
-            "completed" | "failed" | "cancelled" | "paused" => {
-                run.status = status;
-                run.running = 0;
-                run.elapsed = Some(run.started.elapsed());
-            }
-            _ => {}
-        }
+        run.running = if run.live() {
+            event.get("running").and_then(Value::as_u64).unwrap_or(0)
+        } else {
+            0
+        };
+        run.elapsed_ms = event
+            .get("elapsedMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(run.elapsed_ms);
+        run.received = Instant::now();
     }
 
     fn upsert(&mut self, event: &Value) -> Option<&mut Entry> {
@@ -905,6 +978,11 @@ impl Board {
             0 => {}
             1 => parts.push("1 subagent".to_string()),
             count => parts.push(format!("{count} subagents")),
+        }
+        match self.active_workflows() {
+            0 => {}
+            1 => parts.push("1 workflow".to_string()),
+            count => parts.push(format!("{count} workflows")),
         }
         if parts.is_empty() {
             return String::new();
@@ -1096,6 +1174,23 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
                     task.last.lines().next().unwrap_or("")
                 ));
             }
+        }
+    }
+    // Background workflow runs (ticket 183): a status row each; /workflow
+    // pauses, resumes, or stops one by its display name.
+    let runs: Vec<&WorkflowRun> = board
+        .session_workflows()
+        .into_iter()
+        .filter(|run| !board.hide_completed || run.live())
+        .collect();
+    if !board.session_workflows().is_empty() {
+        lines.push(format!(
+            "Workflows ({} active, {} total) · /workflow pause|resume|stop <name>",
+            board.active_workflows(),
+            board.session_workflows().len()
+        ));
+        for run in runs {
+            lines.push(format!("  {}", run.row()));
         }
     }
     lines.push(String::new());
@@ -1577,17 +1672,18 @@ mod tests {
     #[test]
     fn workflow_runs_title_their_block_and_tag_their_children() {
         let mut board = Board::default();
-        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "", "status": "running", "phase": "", "agents": 0, "running": 0}));
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-1", "session": "s1", "name": "", "status": "active", "phase": "", "agents": 0, "running": 0, "elapsedMs": 0}));
         assert_eq!(
-            board.workflow("wf1").unwrap().block_title(),
+            board.workflow("wf_1").unwrap().block_title(),
             "Workflow running · 0 agents"
         );
-        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "running", "phase": "scan", "agents": 2, "running": 2}));
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-1", "session": "s1", "name": "review", "status": "active", "phase": "scan", "agents": 2, "running": 2, "elapsedMs": 400}));
         assert_eq!(
-            board.workflow("wf1").unwrap().block_title(),
-            "Workflow running: 'review' · scan · 2 agents (2 running)"
+            board.workflow("call-1").unwrap().block_title(),
+            "Workflow running: 'review' · scan · 2 agents (2 running)",
+            "the launching tool call finds its run"
         );
-        board.apply(&json!({"event": "start", "id": "wf1:agent-1", "type": "general-purpose", "label": "review #1", "model": "m/m", "background": false, "workflow": "review", "workflowRun": "wf1", "child": "c"}));
+        board.apply(&json!({"event": "start", "id": "wf_1:agent-1", "type": "general-purpose", "label": "review #1", "model": "m/m", "background": false, "workflow": "review", "workflowRun": "wf_1", "child": "c"}));
         let lines = list_lines(&board, &TasksModal::default());
         assert!(
             lines
@@ -1596,25 +1692,71 @@ mod tests {
                     && line.contains(" · workflow review")),
             "{lines:?}"
         );
-        assert_eq!(board.running(), 1, "the run itself is not a subagent");
-        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "completed", "phase": "scan", "agents": 2, "running": 0}));
-        let title = board.workflow("wf1").unwrap().block_title();
-        assert!(title.starts_with("Workflow completed in "), "{title}");
-        assert!(title.ends_with(": 'review' · scan · 2 agents"), "{title}");
-        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "failed", "phase": "", "agents": 3, "running": 0}));
-        let run = board.workflow("wf1").unwrap();
-        assert_eq!(
-            (run.status.as_str(), run.agents),
-            ("completed", 2),
-            "a settled run is final"
+        assert!(
+            lines
+                .iter()
+                .any(|line| line
+                    == "Workflows (1 active, 1 total) · /workflow pause|resume|stop <name>"),
+            "{lines:?}"
         );
-        board.apply(&json!({"event": "workflow", "id": "", "status": "running"}));
+        assert!(
+            lines.iter().any(
+                |line| line.starts_with("  'review' — active · scan · 2 agents (2 running) · ")
+            ),
+            "{lines:?}"
+        );
+        assert_eq!(board.running(), 1, "the run itself is not a subagent");
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 subagent · 1 workflow still running · Ctrl+G or /tasks"
+        );
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-1", "session": "s1", "name": "review", "status": "user_paused", "phase": "scan", "agents": 2, "running": 0, "elapsedMs": 2500}));
+        assert_eq!(
+            board.workflow("wf_1").unwrap().block_title(),
+            "Workflow user paused in 2.5s: 'review' · scan · 2 agents"
+        );
+        assert_eq!(board.active_workflows(), 0);
+        // A resume is a new tool call on the same run, and the run is active again.
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-2", "session": "s1", "name": "review", "status": "active", "phase": "fix", "agents": 3, "running": 1, "elapsedMs": 2500}));
+        let run = board.workflow("call-2").unwrap();
+        assert_eq!(run.id, "wf_1");
+        assert_eq!(run.calls, ["call-1", "call-2"]);
+        assert!(run.live());
+        assert_eq!(
+            board.workflow("call-1").unwrap().block_title(),
+            "Workflow running: 'review' · fix · 3 agents (1 running)"
+        );
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-2", "session": "s1", "name": "review", "status": "complete", "phase": "fix", "agents": 3, "running": 0, "elapsedMs": 12000}));
+        assert_eq!(
+            board.workflow("wf_1").unwrap().block_title(),
+            "Workflow complete in 12s: 'review' · fix · 3 agents"
+        );
+        board.apply(&json!({"event": "workflow", "id": "", "status": "active"}));
         assert_eq!(board.workflows.len(), 1);
-        // A script rejected before it started has no name yet.
-        board.apply(&json!({"event": "workflow", "id": "wf2", "name": "", "status": "failed", "phase": "", "agents": 0, "running": 0}));
-        let title = board.workflow("wf2").unwrap().block_title();
-        assert!(title.starts_with("Workflow failed in "), "{title}");
-        assert!(title.ends_with("s · 0 agents"), "{title}");
+        // Another session's run stays out of this session's pane and status.
+        board.session = Some("s2".into());
+        board.apply(&json!({"event": "workflow", "id": "wf_2", "call": "call-9", "session": "s2", "name": "other", "status": "active", "phase": "", "agents": 0, "running": 0, "elapsedMs": 0}));
+        assert_eq!(board.session_workflows().len(), 1);
+        assert_eq!(board.session_workflows()[0].name, "other");
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 subagent · 1 workflow still running · Ctrl+G or /tasks",
+            "review's workflow is not counted here; its child still runs"
+        );
+        board.hide_completed = true;
+        board.session = Some("s1".into());
+        let lines = list_lines(&board, &TasksModal::default());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line
+                    == "Workflows (0 active, 1 total) · /workflow pause|resume|stop <name>"),
+            "{lines:?}"
+        );
+        assert!(
+            !lines.iter().any(|line| line.starts_with("  'review'")),
+            "completed runs hide with h: {lines:?}"
+        );
     }
 
     #[test]

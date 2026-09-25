@@ -844,6 +844,16 @@ impl AcpClient {
         ))
     }
 
+    /// `/workflow ...`: ask this session's workflow run manager (overview,
+    /// pause, resume, stop). The reply arrives as `WorkflowResult`.
+    pub fn send_workflow(&self, id: &str, text: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::workflow_message(id, session, text))
+    }
+
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
         let id = self.request(
             "initialize",

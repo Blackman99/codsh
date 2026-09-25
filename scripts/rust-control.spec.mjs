@@ -35,6 +35,39 @@ function textStream(text, finish = { kind: 'stop' }) {
   })()
 }
 
+describe('rust-acp-control /workflow (ticket 183)', () => {
+  it('answers with the run manager reply, or says why it cannot', async () => {
+    const key = Symbol.for('codsh.rust.workflow')
+    const saved = globalThis[key]
+    try {
+      const sent = []
+      const control = createControl({ llm: {} }, message => sent.push(message))
+      delete globalThis[key]
+      control.handle(JSON.stringify({ type: 'workflow', id: 'w1', sessionId: 's1', text: 'runs' }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(sent.at(-1)).toEqual({ type: 'workflow_result', id: 'w1', error: 'workflows are not available in this dsh (subagents are disabled or the workflow tool is not loaded)' })
+      const asked = []
+      globalThis[key] = {
+        command: async (sessionId, text) => {
+          asked.push([sessionId, text])
+          if (text === 'boom') throw new Error('broken')
+          return `reply to ${text}`
+        },
+      }
+      control.handle(JSON.stringify({ type: 'workflow', id: 'w2', sessionId: 's1', text: 'pause triage' }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(sent.at(-1)).toEqual({ type: 'workflow_result', id: 'w2', text: 'reply to pause triage' })
+      control.handle(JSON.stringify({ type: 'workflow', id: 'w3', sessionId: 's1', text: 'boom' }))
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(sent.at(-1)).toEqual({ type: 'workflow_result', id: 'w3', error: 'broken' })
+      expect(asked).toEqual([['s1', 'pause triage'], ['s1', 'boom']])
+    } finally {
+      if (saved === undefined) delete globalThis[key]
+      else globalThis[key] = saved
+    }
+  })
+})
+
 describe('rust-acp-control steer', () => {
   it('steers only a running agent and reports claim, discard, and idle reclaim', () => {
     const sent = []

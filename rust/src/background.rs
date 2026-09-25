@@ -332,10 +332,18 @@ impl Jobs {
                 session,
                 summary: text(event, "summary"),
             }),
-            "requeued" => Some(Signal::Hint(format!(
-                "background job {} finished during the cancelled turn; the model sees it with your next message",
-                text(event, "job")
-            ))),
+            // A workflow completion notice names the run (`what`) instead of a job.
+            "requeued" => Some(Signal::Hint(
+                match event.get("what").and_then(Value::as_str) {
+                    Some(what) if !what.is_empty() => format!(
+                        "{what} finished during the cancelled turn; the model sees it with your next message"
+                    ),
+                    _ => format!(
+                        "background job {} finished during the cancelled turn; the model sees it with your next message",
+                        text(event, "job")
+                    ),
+                },
+            )),
             "status" => match text(event, "status").as_str() {
                 "idle" => {
                     if self.waiting.as_deref() == Some(session.as_str()) {
@@ -616,6 +624,12 @@ mod tests {
             jobs.apply(&json!({"event":"requeued","session":"s1","job":"j9"})),
             Some(Signal::Hint(text)) if text.contains("j9")
         ));
+        assert_eq!(
+            jobs.apply(&json!({"event":"requeued","session":"s1","job":"","what":"workflow triage [complete]"})),
+            Some(Signal::Hint(
+                "workflow triage [complete] finished during the cancelled turn; the model sees it with your next message".into()
+            ))
+        );
     }
 
     #[test]

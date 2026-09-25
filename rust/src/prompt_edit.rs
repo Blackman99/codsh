@@ -52,6 +52,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "vim-mode",
         "view-plan",
         "reload-assets",
+        "workflow",
         "worktree",
     ]
 }
@@ -138,6 +139,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         &["show-plan", "plan-view"],
         "Show this session's saved plan",
         true,
+    ),
+    SlashCommand::new(
+        "workflow",
+        &[],
+        "List workflow runs; pause, resume, or stop one by name",
+        false,
     ),
     SlashCommand::new(
         "worktree",

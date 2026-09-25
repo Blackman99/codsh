@@ -293,6 +293,32 @@ describe('rust-acp-background foreground commands', () => {
     expect(events.at(-1)).toMatchObject({ event: 'notice', session: 's1', job: 'bash-1', summary: 'bash sleep 5 [status: completed · exit code: 0]' })
   })
 
+  it('puts back and announces a workflow completion message like a job notice (ticket 183)', () => {
+    const { events, agents, background, flush } = harness()
+    const agent = fakeAgent()
+    agents.add(agent)
+    const message = {
+      id: 'wf-notice-1',
+      content: [{ type: 'text', text: '<system-reminder>\nWhile you were idle, 1 background workflow run finished:\n</system-reminder>' }],
+      source: { kind: 'plugin', plugin: 'rust-acp-workflow', form: 'notice', summary: 'workflow triage [complete]' },
+    }
+    background.onDiscarded(agent, message)
+    flush()
+    expect(agent.injected).toHaveLength(1)
+    expect(agent.injected[0].content).toEqual(message.content)
+    expect(agent.injected[0].id).not.toBe(message.id)
+    expect(events.at(-1)).toEqual({ event: 'requeued', session: 's1', job: '', what: 'workflow triage [complete]' })
+    background.onClaimed(agent, message)
+    expect(events.at(-1)).toMatchObject({ event: 'notice', session: 's1', summary: 'workflow triage [complete]' })
+    // Another plugin's message, or a workflow message that is not a notice, is left alone.
+    const count = events.length
+    background.onDiscarded(agent, { ...message, source: { ...message.source, form: 'prompt' } })
+    background.onClaimed(agent, { ...message, source: { kind: 'plugin', plugin: 'other', form: 'notice' } })
+    flush()
+    expect(events).toHaveLength(count)
+    expect(agent.injected).toHaveLength(1)
+  })
+
   it('moves the running command on Ctrl+B or a message, once', async () => {
     const { jobs, events, background } = harness()
     const agent = fakeAgent()

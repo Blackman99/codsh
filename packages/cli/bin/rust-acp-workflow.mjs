@@ -7,6 +7,26 @@
  * GROK_WORKFLOW_MAX_CONCURRENT_AGENTS, default 32, clamped to
  * max(2, available parallelism)) that is independent of the agent budget.
  *
+ * Ticket 183 makes a run a background run of its session, as in the
+ * reference: the tool call returns once the engine has started the script,
+ * the run gets a session-unique display name (name, name-2, ...), and the
+ * reference tracker statuses (active, user_paused, budget_limited, complete,
+ * failed, cancelled, interrupted, ...) drive `/workflow runs` and
+ * `/workflow pause|resume|stop <name>` (through the control channel) and
+ * the tool's own `pause`, `stop` and `resume` sources. Each run keeps its
+ * immutable script and args and the engine's journal under
+ * `<session dir>/workflows/<run id>/`; resume replays the journaled agent
+ * calls and runs again the ones that were cancelled or unfinished, so their
+ * side effects may repeat (nothing here is exactly-once). Resume works only
+ * in the dsh process that started the run: a later process restores the
+ * runs for the overview, marks an active one interrupted, and refuses to
+ * resume any of them. When a run ends or hits its agent budget, the
+ * session's agent gets one completion message per run launch (a wake turn
+ * when idle, the next turn when busy); the rust-acp-background plugin puts
+ * it back if a cancel discards it. A plain `-p` prompt ends with its turn,
+ * so there (CODSH_WORKFLOW_FOREGROUND=1) the tool call waits for the run and
+ * returns its block instead, and cancelling the turn stops the run.
+ *
  * A workflow is a Rhai script in the reference format: its first statement is
  * `let meta = #{ name, description, ... }`, the tool call's `args` are bound
  * to the script's `args`, and `agent(prompt, opts)` / `parallel([...])` start
@@ -19,24 +39,45 @@
  * as the `subagent` tool.
  *
  * Differences from the reference that this build states instead of hiding:
- * - The run is foreground: the tool call waits for the outcome. There is no
- *   background run, /workflow view, pause, resume or stop (later tickets);
- *   those sources are refused. Cancelling the turn cancels the run.
- * - Registered names (built-in, project, user or plugin catalogs) are not
- *   available; pass an inline `script` or a `script_path`.
+ * - Registered names (built-in, project, user or plugin catalogs), launching
+ *   by name from /workflow, and `/workflow save` are not available; pass an
+ *   inline `script` or a `script_path`.
  * - `resume_from` is refused by the engine with an explicit error: dsh
  *   children are disposed when their call ends, so there is no finished
  *   child session to resume from a later agent() call.
+ * - There is no editable script projection per launch.
  *
  * The engine is a separate process with Rhai operation and size limits. It
  * is not a security sandbox.
  */
 import { spawn } from 'node:child_process'
+import { statSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { planFilePath } from './rust-acp-plan.mjs'
+import {
+  MAX_ACTIVE_RUNS,
+  MAX_AGENT_ROWS,
+  RESTART_REFUSAL,
+  RunStore,
+  WAKE_PROMPT,
+  accepts,
+  elapsedMs,
+  formatOverview,
+  formatReminder,
+  formatRunBlock,
+  isReportable,
+  isResumable,
+  matchRuns,
+  needsName,
+  newRunId,
+  parseCommand,
+  pauseStatus,
+  uniqueName,
+} from './rust-acp-workflow-runs.mjs'
 
 export const WORKFLOW_TOOL = 'workflow'
 export const ENGINE_SUBCOMMAND = '__workflow-engine'
@@ -163,17 +204,10 @@ export function normalizeInput(raw) {
 
 /** Sources this build cannot run, with the reason the model sees. */
 export function unsupportedSource(source) {
-  switch (source.type) {
-    case 'name':
-      return new WorkflowToolError('workflow_unsupported', `registered workflow names are not available in this build (no built-in, project .grok/workflows, user or plugin catalog is loaded), so "${source.value}" cannot be resolved; pass the script inline as source.type "script" or a file as source.type "script_path"`)
-    case 'resume':
-      return new WorkflowToolError('workflow_unsupported', 'resuming a workflow run is not available in this build: runs execute in the foreground of one tool call and are not journaled; launch the script again as a new run')
-    case 'pause':
-    case 'stop':
-      return new WorkflowToolError('workflow_unsupported', `${source.type} is not available in this build: a run executes in the foreground of its tool call, and cancelling that turn cancels the run and its child agents`)
-    default:
-      return undefined
+  if (source.type === 'name') {
+    return new WorkflowToolError('workflow_unsupported', `registered workflow names are not available in this build (no built-in, project .grok/workflows, user or plugin catalog is loaded), so "${source.value}" cannot be resolved; pass the script inline as source.type "script" or a file as source.type "script_path"`)
   }
+  return undefined
 }
 
 /** Reference `summarize_result`: the text a finished run reports. */
@@ -289,7 +323,11 @@ export function runEngine({ enginePath, start, onRequest, onEvent = () => {}, si
   })
 }
 
-const DESCRIPTION = `Run a workflow: a Rhai script that orchestrates subagents. Provide exactly one \`source\`: an inline \`script\` or a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot; default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. This call waits for the run to finish and returns its result; cancelling the turn cancels the run and its children. Registered workflow names, resume, pause and stop are not available in this build. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
+const BACKGROUND_SENTENCE = 'The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait.'
+const FOREGROUND_SENTENCE = 'This is a plain prompt that ends with its turn, so the call waits for the run and returns its result.'
+const DESCRIPTION = `Launch or control a workflow: a Rhai script that orchestrates subagents as one background run. Provide exactly one \`source\`: an inline \`script\`, a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows), a same-process \`resume\`, or a \`pause\` / \`stop\` of a run this session launched (by \`run_id\` or display name). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot (schema retries do not); default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. A session runs at most 4 workflows at once. The call returns immediately; progress appears in /workflow runs and completion is reported automatically — do not poll or sleep-wait. Registered workflow names are not available in this build. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
+
+A started run gets a session-unique display name (e.g. \`review-changes\`, \`review-changes-2\`) — the handle to show the user, who manages runs with \`/workflow pause|resume|stop <name>\`; keep run IDs internal. To stop or pause a run yourself, call this tool with \`source: { type: "stop", run_id }\` or \`{ type: "pause", run_id }\` (run id or display name); both cancel the run's child agents and keep its journal, so either can be continued later with \`resume\`. Pause only applies to an active run; stop applies to any run that has not finished or hit its agent budget (a budget-limited run is already stopped and needs \`resume\` with a higher \`agent_budget\`). Use the \`resume\` source (\`resume_from_run_id\`: run id or display name) only for a paused, stopped, failed or budget-limited run of this dsh process (process restarts are terminal); it reuses the run's original immutable script and args, replays finished agent calls from the run's journal, and runs again the calls that were cancelled or unfinished — their side effects may repeat. A budget-limited run resumes only with a higher \`agent_budget\`.
 
 Script format: the first statement must be a pure-literal \`let meta = #{ name: "kebab-name", description: "..." };\` (optional when_to_use and phases: [#{ title, detail }]). Host functions:
 - agent(prompt) / agent(prompt, #{ label, phase, model, effort, agent_type, capability_mode, isolation_worktree, output_schema }) runs one subagent to completion and returns #{ agent_id, success, output, cancelled, tokens_used, duration_ms }; output is the child's final text (or its error when success is false). effort is one of none, minimal, low, medium, high, xhigh, max and must be offered by the model; capability_mode (read-only, read-write, execute, all) can only narrow the agent type. With output_schema (a self-contained JSON Schema map) the child is asked to end with a \`\`\`json block; output is the parsed value, and a reply that does not match gets one correction turn in the same child before success becomes false with "structured output validation failed: ...". resume_from is not available in this build.
@@ -297,6 +335,620 @@ Script format: the first statement must be a pure-literal \`let meta = #{ name: 
 - phase(title), log(message), budget() -> #{ total, spent, reserved, remaining }, complete(value), pause(kind, message), json_encode(value), fingerprint(text).
 - write_scratch_file(name, text) -> "scratch/<name>" and read_scratch_file(name) keep run-local notes (one plain file name, at most 10 MiB each, 64 files, 64 MiB); git_diff_since(commit_hash) returns \`git diff <hash>\` in the session directory (20 s, 256 KiB).
 The last expression (or complete(value)) is the result. There is no other filesystem, network, clock or process access in the script; agents do the work. Children cannot start workflows.`
+
+export const REGISTRY = Symbol.for('codsh.rust.workflow')
+export const NOTICE_PLUGIN = 'rust-acp-workflow'
+const INTERRUPTED = 'the session ended while this workflow was active; start a new run'
+const ACTIVE_LIMIT = `session already has the maximum of ${MAX_ACTIVE_RUNS} active workflow runs`
+
+const started = name => `Workflow '${name}' started in the background. Progress appears in /workflow runs and completion is reported automatically. '${name}' is the session-unique display handle for user-facing status and /workflow management; keep the structured run id internal.`
+
+/**
+ * Background runs per session (ticket 183). `deps`:
+ *   spawnChild(spec), emit(event), maxConcurrent, isChildAgent(agent),
+ *   enginePath() (the engine binary or undefined), env, later(fn, ms).
+ */
+export function createWorkflowRuns(deps) {
+  const { spawnChild, emit = () => {} } = deps
+  const env = deps.env ?? process.env
+  const later = deps.later ?? ((fn, ms) => setTimeout(fn, ms))
+  /** sessionId -> { id, cwd, agent, store, runs: Map<runId, run>, launching, pending } */
+  const sessions = new Map()
+
+  const sessionIdOf = agent => agent?.session?.id ?? agent?.session?.header?.id ?? agent?.id
+  const list = session => [...session.runs.values()]
+  const activeCount = session => list(session).filter(run => run.status === 'active').length + session.launching
+
+  function persist(session, run) {
+    try {
+      session.store.save(run)
+    } catch (cause) {
+      process.stderr.write(`rust-acp-workflow: could not save run ${run.id}: ${cause instanceof Error ? cause.message : cause}\n`)
+    }
+  }
+
+  function announce(session, run) {
+    const count = state => run.agents.filter(agent => agent.state === state).length
+    emit({
+      event: 'workflow',
+      id: run.id,
+      call: run.call ?? '',
+      session: session.id,
+      name: run.name,
+      status: run.status,
+      phase: run.currentPhase ?? '',
+      agents: run.agents.length,
+      running: count('running'),
+      done: count('done'),
+      failed: count('failed'),
+      limit: run.live?.slots.limit ?? 0,
+      peak: run.peak ?? 0,
+      elapsedMs: elapsedMs(run),
+      budget: run.agentBudget,
+      used: run.agentsUsed,
+    })
+  }
+
+  const touch = (session, run, save = true) => {
+    run.revision = (run.revision ?? 0) + 1
+    if (save) persist(session, run)
+    announce(session, run)
+  }
+
+  /** Leave the active state: bank elapsed time, cancel rows still running. */
+  function settle(run) {
+    if (run.activeSince) {
+      run.elapsedFloor = (run.elapsedFloor ?? 0) + Math.max(0, Date.now() - run.activeSince)
+      run.activeSince = null
+    }
+    for (const row of run.agents) if (row.state === 'running') row.state = 'cancelled'
+  }
+
+  function sessionFor(agent) {
+    const id = sessionIdOf(agent)
+    if (!id) throw new Error('workflow runs need a dsh session id')
+    let session = sessions.get(id)
+    if (!session) {
+      const cwd = agent?.session?.header?.cwd ?? process.cwd()
+      session = { id, cwd, agent: undefined, store: new RunStore(dirname(planFilePath(id, env, cwd))), runs: new Map(), launching: 0, pending: [] }
+      sessions.set(id, session)
+      restore(session)
+    }
+    if (agent && !deps.isChildAgent?.(agent)) session.agent = agent
+    return session
+  }
+
+  /**
+   * Runs a previous dsh process recorded for this session. An active one
+   * ended with that process (interrupted); none of them can be resumed here.
+   */
+  function restore(session) {
+    for (const run of session.store.list()) {
+      if (session.runs.has(run.id)) continue
+      run.restored = true
+      run.agents = Array.isArray(run.agents) ? run.agents : []
+      if (run.status === 'active') {
+        settle(run)
+        run.status = 'interrupted'
+        run.pauseMessage = INTERRUPTED
+        run.reportedEpoch = run.epoch
+        persist(session, run)
+      } else {
+        for (const row of run.agents) if (row.state === 'running') row.state = 'cancelled'
+      }
+      session.runs.set(run.id, run)
+      // A run that ended (not with its process) before its notice went out.
+      if (isReportable(run.status) && run.status !== 'interrupted' && run.reportedEpoch !== run.epoch) queueNotice(session, run)
+    }
+  }
+
+  function queueNotice(session, run) {
+    if (!isReportable(run.status) || run.reportedEpoch === run.epoch) return
+    run.reportedEpoch = run.epoch
+    persist(session, run)
+    session.pending.push(run)
+    later(() => deliver(session), 0)
+  }
+
+  /** scratch/report.md of a run, when the script wrote one. */
+  const reportPathIn = session => run => {
+    const path = join(session.store.dir(run.id), 'scratch', 'report.md')
+    try {
+      return statSync(path).isFile() ? path : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Plain `-p` (CODSH_WORKFLOW_FOREGROUND): the tool call waits for the run
+   * and returns its block, so no completion notice follows; cancelling the
+   * turn stops the run.
+   */
+  async function waitForeground(session, run, signal) {
+    const live = run.live
+    if (live) {
+      run.reportedEpoch = run.epoch
+      const onAbort = () => {
+        if (run.live === live && accepts(run.status, 'stop')) control(session, run.id, 'stop', { byModel: true })
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try {
+        await live.done
+      } finally {
+        signal?.removeEventListener('abort', onAbort)
+      }
+    }
+    return `Workflow '${run.name}' ended; a plain prompt waits for its workflow runs.\n${formatRunBlock(run, { reportPath: reportPathIn(session) })}`
+  }
+
+  /** One completion message for the runs that stopped, to this session's agent. */
+  function deliver(session) {
+    const agent = session.agent
+    if (!agent || session.pending.length === 0) return
+    const runs = session.pending.splice(0)
+    const reminder = formatReminder(runs, { reportPath: reportPathIn(session) })
+    const summary = runs.map(run => `workflow ${run.name} [${run.status.replaceAll('_', ' ')}]`).join(', ')
+    const message = createUserMessage({
+      content: [{ type: 'text', text: `<system-reminder>\n${reminder}</system-reminder>` }, { type: 'text', text: WAKE_PROMPT }],
+      source: { kind: 'plugin', plugin: NOTICE_PLUGIN, form: 'notice', summary },
+    })
+    try {
+      // A follow-up wakes an idle agent, and on a busy one opens its own
+      // turn right after the running turn instead of splicing into it.
+      agent.followup(message)
+    } catch (cause) {
+      // A disposed agent: keep the runs for the session's next agent.
+      session.pending.unshift(...runs)
+      process.stderr.write(`rust-acp-workflow: completion notice not delivered: ${cause instanceof Error ? cause.message : cause}\n`)
+    }
+  }
+
+  function find(session, key) {
+    return session.runs.get(key) ?? list(session).find(run => run.name === key)
+  }
+
+  /**
+   * Start the engine for a new run or a resume. Resolves with the engine's
+   * first line (`started`, or the `rejected` final line); the run goes on
+   * in the background after `started`.
+   */
+  function startEngine(session, run, start, parent, { resume }) {
+    const enginePath = deps.enginePath()
+    const controller = new AbortController()
+    const live = {
+      controller,
+      intent: undefined,
+      slots: new RunSlots(concurrencyCap(undefined, deps.maxConcurrent)),
+      children: new Set(),
+      open: new Map(),
+      running: 0,
+      epoch: run.epoch,
+    }
+    run.live = live
+    let resolveFirst
+    const first = new Promise(resolve => { resolveFirst = resolve })
+    let begun = false
+    const track = promise => {
+      live.children.add(promise)
+      promise.finally(() => live.children.delete(promise)).catch(() => {})
+      return promise
+    }
+    const releaseSlot = () => {
+      live.running -= 1
+      live.slots.release()
+    }
+    const result = (outcome, seq, startedAt) => ({
+      agent_id: outcome.childId ?? `${run.id}:agent-${seq}`,
+      success: outcome.status === 'completed',
+      output: clipOutput(outcome.text ?? ''),
+      cancelled: outcome.status === 'cancelled',
+      tokens_used: 0,
+      duration_ms: Date.now() - startedAt,
+    })
+    const finishRow = (row, status, startedAt, childId) => {
+      if (!row || row.state !== 'running') return
+      row.state = status === 'completed' ? 'done' : status === 'cancelled' ? 'cancelled' : 'failed'
+      row.duration_ms = Date.now() - startedAt
+      if (childId) row.agent_id = childId
+      if (run.live === live) touch(session, run)
+    }
+    const spawnOne = async (request, signal) => {
+      const opts = request.opts ?? {}
+      run.seq = (run.seq ?? 0) + 1
+      const seq = run.seq
+      try {
+        await live.slots.acquire(signal)
+      } catch {
+        return { error: { kind: 'cancelled' } }
+      }
+      const startedAt = Date.now()
+      live.running += 1
+      run.peak = Math.max(run.peak ?? 0, live.running)
+      const id = `${run.id}:agent-${seq}`
+      const row = { agent_id: id, label: opts.label ?? `${run.name || 'workflow'} #${seq}`, phase: opts.phase ?? run.currentPhase ?? null, model: opts.model ?? null, state: 'running', duration_ms: 0 }
+      run.agents.push(row)
+      while (run.agents.length > MAX_AGENT_ROWS) {
+        const index = run.agents.findIndex(entry => entry.state !== 'running')
+        run.agents.splice(index >= 0 ? index : 0, 1)
+      }
+      touch(session, run)
+      let held
+      try {
+        const outcome = await spawnChild({
+          parent,
+          id,
+          prompt: String(opts.prompt ?? ''),
+          label: row.label,
+          typeName: opts.agentType ?? undefined,
+          model: opts.model ?? undefined,
+          effort: opts.effort ?? undefined,
+          capability: opts.capabilityMode ?? undefined,
+          isolation: opts.isolationWorktree === true ? 'worktree' : null,
+          keepOpen: opts.contract === true,
+          signal,
+          workflow: { run: run.id, name: run.name, phase: opts.phase ?? run.currentPhase ?? '' },
+        })
+        if (signal.aborted) {
+          if (outcome.session) track(outcome.session.close({ status: 'cancelled' }))
+          finishRow(row, 'cancelled', startedAt, outcome.childId)
+          return { error: { kind: 'cancelled' } }
+        }
+        if (outcome.session) {
+          held = {
+            seq,
+            session: outcome.session,
+            close: verdict => outcome.session.close(verdict).then(status => {
+              finishRow(row, status, startedAt, outcome.childId)
+              return status
+            }).finally(releaseSlot),
+          }
+          live.open.set(request.id, held)
+          return { ok: result(outcome, seq, startedAt), open: true }
+        }
+        finishRow(row, outcome.status, startedAt, outcome.childId)
+        return { ok: result(outcome, seq, startedAt) }
+      } catch (cause) {
+        finishRow(row, signal.aborted ? 'cancelled' : 'failed', startedAt)
+        if (signal.aborted) return { error: { kind: 'cancelled' } }
+        return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
+      } finally {
+        if (!held) releaseSlot()
+      }
+    }
+    const resumeHeld = async (request, signal) => {
+      const held = live.open.get(request.agent)
+      if (!held) return { error: { kind: 'failed', message: 'the workflow child to resume is no longer open' } }
+      const startedAt = Date.now()
+      try {
+        const outcome = await held.session.resume(String(request.prompt ?? ''), signal)
+        if (signal.aborted) {
+          live.open.delete(request.agent)
+          track(held.close({ status: 'cancelled' }))
+          return { error: { kind: 'cancelled' } }
+        }
+        if (outcome.status === 'completed') return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt), open: true }
+        live.open.delete(request.agent)
+        track(held.close({ status: outcome.status }))
+        return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt) }
+      } catch (cause) {
+        live.open.delete(request.agent)
+        track(held.close({ status: 'failed', detail: cause instanceof Error ? cause.message : String(cause) }))
+        if (signal.aborted) return { error: { kind: 'cancelled' } }
+        return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
+      }
+    }
+    const engine = runEngine({
+      enginePath,
+      start,
+      signal: controller.signal,
+      onEvent: line => {
+        if (line.type === 'started') {
+          begun = true
+          if (!resume) {
+            const definition = String(line.meta?.name ?? 'workflow')
+            run.definition = definition
+            run.name = uniqueName(definition, list(session).map(other => other.name))
+            run.phases = Array.isArray(line.meta?.phases) ? line.meta.phases.map(phase => ({ title: String(phase.title ?? ''), detail: phase.detail ?? null })) : []
+            const objective = start.args && typeof start.args === 'object' && typeof start.args.objective === 'string' ? start.args.objective : undefined
+            run.objective = objective ?? String(line.meta?.description ?? '')
+            try {
+              session.store.writeLaunch(run.id, { script: String(line.script ?? ''), args: start.args, definition, scriptPath: line.path ?? null })
+            } catch (cause) {
+              process.stderr.write(`rust-acp-workflow: could not save the script of run ${run.id}; it cannot be resumed: ${cause instanceof Error ? cause.message : cause}\n`)
+            }
+            session.runs.set(run.id, run)
+          }
+          run.status = 'active'
+          run.activeSince = Date.now()
+          run.pauseMessage = null
+          run.resultSummary = null
+          run.agentBudget = line.agentBudget
+          run.agentsUsed = line.agentsUsed ?? 0
+          touch(session, run)
+          resolveFirst(line)
+        } else if (line.type === 'phase') {
+          run.currentPhase = String(line.title)
+          touch(session, run)
+        } else if (line.type === 'close') {
+          const held = live.open.get(line.agent)
+          if (held) {
+            live.open.delete(line.agent)
+            track(held.close({ status: line.status, detail: line.detail }))
+          }
+        }
+      },
+      onRequest: async request => {
+        const signal = controller.signal
+        if (signal.aborted) return { error: { kind: 'cancelled' } }
+        if (request.kind === 'resume_agent') return track(resumeHeld(request, signal))
+        if (request.kind !== 'spawn_agent') return { error: { kind: 'unsupported', message: `unknown host request ${request.kind}` } }
+        if (request.kind === 'spawn_agent') run.agentsUsed = (run.agentsUsed ?? 0) + 1
+        return track(spawnOne(request, signal))
+      },
+    })
+    live.done = engine.then(final => ({ final }), error => ({ error })).then(async settled => {
+      // Contract children the engine never closed are closed now, and a
+      // stopped run's children are cancelled and drained (bounded).
+      for (const [id, held] of live.open) {
+        live.open.delete(id)
+        track(held.close({ status: controller.signal.aborted ? 'cancelled' : 'failed', detail: 'the workflow run ended' }))
+      }
+      if (live.children.size > 0) {
+        controller.abort(new Error('workflow run ended'))
+        await Promise.race([
+          Promise.allSettled([...live.children]),
+          new Promise(resolve => later(resolve, CHILD_DRAIN_MS)?.unref?.()),
+        ])
+      }
+      if (!begun) {
+        if (run.live === live) run.live = undefined
+        resolveFirst(settled.final ?? { type: 'rejected', code: settled.error?.code ?? 'workflow_engine_failed', error: settled.error?.detail ?? String(settled.error?.message ?? settled.error) })
+        return
+      }
+      if (run.live !== live) return
+      run.live = undefined
+      conclude(session, run, live, settled)
+    })
+    return first
+  }
+
+  /** Apply an engine's end to its run (reference watcher mapping). */
+  function conclude(session, run, live, { final, error }) {
+    if (typeof final?.agentsUsed === 'number') run.agentsUsed = final.agentsUsed
+    if (live.intent === 'pause') {
+      run.status = 'user_paused'
+    } else if (live.intent === 'stop') {
+      run.status = 'cancelled'
+    } else if (live.intent === 'dispose') {
+      run.status = 'interrupted'
+      run.pauseMessage = INTERRUPTED
+    } else if (error) {
+      run.status = 'failed'
+      run.pauseMessage = error instanceof Error ? error.message : String(error)
+    } else {
+      switch (final.outcome) {
+        case 'completed':
+          run.status = 'complete'
+          run.resultSummary = summarizeResult(final.result)
+          break
+        case 'paused':
+          run.status = pauseStatus(final.kind)
+          run.pauseMessage = String(final.message ?? '')
+          break
+        case 'budget_exceeded':
+          run.status = 'budget_limited'
+          run.pauseMessage = `${final.message} — finished work is kept; resume the run with a higher absolute agent budget to continue`
+          break
+        case 'cancelled':
+          run.status = 'cancelled'
+          break
+        default:
+          run.status = 'failed'
+          run.pauseMessage = String(final.error ?? 'unknown error')
+      }
+    }
+    settle(run)
+    touch(session, run)
+    queueNotice(session, run)
+  }
+
+  const controlError = detail => new WorkflowToolError('workflow_control_failed', detail)
+
+  /** Pause or stop. `byModel` runs are not reported back to the model. */
+  function control(session, key, op, { byModel }) {
+    const run = find(session, key)
+    if (!run) throw controlError(`no workflow run in this session matches '${key}'`)
+    if (!accepts(run.status, op)) throw controlError(`run '${run.name}' is ${run.status} and cannot be ${op === 'pause' ? 'paused' : 'stopped'}`)
+    if (run.live) {
+      run.live.intent = op
+      run.live.controller.abort(new Error(`workflow ${op === 'pause' ? 'paused' : 'stopped'}`))
+    }
+    run.status = op === 'pause' ? 'user_paused' : 'cancelled'
+    settle(run)
+    if (byModel) run.reportedEpoch = run.epoch
+    touch(session, run)
+    if (op === 'stop' && !byModel) queueNotice(session, run)
+    return run
+  }
+
+  const resumeError = detail => new WorkflowToolError('workflow_resume_failed', detail)
+
+  /** Checks shared by the tool and /workflow resume; throws the refusal. */
+  function resumable(session, run, budget) {
+    if (run.restored) throw resumeError(`run is not resumable (status: ${run.status}): ${RESTART_REFUSAL}; start a new run`)
+    if (run.resuming || run.status === 'active' || !isResumable(run.status)) throw resumeError(`run is not resumable (status: ${run.resuming ? 'resuming' : run.status})`)
+    if (run.status === 'budget_limited') {
+      if ((run.agentsUsed ?? 0) >= MAX_AGENT_BUDGET) throw resumeError('run is not resumable (status: maximum agent budget reached; start a new run)')
+      if (budget === undefined || budget <= run.agentBudget || (run.agentsUsed ?? 0) >= budget) {
+        throw resumeError(`run is budget-limited at ${run.agentsUsed ?? 0} of ${run.agentBudget} agents; resume it with an agent_budget above ${run.agentsUsed ?? 0}`)
+      }
+    }
+    if (activeCount(session) >= MAX_ACTIVE_RUNS) throw resumeError(ACTIVE_LIMIT)
+  }
+
+  async function resume(session, run, parent, { budget, call }) {
+    resumable(session, run, budget)
+    run.resuming = true
+    try {
+      if (run.live) {
+        await Promise.race([run.live.done, new Promise(resolve => later(resolve, ENGINE_CANCEL_GRACE_MS + CHILD_DRAIN_MS)?.unref?.())])
+      }
+      let launch
+      try {
+        launch = session.store.readLaunch(run.id)
+      } catch (cause) {
+        throw resumeError(`no persisted script for '${run.name}'; cannot resume (${cause instanceof Error ? cause.message : cause})`)
+      }
+      const prior = run.status
+      const epoch = run.epoch
+      run.epoch = (run.epoch ?? 0) + 1
+      if (call) run.call = call
+      const first = await startEngine(session, run, {
+        op: 'run',
+        source: { type: 'script', script: launch.script },
+        cwd: session.cwd,
+        grokHome: env.GROK_HOME ?? null,
+        trusted: env.CODSH_WORKSPACE_TRUSTED === '1',
+        args: launch.args,
+        agentBudget: budget ?? run.agentBudget ?? null,
+        scratchDir: scratchDir(session.id, run.id, env, session.cwd),
+        journal: { path: session.store.journal(run.id), resume: true, pruneHostError: prior === 'failed' ? run.pauseMessage ?? null : null },
+      }, parent, { resume: true })
+      if (first.type !== 'started') {
+        run.epoch = epoch
+        throw new WorkflowToolError(first.code ?? 'workflow_resume_failed', first.error ?? 'the workflow could not resume')
+      }
+      return run
+    } finally {
+      run.resuming = false
+    }
+  }
+
+  async function launch(session, parent, input, call) {
+    if (activeCount(session) >= MAX_ACTIVE_RUNS) throw new WorkflowToolError('workflow_launch_failed', ACTIVE_LIMIT)
+    session.launching += 1
+    try {
+      const id = newRunId()
+      const run = {
+        id,
+        name: '',
+        definition: '',
+        objective: '',
+        status: 'active',
+        phases: [],
+        currentPhase: null,
+        agents: [],
+        agentBudget: input.agentBudget ?? DEFAULT_AGENT_BUDGET,
+        agentsUsed: 0,
+        createdAt: Date.now(),
+        activeSince: null,
+        elapsedFloor: 0,
+        resultSummary: null,
+        pauseMessage: null,
+        epoch: 1,
+        reportedEpoch: 0,
+        seq: 0,
+        revision: 0,
+        call,
+      }
+      const first = await startEngine(session, run, {
+        op: 'run',
+        source: input.source.type === 'script' ? { type: 'script', script: input.source.value } : { type: 'script_path', script_path: input.source.value },
+        cwd: session.cwd,
+        grokHome: env.GROK_HOME ?? null,
+        trusted: env.CODSH_WORKSPACE_TRUSTED === '1',
+        args: input.args,
+        agentBudget: input.agentBudget ?? null,
+        scratchDir: scratchDir(session.id, id, env, session.cwd),
+        journal: { path: session.store.journal(id), resume: false },
+      }, parent, { resume: false })
+      if (first.type !== 'started') throw new WorkflowToolError(first.code ?? 'workflow_failed', first.error ?? 'the workflow was rejected')
+      return run
+    } finally {
+      session.launching -= 1
+    }
+  }
+
+  /** `/workflow ...` from the client: the reference replies, run ids kept internal. */
+  async function command(sessionId, text) {
+    const session = sessions.get(sessionId)
+    const runs = session ? list(session) : []
+    const parsed = parseCommand(text)
+    if (parsed.kind === 'overview') return formatOverview(runs)
+    if (parsed.kind === 'launch') {
+      return `Workflow '${parsed.name}' unavailable: registered workflow names are not available in this build (no built-in, project .grok/workflows, user or plugin catalog is loaded). Ask the agent to run the script inline or from a script_path.`
+    }
+    const { op, name } = parsed
+    if (name === '') return needsName(op, runs)
+    const matches = matchRuns(runs, name, op)
+    if (matches.length === 0) return `No workflow run matches '${name}'.`
+    if (matches.length > 1) {
+      return `Several runs could be '${op}' — pick one by name:\n${matches.map(run => `  ${run.name} (${run.status})`).join('\n')}\n(/workflow ${op} <name>)`
+    }
+    const [run] = matches
+    if (op === 'save') {
+      return `Could not save workflow '${run.name}': saving a run as a named workflow is not available in this build (there is no .grok/workflows catalog yet). Its immutable script is ${join(session.store.dir(run.id), 'script.rhai')}.`
+    }
+    if (op === 'pause') {
+      if (!accepts(run.status, 'pause')) return `Run '${run.name}' is not active (status: ${run.status}).`
+      control(session, run.id, 'pause', { byModel: false })
+      return `Paused ${run.name}. /workflow resume ${run.name} to continue.`
+    }
+    if (op === 'stop') {
+      if (!accepts(run.status, 'stop')) return `Run '${run.name}' cannot be stopped (status: ${run.status}); it has already finished or hit its agent budget.`
+      control(session, run.id, 'stop', { byModel: false })
+      return `Stopped ${run.name}.`
+    }
+    if (run.status === 'active') return `Run '${run.name}' is already running.`
+    if (run.restored) return `Run '${run.name}' cannot be resumed (status: ${run.status}): ${RESTART_REFUSAL}. Start a new run instead.`
+    if (!isResumable(run.status)) return `Run '${run.name}' cannot be resumed (status: ${run.status}). Start a new run instead.`
+    if (run.status === 'budget_limited') {
+      const used = run.agentsUsed ?? 0
+      if (used >= MAX_AGENT_BUDGET) return `Run '${run.name}' exhausted the maximum agent budget (${used}/${run.agentBudget} agents) and cannot be resumed. Start a new run instead.`
+      return `Run '${run.name}' exhausted its agent budget (${used}/${run.agentBudget} agents). Resuming keeps all finished work but needs a higher absolute cap — ask the agent to resume it with an agent budget above ${used}, e.g. "resume ${run.name} with an agent budget of ${Math.min(used + 64, MAX_AGENT_BUDGET)}".`
+    }
+    if (!session.agent) return `Could not resume '${run.name}': this session has no live agent.`
+    try {
+      await resume(session, run, session.agent, {})
+    } catch (cause) {
+      return `Could not resume '${run.name}': ${cause?.detail ?? (cause instanceof Error ? cause.message : String(cause))}`
+    }
+    return `Resumed ${run.name} from its journal.`
+  }
+
+  return {
+    sessions,
+    sessionFor,
+    launch,
+    resume,
+    control,
+    waitForeground,
+    command,
+    find,
+    onCreated(agent) {
+      if (deps.isChildAgent?.(agent)) return
+      const session = sessionFor(agent)
+      if (session.pending.length > 0) later(() => deliver(session), 0)
+    },
+    onDisposed(agent) {
+      if (deps.isChildAgent?.(agent)) return
+      const session = sessions.get(sessionIdOf(agent))
+      if (!session || session.agent !== agent) return
+      session.agent = undefined
+      for (const run of list(session)) {
+        if (!run.live || run.status !== 'active') continue
+        run.live.intent = 'dispose'
+        run.live.controller.abort(new Error('the session ended'))
+        run.status = 'interrupted'
+        run.pauseMessage = INTERRUPTED
+        run.reportedEpoch = run.epoch
+        settle(run)
+        touch(session, run)
+      }
+    },
+  }
+}
 
 /**
  * Register the tool. `deps` comes from the subagents plugin:
@@ -308,33 +960,38 @@ The last expression (or complete(value)) is the result. There is no other filesy
  *                          ({ resume(prompt, signal), close(verdict) }).
  *   refusal              — a policy refusal that blocks every run, or null.
  *   maxConcurrent        — the configured live-child cap per run.
+ * Returns the run manager (also published at globalThis[REGISTRY] for the
+ * control channel's /workflow requests).
  */
 export function registerWorkflow(ctx, deps) {
-  const { isChildAgent, spawnChild, emit = () => {} } = deps
+  const { isChildAgent } = deps
+  const runs = createWorkflowRuns({ ...deps, enginePath: () => process.env.CODSH_WORKFLOW_ENGINE })
+  // A plain `-p` prompt ends with its turn, so it waits for its runs.
+  const foreground = (deps.env ?? process.env).CODSH_WORKFLOW_FOREGROUND === '1'
   ctx.tools.register(defineTool({
     name: WORKFLOW_TOOL,
-    description: DESCRIPTION,
+    description: foreground ? DESCRIPTION.replace(BACKGROUND_SENTENCE, FOREGROUND_SENTENCE) : DESCRIPTION,
     parameters: {
       source: {
         type: 'object',
-        description: 'Exactly one workflow source, selected by `type`: {"type":"script","script":"<Rhai>"} or {"type":"script_path","script_path":"<path>"}. The reference `name`, `resume`, `pause` and `stop` types are refused in this build.',
+        description: 'Exactly one workflow source, selected by `type`: {"type":"script","script":"<Rhai>"}, {"type":"script_path","script_path":"<path>"}, {"type":"resume","resume_from_run_id":"<run id or name>"}, {"type":"pause","run_id":"<run id or name>"} or {"type":"stop","run_id":"<run id or name>"}. The reference `name` type is refused in this build.',
         additionalProperties: true,
         properties: {
           type: { type: 'string', enum: ['name', 'script', 'script_path', 'resume', 'pause', 'stop'], required: true, description: 'Source kind.' },
           script: { type: 'string', description: 'Inline Rhai workflow script. It must start with a pure-literal `let meta = #{ name: ..., description: ... };` map.' },
           script_path: { type: 'string', description: 'Path to a .rhai workflow script on disk, relative to the session directory.' },
           name: { type: 'string', description: 'Name of a registered workflow (not available in this build).' },
-          resume_from_run_id: { type: 'string', description: 'Run to resume (not available in this build).' },
-          run_id: { type: 'string', description: 'Run to pause or stop (not available in this build).' },
+          resume_from_run_id: { type: 'string', description: 'Run to resume (run id or display name) — a paused, stopped, failed or budget-limited run of this process.' },
+          run_id: { type: 'string', description: 'Run to pause or stop (run id or display name).' },
         },
       },
       agent_budget: {
         type: 'integer',
-        description: 'Absolute cumulative cap on logical child-agent calls for this run. Every agent() and every parallel() item consumes one slot. Defaults to 128 and may be set from 1 through 1,024. A panel that would exceed the remaining budget is rejected before any of its children launch.',
+        description: 'Absolute cumulative cap on logical child-agent calls for this run. Every agent() and every parallel() item consumes one slot. Defaults to 128 and may be set from 1 through 1,024. A panel that would exceed the remaining budget is rejected before any of its children launch. On resume it replaces the run\'s cap; a budget-limited run needs a value above the agents it already used.',
       },
       args: {
         type: 'json',
-        description: "JSON value bound to the script's `args` global. Use an object for named arguments.",
+        description: "JSON value bound to the script's `args` global. Use an object for named arguments. Fixed at launch: resume reuses the original args.",
       },
       validate_only: {
         type: 'boolean',
@@ -354,217 +1011,56 @@ export function registerWorkflow(ctx, deps) {
       const refused = unsupportedSource(input.source)
       if (refused) throw refused
       if (deps.refusal) throw new WorkflowToolError('workflow_not_available', deps.refusal)
+      const session = runs.sessionFor(parent)
+      const type = input.source.type
+      if (type === 'pause' || type === 'stop') {
+        const run = runs.control(session, input.source.value, type, { byModel: true })
+        return `${type === 'pause' ? 'Paused' : 'Stopped'} workflow '${run.name}'; its child agents were cancelled. It keeps its journal, so it can be continued later with source: { type: "resume", resume_from_run_id: "${run.id}" }.`
+      }
       const enginePath = process.env.CODSH_WORKFLOW_ENGINE
       if (!enginePath) {
         throw new WorkflowToolError('workflow_not_available', 'the Rhai workflow engine is not configured (CODSH_WORKFLOW_ENGINE is unset); workflows run only under codsh --rust')
       }
       exec.signal.throwIfAborted()
       const callId = typeof exec.callId === 'string' && exec.callId ? exec.callId : `workflow-${Date.now().toString(36)}`
-      const cwd = parent.session?.header?.cwd ?? process.cwd()
-      const start = {
-        op: input.validateOnly ? 'validate' : 'run',
-        source: input.source.type === 'script'
-          ? { type: 'script', script: input.source.value }
-          : { type: 'script_path', script_path: input.source.value },
-        cwd,
-        grokHome: process.env.GROK_HOME ?? null,
-        trusted: process.env.CODSH_WORKSPACE_TRUSTED === '1',
-        args: input.args,
-        agentBudget: input.agentBudget ?? null,
-        scratchDir: scratchDir(parent.session?.id ?? parent.session?.header?.id, callId, process.env, cwd),
+      if (type === 'resume') {
+        const run = runs.find(session, input.source.value)
+        if (!run) throw new WorkflowToolError('workflow_resume_failed', `workflow run not found: ${input.source.value}`)
+        await runs.resume(session, run, parent, { budget: input.agentBudget, call: callId })
+        return foreground ? runs.waitForeground(session, run, exec.signal) : started(run.name)
       }
-      const run = {
-        id: callId,
-        name: '',
-        phase: '',
-        phases: [],
-        logs: [],
-        started: 0,
-        running: 0,
-        children: new Set(),
-        // Contract children held open between attempts, by request id.
-        open: new Map(),
-        peak: 0,
-        controller: new AbortController(),
-      }
-      const slots = new RunSlots(concurrencyCap(undefined, deps.maxConcurrent))
-      const status = state => emit({ event: 'workflow', id: callId, name: run.name, status: state, phase: run.phase, agents: run.started, running: run.running, limit: slots.limit, peak: run.peak })
-      const onParentAbort = () => run.controller.abort(exec.signal.reason ?? new Error('parent turn cancelled'))
-      exec.signal.addEventListener('abort', onParentAbort, { once: true })
-      const track = promise => {
-        run.children.add(promise)
-        promise.finally(() => run.children.delete(promise)).catch(() => {})
-        return promise
-      }
-      // A slot and the running count are held from admission until the
-      // child is finished for good: after its reply, or after `close` for a
-      // contract child the engine may still resume.
-      const releaseSlot = () => {
-        run.running -= 1
-        slots.release()
-        status('running')
-      }
-      const result = (outcome, seq, startedAt) => ({
-        agent_id: outcome.childId ?? `${callId}:agent-${seq}`,
-        success: outcome.status === 'completed',
-        output: clipOutput(outcome.text ?? ''),
-        cancelled: outcome.status === 'cancelled',
-        tokens_used: 0,
-        duration_ms: Date.now() - startedAt,
-      })
-      const spawnOne = async (request, signal) => {
-        const opts = request.opts ?? {}
-        const seq = ++run.started
-        try {
-          await slots.acquire(signal)
-        } catch {
-          return { error: { kind: 'cancelled' } }
-        }
-        const startedAt = Date.now()
-        run.running += 1
-        run.peak = Math.max(run.peak, run.running)
-        status('running')
-        let held
-        try {
-          const outcome = await spawnChild({
-            parent,
-            id: `${callId}:agent-${seq}`,
-            prompt: String(opts.prompt ?? ''),
-            label: opts.label ?? `${run.name || 'workflow'} #${seq}`,
-            typeName: opts.agentType ?? undefined,
-            model: opts.model ?? undefined,
-            effort: opts.effort ?? undefined,
-            capability: opts.capabilityMode ?? undefined,
-            isolation: opts.isolationWorktree === true ? 'worktree' : null,
-            keepOpen: opts.contract === true,
-            signal,
-            workflow: { run: callId, name: run.name, phase: opts.phase ?? run.phase ?? '' },
-          })
-          if (signal.aborted) {
-            if (outcome.session) track(outcome.session.close({ status: 'cancelled' }))
-            return { error: { kind: 'cancelled' } }
-          }
-          if (outcome.session) {
-            held = { seq, close: verdict => outcome.session.close(verdict).finally(releaseSlot), session: outcome.session }
-            run.open.set(request.id, held)
-            return { ok: result(outcome, seq, startedAt), open: true }
-          }
-          return { ok: result(outcome, seq, startedAt) }
-        } catch (cause) {
-          if (signal.aborted) return { error: { kind: 'cancelled' } }
-          return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
-        } finally {
-          if (!held) releaseSlot()
-        }
-      }
-      const resumeHeld = async (request, signal) => {
-        const held = run.open.get(request.agent)
-        if (!held) return { error: { kind: 'failed', message: 'the workflow child to resume is no longer open' } }
-        const startedAt = Date.now()
-        try {
-          const outcome = await held.session.resume(String(request.prompt ?? ''), signal)
-          if (signal.aborted) {
-            run.open.delete(request.agent)
-            track(held.close({ status: 'cancelled' }))
-            return { error: { kind: 'cancelled' } }
-          }
-          if (outcome.status === 'completed') return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt), open: true }
-          // resume() closed a child whose follow-up turn did not complete.
-          run.open.delete(request.agent)
-          track(held.close({ status: outcome.status }))
-          return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt) }
-        } catch (cause) {
-          run.open.delete(request.agent)
-          track(held.close({ status: 'failed', detail: cause instanceof Error ? cause.message : String(cause) }))
-          if (signal.aborted) return { error: { kind: 'cancelled' } }
-          return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
-        }
-      }
-      let final
-      try {
-        final = await runEngine({
+      if (input.validateOnly) {
+        const final = await runEngine({
           enginePath,
-          start,
-          signal: run.controller.signal,
-          onEvent: line => {
-            if (line.type === 'started') {
-              run.name = String(line.meta?.name ?? '')
-              run.budget = line.agentBudget
-              status('running')
-            } else if (line.type === 'phase') {
-              run.phase = String(line.title)
-              run.phases.push(run.phase)
-              status('running')
-            } else if (line.type === 'log') {
-              run.logs.push(String(line.message))
-              if (run.logs.length > MAX_LOG_LINES) run.logs.shift()
-            } else if (line.type === 'close') {
-              const held = run.open.get(line.agent)
-              if (held) {
-                run.open.delete(line.agent)
-                track(held.close({ status: line.status, detail: line.detail }))
-              }
-            }
+          start: {
+            op: 'validate',
+            source: type === 'script' ? { type: 'script', script: input.source.value } : { type: 'script_path', script_path: input.source.value },
+            cwd: session.cwd,
+            grokHome: process.env.GROK_HOME ?? null,
+            trusted: process.env.CODSH_WORKSPACE_TRUSTED === '1',
+            args: input.args,
+            agentBudget: input.agentBudget ?? null,
           },
-          onRequest: async request => {
-            const signal = run.controller.signal
-            if (signal.aborted) return { error: { kind: 'cancelled' } }
-            if (request.kind === 'resume_agent') return track(resumeHeld(request, signal))
-            if (request.kind !== 'spawn_agent') return { error: { kind: 'unsupported', message: `unknown host request ${request.kind}` } }
-            return track(spawnOne(request, signal))
-          },
+          onRequest: async () => ({ error: { kind: 'unsupported', message: 'validate_only starts no agents' } }),
+          signal: exec.signal,
         })
-      } finally {
-        exec.signal.removeEventListener('abort', onParentAbort)
-        // Contract children the engine never closed (a cancelled or failed
-        // run) are closed now, so none outlives this call.
-        for (const [id, held] of run.open) {
-          run.open.delete(id)
-          track(held.close({ status: run.controller.signal.aborted ? 'cancelled' : 'failed', detail: 'the workflow run ended' }))
+        if (final.type === 'validated') {
+          return `Smoke check passed for workflow '${final.name}' (${final.phases} declared phases; canned-host path ${final.summary}). This did not launch the workflow and did not exercise every branch or live dependency. Offer a real run next.`
         }
-        // A cancelled run's children are aborted with it; wait (bounded) for
-        // them to settle so none outlives this call.
-        if (run.children.size > 0) {
-          run.controller.abort(new Error('workflow run ended'))
-          await Promise.race([
-            Promise.allSettled([...run.children]),
-            new Promise(resolve => setTimeout(resolve, CHILD_DRAIN_MS).unref?.()),
-          ])
-        }
+        if (final.type === 'rejected') throw new WorkflowToolError(final.code ?? 'workflow_failed', final.error ?? 'the workflow was rejected')
+        throw new WorkflowToolError('workflow_validation_failed', 'the smoke check was cancelled')
       }
-      if (final.type === 'rejected') {
-        status('failed')
-        throw new WorkflowToolError(final.code ?? 'workflow_failed', final.error ?? 'the workflow was rejected')
-      }
-      if (final.type === 'validated') {
-        return `Smoke check passed for workflow '${final.name}' (${final.phases} declared phases; canned-host path ${final.summary}). This did not launch the workflow and did not exercise every branch or live dependency. Offer a real run next.`
-      }
-      const name = run.name || 'workflow'
-      const agents = `${final.agentsUsed ?? run.started} agent call${(final.agentsUsed ?? run.started) === 1 ? '' : 's'} of budget ${final.agentBudget ?? run.budget ?? DEFAULT_AGENT_BUDGET}`
-      const trail = [
-        run.phases.length > 0 ? `Phases: ${run.phases.join(' → ')}` : '',
-        run.logs.length > 0 ? `Log:\n${run.logs.map(line => `- ${line}`).join('\n')}` : '',
-      ].filter(Boolean).join('\n')
-      const withTrail = text => (trail ? `${text}\n${trail}` : text)
-      switch (final.outcome) {
-        case 'completed':
-          status('completed')
-          return withTrail(`Workflow '${name}' completed (${agents}).`) + `\nResult:\n${summarizeResult(final.result)}`
-        case 'paused':
-          status('paused')
-          return withTrail(`Workflow '${name}' paused (${final.kind}): ${final.message}\nThis build cannot resume a paused run; after the user responds, launch the script again as a new run.`)
-        case 'budget_exceeded':
-          status('failed')
-          throw new Error(withTrail(`Workflow '${name}' stopped: ${final.message} (${agents}). Resume is not available in this build; raise agent_budget (at most ${MAX_AGENT_BUDGET}) and start a new run.`))
-        case 'cancelled':
-          status('cancelled')
-          throw new Error(withTrail(`Workflow '${name}' was cancelled${final.killed ? ' (the engine did not stop in time and was killed)' : ''}; its child agents were cancelled.`))
-        default:
-          status('failed')
-          throw new Error(withTrail(`Workflow '${name}' failed: ${final.error ?? 'unknown error'}`))
-      }
+      const run = await runs.launch(session, parent, input, callId)
+      return foreground ? runs.waitForeground(session, run, exec.signal) : started(run.name)
     },
   }))
+  ctx.on('agent/created', ({ agent }) => runs.onCreated(agent))
+  ctx.on('agent/disposed', ({ agent }) => runs.onDisposed(agent))
+  globalThis[REGISTRY] = runs
+  ctx.on('dispose', () => {
+    if (globalThis[REGISTRY] === runs) delete globalThis[REGISTRY]
+  })
+  return runs
 }
 
 /** Per-run live-child cap: a FIFO of waiters, abortable. */

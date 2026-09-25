@@ -83,6 +83,12 @@ pub enum ControlEvent {
         task: String,
         outcome: Result<(bool, String), String>,
     },
+    /// The `/workflow` command's reply text from the run manager, or why dsh
+    /// could not answer it.
+    WorkflowResult {
+        id: String,
+        outcome: Result<String, String>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -183,6 +189,13 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
                 )),
             },
         },
+        "workflow_result" => ControlEvent::WorkflowResult {
+            id: id()?,
+            outcome: match value.get("error").and_then(Value::as_str) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(text("text")),
+            },
+        },
         _ => return None,
     })
 }
@@ -244,6 +257,11 @@ pub fn job_kill_message(id: &str, session_id: &str, job_id: &str) -> Value {
 
 pub fn schedule_delete_message(id: &str, session_id: &str, task_id: &str) -> Value {
     json!({ "type": "schedule_delete", "id": id, "sessionId": session_id, "taskId": task_id })
+}
+
+/// `/workflow ...` from the TUI; `text` is everything after the command name.
+pub fn workflow_message(id: &str, session_id: &str, text: &str) -> Value {
+    json!({ "type": "workflow", "id": id, "sessionId": session_id, "text": text })
 }
 
 pub struct ControlChannel {
@@ -655,6 +673,25 @@ mod tests {
                 task: "t1".into(),
                 outcome: Err("gone".into()),
             })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"workflow_result","id":"w1","text":"No workflow runs"}"#),
+            Some(ControlEvent::WorkflowResult {
+                id: "w1".into(),
+                outcome: Ok("No workflow runs".into())
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"workflow_result","id":"w2","error":"unavailable"}"#),
+            Some(ControlEvent::WorkflowResult {
+                id: "w2".into(),
+                outcome: Err("unavailable".into())
+            })
+        );
+        assert_eq!(parse_event(r#"{"type":"workflow_result"}"#), None);
+        assert_eq!(
+            workflow_message("w1", "s1", "pause triage"),
+            serde_json::json!({"type":"workflow","id":"w1","sessionId":"s1","text":"pause triage"})
         );
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);

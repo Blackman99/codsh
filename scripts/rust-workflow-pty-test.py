@@ -16,6 +16,12 @@ GROK_WORKFLOW_MAX_CONCURRENT_AGENTS over it), an output_schema answer
 corrected by one retry of the same child, and a scratch file kept under the
 session directory.
 
+Ticket 183 makes every interactive run a background run: the tool call
+returns at once, the run's completion arrives as its own notice turn, and
+/workflow runs, /workflow pause|resume|stop <name> and the tasks pane's
+Workflows section show and control it. A plain -p prompt still waits for its
+run and prints the run's result block.
+
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first); the binary is also the workflow
 engine. It reuses the Session harness of rust-screen-pty-test.py.
@@ -165,73 +171,101 @@ def main():
             session.wait_visible('Connected to dsh ACP', 30)
 
             # 1. A saved reference-format script: parallel reviewers, a
-            #    summary agent, phases, a log line and a structured result.
+            #    summary agent, phases and a structured result. The call
+            #    returns at once; the completion arrives as a notice turn.
             prompt(session, call({'script_path': 'triage.rhai', 'args': {'areas': ['docs', 'api', 'tests']}}))
-            shown = session.wait_visible('PARENT_WORKFLOW ok:', 60)
-            shown = wait_until(session, lambda s: 'CHILD_SAID summary of 3 reviews' in s, 'summary answer not shown', 20)
-            assert "Workflow 'triage' completed (4 agent calls of budget 128)." in shown, shown
-            assert 'Phases: Review → Summary' in shown, shown
-            assert '- reviewed 3 areas' in shown, shown
+            shown = session.wait_visible("PARENT_WORKFLOW ok: Workflow 'triage' started in the background.", 60)
+            shown = wait_until(session, lambda s: 'PARENT_WORKFLOW_NOTICE' in s and 'CHILD_SAID summary of 3 reviews' in s,
+                               'completion notice not shown', 60)
+            assert "Workflow 'triage' (run id wf_" in shown and '— status: complete' in shown, shown
             for area in ('docs', 'api', 'tests'):
                 assert f'CHILD_SAID reviewed {area}' in shown, (area, shown)
-            shown = wait_until(session, lambda s: "Workflow completed in" in s and "'triage' · Summary · 4 agents" in s,
+            shown = wait_until(session, lambda s: "Workflow complete in" in s and "'triage' · Summary · 4 agents" in s,
                                'workflow block title', 10)
             assert 'still running' not in shown, shown
             results['triage'] = True
 
-            # 2. /tasks lists the four children, tagged with the workflow.
+            # 2. /workflow runs: phases, agents and the objective by display name.
+            prompt(session, '/workflow runs')
+            shown = wait_until(session, lambda s: "- 'triage' — complete" in s, 'runs overview', 15)
+            assert 'Phase: Summary (2/2)' in shown and 'Agents: 4 done' in shown, shown
+            assert 'Manage with /workflow pause|resume|stop <name>.' in shown, shown
+            results['overview'] = True
+
+            # 3. /tasks lists the four children, tagged with the workflow, and
+            #    the session's runs.
             session.write(b'\x07')  # Ctrl+G
             shown = session.wait_visible('Subagents (0 running, 4 total', 10)
             assert shown.count('· workflow triage') == 4, shown
             assert 'review-api' in shown and 'summarise' in shown, shown
+            assert 'Workflows (0 active, 1 total)' in shown, shown
+            assert "'triage' — complete · Summary · 4 agents" in shown, shown
             session.write(b'\x1b')
             wait_until(session, lambda s: 'Subagents (' not in s, 'modal did not close', 10)
             results['tasks'] = True
 
-            # 3. Ctrl+C on the parent turn cancels the running workflow, its
-            #    child and its engine process.
+            # 4. Pause by name stops the real child and the engine; resume
+            #    continues from the journal (the cancelled step runs again);
+            #    stop ends it and the completion notice says so.
             prompt(session, call({'script_path': 'slow.rhai'}))
+            session.wait_visible("PARENT_WORKFLOW ok: Workflow 'slow' started in the background.", 40)
             shown = wait_until(session, lambda s: "Workflow running: 'slow' · Wait · 1 agent (1 running)" in s,
                                'running workflow title', 40)
-            assert '1 subagent still running' in shown, shown
+            shown = wait_until(session, lambda s: '1 subagent · 1 workflow still running' in s, 'status line', 10)
             live = engines(work)
             assert live, 'no workflow engine process found while running'
-            session.write(b'\x03')
-            shown = wait_until(session, lambda s: "Workflow cancelled in" in s and "'slow' · Wait · 1 agent" in s,
-                               'cancelled workflow title', 30)
+            prompt(session, '/workflow pause slow')
+            shown = wait_until(session, lambda s: 'Paused slow. /workflow resume slow to continue.' in s, 'pause reply', 15)
+            shown = wait_until(session, lambda s: "Workflow user paused in" in s and "'slow' · Wait · 1 agent" in s,
+                               'paused workflow title', 20)
             deadline = time.monotonic() + 10
             while engines(work) and time.monotonic() < deadline:
                 time.sleep(0.2)
             assert not engines(work), engines(work)
-            shown = wait_until(session, lambda s: 'still running' not in s, 'child still running', 15)
+            wait_until(session, lambda s: 'still running' not in s, 'child still running after pause', 15)
+            prompt(session, '/workflow slow resume')
+            shown = wait_until(session, lambda s: 'Resumed slow from its journal.' in s, 'resume reply', 20)
+            shown = wait_until(session, lambda s: "Workflow running: 'slow' · Wait · 2 agents (1 running)" in s,
+                               'resumed workflow title', 30)
+            assert engines(work), 'no engine after resume'
+            prompt(session, '/workflow stop slow')
+            wait_until(session, lambda s: 'Stopped slow.' in s, 'stop reply', 15)
+            shown = wait_until(session, lambda s: "Workflow 'slow' (run id wf_" in s and '— status: cancelled' in s,
+                               'stop notice', 40)
+            deadline = time.monotonic() + 10
+            while engines(work) and time.monotonic() < deadline:
+                time.sleep(0.2)
+            assert not engines(work), engines(work)
+            shown = wait_until(session, lambda s: 'still running' not in s, 'child still running after stop', 15)
             session.write(b'\x07')
-            shown = session.wait_visible('Subagents (0 running, 5 total', 10)
-            assert '[cancelled] waiter' in shown and '· workflow slow' in shown, shown
+            shown = session.wait_visible('Subagents (0 running, 6 total', 10)
+            assert shown.count('[cancelled] waiter') == 2 and '· workflow slow' in shown, shown
+            assert "'slow' — cancelled · Wait · 2 agents" in shown, shown
             session.write(b'\x1b')
             wait_until(session, lambda s: 'Subagents (' not in s, 'modal did not close', 10)
             assert session.process.poll() is None
-            results['cancel'] = {'engines_while_running': len(live)}
+            results['pause_resume_stop'] = {'engines_while_running': len(live)}
 
-            # 4. A syntax error is reported to the model and the user.
+            # 5. A syntax error is reported to the model and the user; no run starts.
             prompt(session, call({'script_path': 'broken.rhai'}))
             shown = session.wait_visible('PARENT_WORKFLOW error:', 40)
             shown = wait_until(session, lambda s: 'workflow_resolve_failed' in s, 'syntax error not shown', 10)
             assert 'script failed to parse' in shown, shown
-            wait_until(session, lambda s: 'Workflow failed in' in s, 'failed workflow title', 10)
             results['syntax_error'] = True
             results['session_id'] = session.session_id()
             results['screen'] = session.finish(expect_alt_leave=True)['exit']
         finally:
             session.close()
 
-        # 5. Headless: the same saved script from -p, and none with
-        #    --no-subagents.
+        # 6. Headless: the same saved script from -p (a plain prompt waits for
+        #    its run and prints its block), and none with --no-subagents.
         def plain(*args):
             return subprocess.run([NODE, str(LAUNCHER), '--rust', '--always-approve', '-p', *args], cwd=cwd, env=env,
                                   capture_output=True, text=True, timeout=120)
         ran = plain(call({'script_path': 'triage.rhai', 'args': {'areas': ['cli']}}))
         assert ran.returncode == 0, ran.stderr
-        assert "PARENT_WORKFLOW ok: Workflow 'triage' completed (2 agent calls of budget 128)." in ran.stdout, ran.stdout
+        assert "PARENT_WORKFLOW ok: Workflow 'triage' ended; a plain prompt waits for its workflow runs." in ran.stdout, ran.stdout
+        assert "- Workflow 'triage' (run id wf_" in ran.stdout and '— status: complete' in ran.stdout, ran.stdout
         assert 'CHILD_SAID reviewed cli' in ran.stdout and 'CHILD_SAID summary of 1 reviews' in ran.stdout, ran.stdout
         # A personal script under the isolated $GROK_HOME/workflows.
         personal = home / '.codsh-rust' / '.grok' / 'workflows' / 'personal-note.rhai'
@@ -240,7 +274,7 @@ def main():
                             'agent("CHILD_SAY from " + args.where).output\n')
         mine = plain(call({'script_path': str(personal), 'args': {'where': 'grok-home'}}))
         assert mine.returncode == 0, mine.stderr
-        assert "Workflow 'personal-note' completed (1 agent call of budget 128)." in mine.stdout, mine.stdout
+        assert "Workflow 'personal-note' ended;" in mine.stdout and '— status: complete' in mine.stdout, mine.stdout
         assert 'CHILD_SAID from grok-home' in mine.stdout, mine.stdout
         off = plain(call({'script_path': 'triage.rhai'}), '--no-subagents')
         assert off.returncode == 0, off.stderr
@@ -248,7 +282,7 @@ def main():
         assert 'CHILD_SAID' not in off.stdout, off.stdout
         results['headless'] = True
 
-        # 6. Ticket 182: six held children under a cap of 2 from config.toml,
+        # 7. Ticket 182: six held children under a cap of 2 from config.toml,
         #    then 3 from the environment over it; a schema answer fixed by one
         #    retry; the scratch note under the session directory.
         grok_home = home / '.codsh-rust' / '.grok'
@@ -258,7 +292,7 @@ def main():
             ran = subprocess.run([NODE, str(LAUNCHER), '--rust', '--always-approve', '-p', call({'script_path': 'panel.rhai', 'agent_budget': 7})],
                                  cwd=cwd, env={**env, **(extra_env or {})}, capture_output=True, text=True, timeout=120)
             assert ran.returncode == 0, ran.stderr
-            assert "PARENT_WORKFLOW ok: Workflow 'panel' completed (7 agent calls of budget 7)." in ran.stdout, ran.stdout
+            assert "PARENT_WORKFLOW ok: Workflow 'panel' ended;" in ran.stdout and '— status: complete' in ran.stdout, ran.stdout
             body = ran.stdout[ran.stdout.index('Result:') + len('Result:'):].strip().splitlines()[0]
             return json.loads(body)
         capped = panel()
@@ -267,6 +301,8 @@ def main():
         assert capped['held'] == 6 and capped['note'] == 'scratch/panel.md', capped
         notes = list((grok_home / 'sessions').glob('*/*/workflows/*/scratch/panel.md'))
         assert len(notes) == 1 and notes[0].read_text() == 'held 6', notes
+        state = json.loads((notes[0].parent.parent / 'run.json').read_text())
+        assert state['status'] == 'complete' and state['agentsUsed'] == 7 and state['agentBudget'] == 7, state
         wider = panel({'GROK_WORKFLOW_MAX_CONCURRENT_AGENTS': '3'})
         assert max(int(text.split('peak=')[1]) for text in wider['peaks']) == 3, wider
         results['cap'] = {'config': max(peaks), 'env': 3}
