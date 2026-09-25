@@ -30,6 +30,11 @@
  *   arguments.
  * - goal: `/goal` set, status, pause, resume, and clear, handed to the
  *   rust-acp-goal plugin (ticket 180). The answer is one `goal_result`.
+ * - memory_model: one background memory request (`/flush`, `/dream`, and
+ *   their automatic runs; ticket 186). The client builds the system prompt
+ *   and the closing user message; a flush adds the last messages of this
+ *   session. Nothing is appended to the session. The answer names the route,
+ *   what was sent (message and character counts), and the provider usage.
  *
  * The client passes a Unix socket path and a one-time token in the
  * environment. Both are removed from `process.env` before anything else runs,
@@ -126,6 +131,64 @@ export async function collectText(stream) {
   return text
 }
 
+/** Memory purposes the client may ask for. */
+export const MEMORY_PURPOSES = new Set(['flush', 'dream'])
+/** Default and largest flush window (the reference sends the last 20 messages). */
+export const MEMORY_FLUSH_WINDOW = 20
+const MEMORY_MAX_WINDOW = 200
+
+/**
+ * The last `window` messages of complete exchanges, starting at a user
+ * message so no provider sees an orphan assistant turn first.
+ * @param {Array<any>} messages - session-derived history.
+ * @param {number} window - message budget.
+ */
+export function memoryWindow(messages, window = MEMORY_FLUSH_WINDOW) {
+  const history = sideHistory(messages)
+  const typed = message => message?.role === 'user' && (message.content ?? []).some(block => block?.type === 'text')
+  let start = Math.max(0, history.length - window)
+  while (start < history.length && !typed(history[start])) start += 1
+  if (start >= history.length) {
+    // No typed user message inside the budget: fall back to the last one.
+    start = history.findLastIndex(typed)
+    if (start < 0) return []
+  }
+  const kept = sideHistory(history.slice(start))
+  const first = kept.findIndex(typed)
+  return first < 0 ? [] : kept.slice(first)
+}
+
+/** Characters of text the request carries (the system prompt included). */
+export function sentChars(system, messages) {
+  let total = String(system ?? '').length
+  for (const message of messages) {
+    for (const block of message?.content ?? []) {
+      if (typeof block?.text === 'string') total += block.text.length
+      else if (block?.type === 'tool-call') total += (typeof block.arguments === 'string' ? block.arguments : JSON.stringify(block.arguments ?? block.input ?? {})).length
+      else if (block?.type === 'tool-result') total += JSON.stringify(block.output ?? block.content ?? '').length
+    }
+  }
+  return total
+}
+
+/** Streamed text and the provider's usage chunk; throw on a terminal failure. */
+export async function collectReply(stream) {
+  let text = ''
+  let usage = null
+  let finish
+  for await (const chunk of stream) {
+    if (chunk?.type === 'text-delta') text += String(chunk.text ?? '')
+    else if (chunk?.type === 'block-end' && chunk.block?.type === 'text' && text === '') text = String(chunk.block.text ?? '')
+    else if (chunk?.type === 'usage' && chunk.usage && typeof chunk.usage === 'object') usage = chunk.usage
+    else if (chunk?.type === 'finish') finish = chunk.reason
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') {
+    throw new Error(finish.failure?.message ?? finish.kind)
+  }
+  if (finish?.kind === 'tool-calls') throw new Error('memory model asked for a tool')
+  return { text, usage }
+}
+
 /**
  * The control state machine without the socket, so it can be tested.
  * @param {object} ctx - cordis context with `llm` and `logger`.
@@ -135,6 +198,7 @@ export function createControl(ctx, send, options = {}) {
   const agents = new Map()
   const steers = new Map()
   const btws = new Map()
+  const memoryJobs = new Map()
   const interaction = createInteraction(ctx, send, {
     interactive: options.interactive === true,
     timeoutSecs: options.timeoutSecs ?? 0,
@@ -301,6 +365,54 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  const memoryModel = async (request) => {
+    const id = request.id
+    const purpose = String(request.purpose ?? '')
+    const fail = (message, extra = {}) => send({ type: 'memory_model_error', id, message, ...extra })
+    if (!MEMORY_PURPOSES.has(purpose)) return fail(`unknown memory request: ${purpose || '(none)'}`)
+    const agent = agents.get(request.sessionId)
+    if (agent === undefined) return fail('no live dsh session for this memory request')
+    const route = sideRoute(agent)
+    if (route === undefined) return fail('no model route is recorded for this session')
+    const override = typeof request.model === 'string' ? request.model.trim() : ''
+    const model = override === '' ? route.model : override
+    const system = typeof request.system === 'string' ? request.system : ''
+    const user = typeof request.user === 'string' ? request.user : ''
+    if (system.trim() === '' || user.trim() === '') return fail('memory request is empty')
+    let history = []
+    if (purpose === 'flush') {
+      const asked = Number(request.window)
+      const window = Number.isSafeInteger(asked) && asked > 0 ? Math.min(asked, MEMORY_MAX_WINDOW) : MEMORY_FLUSH_WINDOW
+      history = memoryWindow(agent.session.deriveMessages(), window)
+      if (history.length === 0) return fail('this session has no conversation to flush yet', { empty: true })
+    }
+    const messages = [
+      ...history,
+      createUserMessage({ content: [{ type: 'text', text: user }], source: { kind: 'plugin', plugin: name } }),
+    ]
+    const sent = { provider: route.provider, model, sentMessages: messages.length, sentChars: sentChars(system, messages) }
+    const controller = new AbortController()
+    memoryJobs.set(id, controller)
+    try {
+      const { text, usage } = await collectReply(ctx.llm.stream({
+        provider: route.provider,
+        model,
+        messages,
+        system,
+        maxTokens: 8192,
+        sessionId: agent.session.id,
+        signal: controller.signal,
+      }))
+      if (controller.signal.aborted) fail('memory request cancelled', { cancelled: true, ...sent })
+      else send({ type: 'memory_model_result', id, text, usage, ...sent })
+    } catch (error) {
+      if (controller.signal.aborted) fail('memory request cancelled', { cancelled: true, ...sent })
+      else fail(String(error?.message ?? error), sent)
+    } finally {
+      memoryJobs.delete(id)
+    }
+  }
+
   return {
     agents,
     steers,
@@ -349,9 +461,12 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'workflow') void workflow(request)
       else if (request.type === 'goal') goal(request)
       else if (request.type === 'schedule_owner') scheduleOwner(request)
+      else if (request.type === 'memory_model') void memoryModel(request)
+      else if (request.type === 'memory_model_cancel') memoryJobs.get(request.id)?.abort()
     },
     close() {
       for (const controller of btws.values()) controller.abort()
+      for (const controller of memoryJobs.values()) controller.abort()
       interaction.close()
     },
   }

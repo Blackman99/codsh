@@ -119,3 +119,17 @@ closure and carries dependency license/notice files into npm packing, refusing
 missing license texts. Supplemental texts for ratatui-core/tui-scrollbar come
 from the crates.io VCS revisions recorded in import.json.
 No binary is committed or automatically published.
+
+Ticket 54 (#186) copies three prompt strings verbatim into local
+`src/memory_capture.rs`: FLUSH_SYSTEM_PROMPT and FLUSH_DELTA_SYSTEM_PROMPT
+from crates/codegen/xai-grok-memory/src/flush.rs and DREAM_SYSTEM_PROMPT from
+crates/codegen/xai-grok-memory/src/dream.rs at the pinned commit
+(Apache-2.0, see LICENSE). The rest of that module (session-end summary,
+daily session logs, the `.dream-mutex` / `.dream-consolidated` lock, Dream
+gates, input and answer rules) is written locally against
+xai-grok-memory/src/{dream_lock,dream,flush,storage,text_utils}.rs and
+xai-grok-shell/src/session/memory/hooks.rs, not copied. Local changes to the
+reference behavior, each to keep a manual edit: an existing session log is
+appended to instead of overwritten; Dream refuses to write when MEMORY.md
+changed while the model ran; the previous MEMORY.md and consolidated session
+logs are moved to sessions/.archive/ instead of being discarded or deleted.

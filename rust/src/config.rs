@@ -130,6 +130,8 @@ pub struct EffectiveConfig {
     pub assets: crate::assets::AssetCatalog,
     /// Process and config gate. A `/memory` `t` toggle does not change this.
     pub memory: crate::memory::Enablement,
+    /// Capture, flush, Dream, and memory-log settings (ticket 186).
+    pub memory_capture: crate::memory_capture::CaptureConfig,
     /// Selected filesystem profile and the layer that won. A requirements pin
     /// is already applied here; CLI and `GROK_SANDBOX` do not beat it.
     pub sandbox_profile: String,
@@ -1890,6 +1892,10 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         },
     );
     push_setting(&mut settings, "memory.uploads", "false", "default");
+    let memory_capture = crate::memory_capture::load_config(&table, &input.env, &grok_home);
+    for (key, value, source) in &memory_capture.rows {
+        push_setting(&mut settings, key, value, source);
+    }
     let mut web = crate::web::load_services_layered(
         &table,
         user.as_ref()
@@ -1995,6 +2001,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         web,
         assets,
         memory,
+        memory_capture,
         sandbox_profile: sandbox.0,
         sandbox_profile_source: sandbox.1,
         subagent_cli: input.cli_subagents,

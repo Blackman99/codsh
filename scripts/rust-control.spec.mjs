@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { BTW_SYSTEM, apply, collectText, createControl, isChildAgent, sideHistory, sideRoute } from '../packages/cli/bin/rust-acp-control.mjs'
+import { BTW_SYSTEM, MEMORY_FLUSH_WINDOW, apply, collectReply, collectText, createControl, isChildAgent, memoryWindow, sentChars, sideHistory, sideRoute } from '../packages/cli/bin/rust-acp-control.mjs'
 
 function fakeAgent(sessionId, { status = 'running', messages = [] } = {}) {
   const inbox = new Set()
@@ -65,6 +65,113 @@ describe('rust-acp-control /workflow (ticket 183)', () => {
       if (saved === undefined) delete globalThis[key]
       else globalThis[key] = saved
     }
+  })
+})
+
+describe('rust-acp-control memory requests (ticket 186)', () => {
+  const turn = (index) => [
+    { role: 'user', content: [{ type: 'text', text: `question ${index}` }] },
+    { role: 'assistant', content: [{ type: 'text', text: `answer ${index}` }] },
+  ]
+
+  it('sends the flush window with the client prompt and reports route, size and usage', async () => {
+    const sent = []
+    const calls = []
+    const history = Array.from({ length: 15 }, (_, index) => turn(index)).flat()
+    const usageStream = (async function* () {
+      yield* textStream('## Decisions\n- kept')
+      yield { type: 'usage', usage: { inputTokens: 120, outputTokens: 7 } }
+    })()
+    const llm = { stream: options => { calls.push(options); return usageStream } }
+    const control = createControl({ llm }, message => sent.push(message))
+    const agent = fakeAgent('s1', { status: 'idle', messages: history })
+    control.onCreated(agent)
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'mem1', sessionId: 's1', purpose: 'flush', system: 'You are a memory assistant.', user: 'Now write the memory summary as described in the system prompt.', window: 20 }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(calls).toHaveLength(1)
+    expect(calls[0].system).toBe('You are a memory assistant.')
+    expect(calls[0].provider).toBe('cli-mock')
+    expect(calls[0].model).toBe('cli-mock')
+    expect(calls[0].tools).toBeUndefined()
+    // The last 20 messages of the session, then the closing instruction.
+    expect(calls[0].messages).toHaveLength(21)
+    expect(calls[0].messages[0].content).toEqual([{ type: 'text', text: 'question 5' }])
+    expect(calls[0].messages.at(-1).content).toEqual([{ type: 'text', text: 'Now write the memory summary as described in the system prompt.' }])
+    const chars = sentChars('You are a memory assistant.', calls[0].messages)
+    expect(sent).toEqual([{
+      type: 'memory_model_result', id: 'mem1', text: '## Decisions\n- kept',
+      usage: { inputTokens: 120, outputTokens: 7 },
+      provider: 'cli-mock', model: 'cli-mock', sentMessages: 21, sentChars: chars,
+    }])
+    expect(agent.session.appended).toEqual([])
+  })
+
+  it('uses a flush model override, sends a dream without history, and refuses bad requests', async () => {
+    const sent = []
+    const calls = []
+    const llm = { stream: options => { calls.push(options); return textStream('NO_REPLY') } }
+    const control = createControl({ llm }, message => sent.push(message))
+    control.onCreated(fakeAgent('s1', { messages: turn(1) }))
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm1', sessionId: 's1', purpose: 'flush', system: 'S', user: 'U', model: 'cheap' }))
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm2', sessionId: 's1', purpose: 'dream', system: 'D', user: '--- Session: a ---\n\nlog' }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(calls[0].model).toBe('cheap')
+    expect(calls[1].messages).toHaveLength(1)
+    expect(sent.map(message => [message.id, message.type, message.text])).toEqual([
+      ['m1', 'memory_model_result', 'NO_REPLY'],
+      ['m2', 'memory_model_result', 'NO_REPLY'],
+    ])
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm3', sessionId: 'missing', purpose: 'flush', system: 'S', user: 'U' }))
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm4', sessionId: 's1', purpose: 'upload', system: 'S', user: 'U' }))
+    control.onCreated(fakeAgent('empty'))
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm5', sessionId: 'empty', purpose: 'flush', system: 'S', user: 'U' }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(sent.slice(2)).toEqual([
+      { type: 'memory_model_error', id: 'm3', message: 'no live dsh session for this memory request' },
+      { type: 'memory_model_error', id: 'm4', message: 'unknown memory request: upload' },
+      { type: 'memory_model_error', id: 'm5', message: 'this session has no conversation to flush yet', empty: true },
+    ])
+    expect(calls).toHaveLength(2)
+  })
+
+  it('reports a provider failure with what was sent, and a cancel as cancelled', async () => {
+    const sent = []
+    let release
+    const llm = {
+      stream: options => {
+        if (options.system === 'slow') {
+          return (async function* () {
+            await new Promise(resolve => { release = resolve })
+            yield* textStream('## late')
+          })()
+        }
+        return textStream('', { kind: 'error', failure: { message: 'memory model failed' } })
+      },
+    }
+    const control = createControl({ llm }, message => sent.push(message))
+    control.onCreated(fakeAgent('s1', { messages: turn(1) }))
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm1', sessionId: 's1', purpose: 'dream', system: 'D', user: 'input' }))
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(sent[0]).toMatchObject({ type: 'memory_model_error', id: 'm1', message: 'memory model failed', sentMessages: 1, provider: 'cli-mock' })
+    control.handle(JSON.stringify({ type: 'memory_model', id: 'm2', sessionId: 's1', purpose: 'dream', system: 'slow', user: 'input' }))
+    control.handle(JSON.stringify({ type: 'memory_model_cancel', id: 'm2' }))
+    release()
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(sent[1]).toMatchObject({ type: 'memory_model_error', id: 'm2', cancelled: true })
+    expect(sent).toHaveLength(2)
+  })
+
+  it('starts the window at a typed user message and keeps whole tool exchanges', async () => {
+    const history = [
+      ...turn(0),
+      { role: 'assistant', content: [{ type: 'tool-call', id: 'a', name: 'read', arguments: '{}' }] },
+      { role: 'user', content: [{ type: 'tool-result', toolCallId: 'a', content: [] }] },
+      ...turn(1),
+    ]
+    expect(memoryWindow(history, 3).map(message => message.content[0].text)).toEqual(['question 1', 'answer 1'])
+    expect(memoryWindow([], MEMORY_FLUSH_WINDOW)).toEqual([])
+    expect(memoryWindow([{ role: 'assistant', content: [{ type: 'text', text: 'x' }] }])).toEqual([])
+    await expect(collectReply(textStream(''))).resolves.toEqual({ text: '', usage: null })
   })
 })
 

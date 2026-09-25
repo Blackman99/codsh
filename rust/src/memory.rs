@@ -1,10 +1,11 @@
 //! Explicit local memory: human-editable Markdown, a SQLite FTS5 index, and
 //! global versus workspace scopes.
 //!
-//! Automatic capture, Dream consolidation, embeddings, and uploads are not
-//! this module. Disabling memory never deletes files. Notes stay authoritative.
-//! A damaged index is reported and rebuilt from those notes; a foreign SQLite
-//! file and a human note are never overwritten.
+//! Automatic capture and Dream consolidation live in `memory_capture.rs`
+//! (ticket 54); embeddings and uploads are not implemented. Disabling memory
+//! never deletes files. Notes stay authoritative. A damaged index is reported
+//! and rebuilt from those notes; a foreign SQLite file and a human note are
+//! never overwritten.
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -420,7 +421,7 @@ fn note_ref(
     })
 }
 
-fn is_generated_index(body: &str) -> bool {
+pub(crate) fn is_generated_index(body: &str) -> bool {
     body.lines().any(|line| {
         let trimmed = line.trim();
         trimmed == "<!-- codsh-memory-index -->" || trimmed.starts_with("<!-- grok-memory-index")
@@ -633,7 +634,7 @@ pub fn edit_note(
     Ok(next.to_string())
 }
 
-fn atomic_write(path: &Path, body: &str) -> Result<(), MemoryError> {
+pub(crate) fn atomic_write(path: &Path, body: &str) -> Result<(), MemoryError> {
     let parent = path.parent().unwrap_or(Path::new("."));
     let name = path
         .file_name()

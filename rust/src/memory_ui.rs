@@ -2,8 +2,10 @@
 //!
 //! The modal lists files and a read-only preview. `x` deletes a session note
 //! only after a second `x`. `MEMORY.md` stays, generated index or human note.
-//! `t` flips the session gate and does not rewrite config.toml. Under 80
-//! columns the list is shown alone until Enter opens the preview.
+//! `t` flips the session gate and does not rewrite config.toml. `s` shows
+//! content-free capture and Dream diagnostics (ticket 186); `y` there copies
+//! them. Under 80 columns the list is shown alone until Enter opens the
+//! preview.
 
 use crate::memory::{self, NoteRef, Scope, Store};
 use crate::theme::Theme;
@@ -19,6 +21,8 @@ pub enum Pane {
     Preview,
     ConfirmSave,
     ConfirmDelete,
+    /// Content-free capture and Dream diagnostics (`s`).
+    Diagnostics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +55,8 @@ pub struct Browser {
     /// Terminal columns available to the modal. Under 80 the preview is hidden.
     pub columns: u16,
     pub list_offset: usize,
+    /// The diagnostics text the host produced for the `s` pane.
+    pub diagnostics: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +92,7 @@ impl Default for Browser {
             fullscreen: false,
             columns: 100,
             list_offset: 0,
+            diagnostics: String::new(),
         }
     }
 }
@@ -118,7 +125,16 @@ impl Browser {
             fullscreen: false,
             columns: 100,
             list_offset: 0,
+            diagnostics: String::new(),
         }
+    }
+
+    /// Show the host's diagnostics text in the `s` pane.
+    pub fn show_diagnostics(&mut self, text: String) {
+        self.diagnostics = text;
+        self.pane = Pane::Diagnostics;
+        self.scroll = 0;
+        self.notice = "diagnostics are content-free; y copies them".into();
     }
 
     pub fn reload(&mut self, store: &Store) {
@@ -200,6 +216,9 @@ pub enum Action {
     Toggled,
     /// A note save or cancel resolved. Close the modal.
     Confirmed,
+    /// `s`: the host fills in the diagnostics with
+    /// [`Browser::show_diagnostics`]. Reading them starts no capture.
+    Diagnostics,
 }
 
 pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Action> {
@@ -243,6 +262,24 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Acti
             }
             return None;
         }
+        Pane::Diagnostics => {
+            match key {
+                Key::Esc => {
+                    browser.pane = Pane::List;
+                    browser.notice.clear();
+                }
+                Key::Up => browser.scroll = browser.scroll.saturating_sub(1),
+                Key::Down => browser.scroll = browser.scroll.saturating_add(1),
+                Key::Home => browser.scroll = 0,
+                Key::Char('s') => return Some(Action::Diagnostics),
+                Key::Char('y') => {
+                    browser.notice = "copied memory diagnostics".into();
+                    return Some(Action::Copy(browser.diagnostics.clone()));
+                }
+                _ => {}
+            }
+            return None;
+        }
         Pane::List => {}
     }
     match key {
@@ -281,6 +318,7 @@ pub fn handle_key(browser: &mut Browser, store: &Store, key: Key) -> Option<Acti
             }
         }
         Key::Esc => return Some(Action::Close),
+        Key::Char('s') => return Some(Action::Diagnostics),
         Key::Char('t') => {
             browser.session_enabled = !browser.session_enabled;
             browser.notice = if browser.session_enabled {
@@ -429,6 +467,19 @@ fn render_view(browser: &Browser, store: &Store) -> String {
     if browser.pane == Pane::ConfirmSave {
         return browser.notice.clone();
     }
+    if browser.pane == Pane::Diagnostics {
+        let mut lines: Vec<String> = browser
+            .diagnostics
+            .lines()
+            .skip(browser.scroll)
+            .map(str::to_string)
+            .collect();
+        if !browser.notice.is_empty() {
+            lines.push(browser.notice.clone());
+        }
+        lines.push("y copy diagnostics  s refresh  Esc back".into());
+        return lines.join("\n");
+    }
     let visible = browser.visible();
     let mut lines = vec![format!(
         "Memory  session={}  store={}",
@@ -482,7 +533,7 @@ fn render_view(browser: &Browser, store: &Store) -> String {
         lines.push(browser.notice.clone());
     }
     lines.push(
-        "j/k move  / filter  Enter read  y copy path  x delete  t session toggle  Esc close".into(),
+        "j/k move  / filter  Enter read  y copy path  x delete  t session toggle  s diagnostics  Esc close".into(),
     );
     lines.join("\n")
 }
@@ -547,6 +598,10 @@ pub fn render_modal(frame: &mut Frame, browser: &mut Browser, _store: &Store, th
     let mut lines = Vec::new();
     if browser.pane == Pane::ConfirmSave || browser.pane == Pane::ConfirmDelete {
         for line in browser.notice.lines() {
+            lines.push(Line::from(line.to_string()));
+        }
+    } else if browser.pane == Pane::Diagnostics {
+        for line in browser.diagnostics.lines().skip(browser.scroll) {
             lines.push(Line::from(line.to_string()));
         }
     } else if visible.is_empty() {
@@ -667,10 +722,12 @@ fn paint_footer(frame: &mut Frame, browser: &Browser, area: Rect, theme: &Theme,
         warnings.to_string()
     } else if browser.pane == Pane::Filter {
         format!("filter: {}_  Esc leave filter", browser.filter)
+    } else if browser.pane == Pane::Diagnostics {
+        "y copy diagnostics  s refresh  j/k scroll  Esc back".to_string()
     } else if browser.narrow() && browser.pane != Pane::Preview {
         "j/k move  Enter read  x delete  t toggle  Esc close  preview hidden".to_string()
     } else {
-        "j/k move  / filter  Enter read  y copy  x delete  t toggle  Ctrl+F fullscreen  Esc close"
+        "j/k move  / filter  Enter read  y copy  x delete  t toggle  s diagnostics  Ctrl+F fullscreen  Esc close"
             .to_string()
     };
     frame.render_widget(

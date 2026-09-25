@@ -90,6 +90,59 @@ function imageEcho(options) {
   return ` images=${images.length} ${parts.join(' ')}`
 }
 
+/**
+ * Ticket 186: background memory requests from rust-acp-control keyed on the
+ * reference prompt prefixes (flush and Dream).
+ */
+function memoryPurpose(options) {
+  const system = String(options.system ?? '')
+  if (system.startsWith('You are a memory assistant')) return 'memory-flush'
+  if (system.startsWith('You are performing a dream')) return 'memory-dream'
+  return undefined
+}
+
+/**
+ * DSH_CODE_CLI_MOCK_MEMORY: `fail` errors, `plain` answers without a header,
+ * `noreply` answers NO_REPLY. DSH_CODE_CLI_MOCK_MEMORY_DELAY_MS holds the answer.
+ * Otherwise the answer lists the MEM_* tokens the request carried, or
+ * NO_REPLY when there are none.
+ */
+async function * memoryTurn(options) {
+  const delay = Number(process.env.DSH_CODE_CLI_MOCK_MEMORY_DELAY_MS ?? '0')
+  if (delay > 0) {
+    try {
+      await sleep(delay, options.signal)
+    } catch {
+      return
+    }
+    if (options.signal?.aborted) return
+  }
+  const mode = process.env.DSH_CODE_CLI_MOCK_MEMORY ?? ''
+  if (mode === 'fail') {
+    yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_MEMORY_FAIL', message: 'memory model failed' } } }
+    return
+  }
+  const purpose = memoryPurpose(options)
+  const texts = options.messages.flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+  const tokens = [...new Set(texts.join('\n').match(/MEM_[A-Z0-9_]+/g) ?? [])].sort()
+  if (mode === 'noreply' || tokens.length === 0) {
+    yield* mockText('NO_REPLY')
+    return
+  }
+  if (mode === 'plain') {
+    yield* mockText(`plain answer ${tokens.join(' ')}`)
+    return
+  }
+  if (purpose === 'memory-flush') {
+    const delta = String(options.system).includes('--- Previous flush content ---')
+    yield* mockText(`## Decisions\n- MOCK_FLUSH messages=${options.messages.length} delta=${delta} ${tokens.join(' ')}`)
+    return
+  }
+  const merged = texts.join('\n').includes('--- Existing Memory (merge with new sessions) ---')
+  const sessions = (texts.join('\n').match(/--- Session: /g) ?? []).length
+  yield* mockText(`## Consolidated\n- MOCK_DREAM sessions=${sessions} merged=${merged} ${tokens.join(' ')}`)
+}
+
 function echoUserText(text) {
   return text.replaceAll('\n', '⏎')
 }
@@ -1529,11 +1582,12 @@ class RustAcpMockAdapter extends LlmAdapter {
         text: (block.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, 500),
       })))
       const side = String(options.system ?? '').startsWith('codsh side question')
+      const memory = memoryPurpose(options)
       const assistant = options.messages
         .filter(message => message.role === 'assistant')
         .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       appendFileSync(trace, `${JSON.stringify({
-        purpose: side ? 'btw' : options.purpose ?? 'turn',
+        purpose: side ? 'btw' : memory ?? options.purpose ?? 'turn',
         provider: options.provider,
         model: options.model?.id ?? options.model ?? '',
         tools: names,
@@ -1584,6 +1638,10 @@ class RustAcpMockAdapter extends LlmAdapter {
       const question = echoUserText(texts.at(-1) ?? '')
       const main = texts.slice(0, -1).map(echoUserText).join('|')
       yield* mockText(`RUST_BTW_ANSWER q=${question} context=${main}`)
+      return
+    }
+    if (memoryPurpose(options) !== undefined) {
+      yield* memoryTurn(options)
       return
     }
     if (MODE === 'sandbox-session') {

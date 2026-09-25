@@ -103,6 +103,12 @@ pub enum ControlEvent {
         session: String,
         outcome: Result<u64, String>,
     },
+    /// A background memory request (ticket 186): the answer with its route,
+    /// what was sent, and the provider usage, or why it failed.
+    MemoryModel {
+        id: String,
+        outcome: Result<crate::memory_capture::ModelReply, crate::memory_capture::ModelFailure>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -130,6 +136,14 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
         "steer_idle" => ControlEvent::SteerIdle(id()?),
         "steer_claimed" => ControlEvent::SteerClaimed(id()?),
         "steer_returned" => ControlEvent::SteerReturned(id()?),
+        "memory_model_result" => ControlEvent::MemoryModel {
+            id: id()?,
+            outcome: Ok(crate::memory_capture::parse_reply(&value)),
+        },
+        "memory_model_error" => ControlEvent::MemoryModel {
+            id: id()?,
+            outcome: Err(crate::memory_capture::parse_failure(&value)),
+        },
         "btw_answer" => ControlEvent::BtwAnswer {
             id: id()?,
             text: text("text"),
@@ -619,6 +633,30 @@ mod tests {
                 message: "Goal paused".into()
             })
         );
+        let Some(ControlEvent::MemoryModel {
+            id,
+            outcome: Ok(reply),
+        }) = parse_event(
+            r#"{"type":"memory_model_result","id":"mem1","text":"A","provider":"p","model":"m","usage":{"inputTokens":3,"outputTokens":4},"sentMessages":2,"sentChars":90}"#,
+        )
+        else {
+            panic!("memory reply");
+        };
+        assert_eq!(id, "mem1");
+        assert_eq!(reply.text, "A");
+        assert_eq!(reply.route.chars, Some(90));
+        assert_eq!(reply.usage.unwrap().output, Some(4));
+        let Some(ControlEvent::MemoryModel {
+            outcome: Err(failure),
+            ..
+        }) = parse_event(
+            r#"{"type":"memory_model_error","id":"mem2","message":"memory request cancelled","cancelled":true}"#,
+        )
+        else {
+            panic!("memory failure");
+        };
+        assert!(failure.cancelled);
+        assert_eq!(failure.route.messages, None);
         assert_eq!(
             parse_event(r#"{"type":"btw_error","id":"b1","message":"x"}"#),
             Some(ControlEvent::BtwError {

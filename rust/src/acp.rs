@@ -385,6 +385,10 @@ pub struct AcpClient {
     /// A renewal in flight: request id, the link it establishes, and what
     /// was sent (for the audit line; the token is only fingerprinted).
     identity_pending: Option<(u64, RemoteIdentityLink, crate::remote_identity::Credential)>,
+    /// Session-end capture target (ticket 186); the host keeps it current.
+    pub memory_target: Option<crate::memory_capture::CaptureTarget>,
+    /// Typed prompts and live answers of the current session.
+    memory_ledger: crate::memory_capture::SessionLedger,
 }
 
 /// What this client sent to a remote that requires an organization identity
@@ -469,6 +473,8 @@ pub const INHERITED_ENV: &[&str] = &[
     "DSH_CODE_CLI_MOCK_TOOL",
     "DSH_CODE_CLI_MOCK_IMAGE",
     "DSH_CODE_CLI_MOCK_DELAY_MS",
+    "DSH_CODE_CLI_MOCK_MEMORY",
+    "DSH_CODE_CLI_MOCK_MEMORY_DELAY_MS",
     "DSH_CODE_CLI_TOOL_DELAY_MS",
     "FAKE_ACP_MODE",
     "FAKE_ACP_VERSION",
@@ -758,7 +764,35 @@ impl AcpClient {
             identity: None,
             identity_renew_at: None,
             identity_pending: None,
+            memory_target: None,
+            memory_ledger: crate::memory_capture::SessionLedger::default(),
         })
+    }
+
+    /// A prompt the user typed for the current session. A ledger kept for
+    /// another session is finished first.
+    pub fn note_memory_query(&mut self, text: &str) {
+        let session = self.session_id.clone().unwrap_or_default();
+        if self.memory_ledger.session_id != session {
+            self.finish_memory_session();
+            self.memory_ledger = crate::memory_capture::SessionLedger::new(&session);
+        }
+        self.memory_ledger.note_query(text);
+    }
+
+    /// Save the session-end summary once (thresholds and gates apply) and
+    /// start an empty ledger. Called on shutdown and before a switch.
+    pub fn finish_memory_session(&mut self) -> Option<crate::memory_capture::SessionEnd> {
+        let ledger = std::mem::take(&mut self.memory_ledger);
+        if ledger.is_empty() || self.remote {
+            return None;
+        }
+        let target = self.memory_target.as_ref()?;
+        Some(crate::memory_capture::finish_session(
+            target,
+            &ledger,
+            crate::memory_capture::now_secs(),
+        ))
     }
 
     /// Control events since the last poll (steer outcomes, side answers).
@@ -1692,6 +1726,7 @@ impl AcpClient {
     }
 
     pub fn shutdown(&mut self) {
+        self.finish_memory_session();
         if let Some(pending) = self.pending_permission.clone() {
             let _ = self.cancel_permission(&pending.request_id);
         }
@@ -1988,6 +2023,22 @@ impl AcpClient {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        if self.session_id.as_deref() == Some(session_id.as_str())
+            && self.memory_ledger.session_id == session_id
+        {
+            match kind {
+                "agent_message_chunk" if !text.contains("\u{241e}hook\u{241e}") => {
+                    self.memory_ledger.note_answer(&message_id)
+                }
+                "tool_call" => self.memory_ledger.note_tool(
+                    update
+                        .get("toolCallId")
+                        .and_then(Value::as_str)
+                        .unwrap_or(""),
+                ),
+                _ => {}
+            }
+        }
         match kind {
             "agent_thought_chunk" => vec![AcpEvent::Thought {
                 session_id,

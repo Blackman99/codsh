@@ -452,6 +452,24 @@ read-only children get `web_search`/`web_fetch` only when the configured
 substitute enables them. A completed run whose result map has a `status`
 (`partial`/`verified`) keeps it as `resultStatus`, shown as `Result status:`
 in the completion reminder and `/workflow runs`.
+Ticket 186 adds memory capture in `memory_capture.rs` over the legacy store
+of `memory.rs` (the default; `[memory_v2] enabled = true` is refused and
+`memory-v2/` is never touched). The client owns the files, the Dream lock
+(`.dream-mutex`, `.dream-consolidated`), the gate, the status file
+(`.memory-status.json`) and the reference prompts; dsh owns the model call.
+`/flush`, `/dream`, the idle flush, the gated automatic Dream and
+`--memory-flush` send one `memory_model` control request (system prompt,
+closing user message, optional flush window of whole tool exchanges) to
+`rust-acp-control.mjs`, which calls the session's model through dsh without
+appending to the session and answers `memory_model_result` (text, usage,
+route, messages and characters sent) or `memory_model_error`;
+`memory_model_cancel` aborts it on `/new`, a session switch, or quit. One job
+runs at a time. The session-end summary is written by `AcpClient` from a
+ledger of live (not replayed) updates. Local deviations from the reference:
+append rather than overwrite a session log, a Dream conflict when
+`MEMORY.md` changed while the model ran, a backup and an archive instead of
+deletion, and honest outcome text. The pre-compaction flush is not wired
+because dsh owns compaction.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and
