@@ -68,8 +68,7 @@ import { statSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { planFilePath } from './rust-acp-plan.mjs'
 import {
   MAX_ACTIVE_RUNS,
@@ -93,6 +92,8 @@ import {
   resultStatus,
   uniqueName,
 } from './rust-acp-workflow-runs.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const WORKFLOW_TOOL = 'workflow'
 export const ENGINE_SUBCOMMAND = '__workflow-engine'

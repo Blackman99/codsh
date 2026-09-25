@@ -13574,6 +13574,7 @@ fn run_mcp(invocation: &mcp::McpInvocation, loaded: &config::EffectiveConfig) ->
 }
 
 fn main() {
+    let started = std::time::SystemTime::now();
     // dsh starts this executable as the launcher for each stdio MCP server.
     // It must not touch the terminal, config, or sandbox setup.
     {
@@ -13613,6 +13614,9 @@ fn main() {
             std::process::exit(2);
         }
         eprintln!("codsh: Rust startup failed: {error}");
+        if let Some(hint) = acp::startup_failure_hint(started) {
+            eprintln!("{hint}");
+        }
         std::process::exit(1);
     }
 }

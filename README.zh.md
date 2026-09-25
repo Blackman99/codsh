@@ -577,6 +577,23 @@ agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本
 缺少对应平台产物时会提供明确错误，不会静默回退。这不代表正式发布或默认版本
 切换。构建、安装产物验证和平台限制见 [贡献指南](CONTRIBUTING.md)。
 
+携带客户端的包照常用 `npm install -g @deepseek-ai/dsh codsh-cli` 安装（Node
+22.19+，无需 Rust 工具链）。每个支持的平台在 `codsh-cli` 内有自己的预编译目录
+（macOS 为 `darwin-arm64` 与 `darwin-x64`，Linux 为 `linux-x64`）；Apple 芯片上请
+使用 arm64 版 Node.js，在 Rosetta 下运行的 x64 Node 会选用 Intel 版本。
+`codsh --rust install-check`（脚本可加 `--json`）在不启动任何程序、不写入任何文件
+的情况下检查安装：本平台客户端、其 SHA-256 与可执行文件 CPU、是否属于当前
+`codsh-cli` 版本，以及将使用的 dsh 是否满足最低版本。客户端缺失、损坏、为其他
+CPU 构建或是未完成更新的残留时，`codsh --rust` 拒绝启动并给出修复命令（`npm
+install -g codsh-cli@<版本>`）；dsh 缺失或版本过低时同样拒绝（`npm install -g
+@deepseek-ai/dsh`）；绝不改为启动旧版运行时或官方 Grok 运行时。更新用 `codsh
+update` 或 `npm install -g codsh-cli@<版本>`，回退用 `npm install -g
+codsh-cli@<旧版本>`。两种情况下 Rust Home `~/.codsh-rust`（会话、设置、凭据）都
+保留，下一次 `codsh --rust` 会提示一次之前使用的版本，旧的 `~/.dsh`/`~/.grok` 不受
+影响。用过 `codsh --rust` 的用户在 `codsh update` 后，如果新包无法在本机运行
+Rust 客户端，会立即看到提示和回到原版本的命令。macOS 预编译产物须在 Mac 上构建
+和检查；本仓库的安装包测试目前只在 Linux 上运行过。
+
 ## `/ship`：一句话到已验证代码
 
 ```sh

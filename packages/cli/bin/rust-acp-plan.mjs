@@ -26,9 +26,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { accessFromTool } from './rust-acp-file-approval.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const name = 'rust-acp-plan'
 export const inject = ['tools', 'systemPrompt', 'planMode', 'sessionProjections']

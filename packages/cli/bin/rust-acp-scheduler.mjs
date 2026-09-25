@@ -61,8 +61,9 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const MARK = '\u241eschedule\u241e'
 export const REGISTRY = Symbol.for('codsh.rust.scheduler')

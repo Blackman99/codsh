@@ -14,8 +14,9 @@
  * plan review is approved, as the reference does headless.
  */
 import { randomUUID } from 'node:crypto'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { planFilePath } from './rust-acp-plan.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
 
 export const NO_OPERATOR_TEXT = 'No user is available to answer questions in this non-interactive session. Continue with your best judgment; do not wait for clarification.'
 export const CANCEL_TEXT = 'User declined to answer the questions. Continue with the task using your best judgment, or ask different questions.'

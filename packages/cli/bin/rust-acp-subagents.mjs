@@ -63,8 +63,7 @@ export const inject = ['tools', 'subagents']
 
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
 import { DEFAULT_MAX_CONCURRENT_AGENTS, DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
 import { registerScheduler } from './rust-acp-scheduler.mjs'
@@ -88,6 +87,8 @@ import {
   sizeOutcome,
   validTarget,
 } from './rust-acp-subagent-messages.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const MARK = '\u241esubagent\u241e'
 /** rust-acp-goal (ticket 180) takes its completion verifiers from here. */

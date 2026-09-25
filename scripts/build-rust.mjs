@@ -3,12 +3,25 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFi
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { buildShipExtension } from './build-ship-extension.mjs'
+import { NATIVE_TARGETS, binaryName, keyForTarget, sniffExecutable } from '../packages/cli/bin/rust-artifact.mjs'
 
+// `pnpm run build:rust` stages the host build. `-- --target <triple>` stages
+// another target from this machine (for example x86_64-apple-darwin on an
+// Apple silicon Mac); it needs that Rust target and a working linker/SDK for
+// it, and fails rather than staging something that was not built.
 const root = resolve(import.meta.dirname, '..')
 const manifest = join(root, 'rust/Cargo.toml')
-execFileSync('cargo', ['build', '--manifest-path', manifest, '--locked', '--release', '-p', 'codsh-rust'], { stdio: 'inherit' })
-const target = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/mu)?.[1]
-if (!target) throw new Error('rustc did not identify the native target')
+const targetFlag = process.argv.indexOf('--target')
+const requested = targetFlag >= 0 ? process.argv[targetFlag + 1] : undefined
+if (targetFlag >= 0 && (requested === undefined || keyForTarget(requested) === undefined)) {
+  throw new Error(`--target must be one of: ${Object.values(NATIVE_TARGETS).map(value => value.target).join(', ')}`)
+}
+const host = execFileSync('rustc', ['-vV'], { encoding: 'utf8' }).match(/^host: (.+)$/mu)?.[1]
+if (!host) throw new Error('rustc did not identify the native target')
+const target = requested ?? host
+const key = keyForTarget(target) ?? `${process.platform}-${process.arch}`
+const [platform, arch] = key.split('-')
+execFileSync('cargo', ['build', '--manifest-path', manifest, '--locked', '--release', '-p', 'codsh-rust', ...(requested ? ['--target', requested] : [])], { stdio: 'inherit' })
 const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', target], { encoding: 'utf8', maxBuffer: 20_000_000 }))
 const nodes = new Map(metadata.resolve.nodes.map(node => [node.id, node]))
 const packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg]))
@@ -21,10 +34,18 @@ function visit(id) {
   }
 }
 visit(metadata.packages.find(pkg => pkg.name === 'codsh-rust').id)
-const directory = join(root, 'packages/cli/native', `${process.platform}-${process.arch}`)
+const directory = join(root, 'packages/cli/native', key)
+const filename = binaryName(platform)
+const built = join(metadata.target_directory, ...(requested ? [requested] : []), 'release', filename)
+// The staged directory must hold what its name says (format and CPU), so a
+// wrong-target copy fails here instead of on a user's machine.
+const expected = NATIVE_TARGETS[key]
+const header = sniffExecutable(readFileSync(built).subarray(0, 4096))
+if (expected !== undefined && (header.format !== expected.format || !header.cpus.includes(expected.cpu))) {
+  throw new Error(`${built} is a ${header.format} ${header.cpus.join('+')} file, not the ${expected.format} ${expected.cpu} build ${key} needs`)
+}
 mkdirSync(directory, { recursive: true })
-const filename = process.platform === 'win32' ? 'codsh-rust.exe' : 'codsh-rust'
-copyFileSync(join(metadata.target_directory, 'release', filename), join(directory, filename))
+copyFileSync(built, join(directory, filename))
 const records = [...closure].sort().map(id => {
   const pkg = packages.get(id)
   const base = dirname(pkg.manifest_path)
@@ -42,8 +63,15 @@ for (const name of ['LICENSE', 'THIRD-PARTY-NOTICES', 'MODIFICATIONS', 'import.j
 }
 copyFileSync(join(root, 'LICENSE'), join(directory, 'LICENSE-codsh'))
 writeFileSync(join(directory, 'dependencies.json'), `${JSON.stringify({ target, kind: 'normal and build closure; no dev dependencies', packages: records }, null, 2)}\n`)
+const cli = JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf8'))
 writeFileSync(join(directory, 'artifact.json'), `${JSON.stringify({
-  platform: process.platform, arch: process.arch, target,
+  platform, arch, target,
+  // The launcher refuses a binary whose package version differs from its own
+  // (an update that stopped halfway); requiresDsh is the runtime floor.
+  version: cli.version,
+  requiresDsh: cli.codsh?.requiresDsh,
+  binary: filename,
+  format: header.format,
   sha256: createHash('sha256').update(readFileSync(join(directory, filename))).digest('hex'),
   upstream: 'a28ee2b2063426e8816e380ccea528b9de95e5da',
   behaviorReference: '1.0.34 / 3736acbc8658; exact source correspondence unproven',

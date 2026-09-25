@@ -649,6 +649,17 @@ dsh, registers the Bundle into a profile, and boots it. The found dsh must
 meet the harness floor published on the launcher (`codsh.requiresDsh`).
 _Avoid_: wrapper, shim, cli package
 
+**Native artifact**:
+The prebuilt Rust client inside the Launcher package, one directory per
+platform (`native/darwin-arm64`, `native/darwin-x64`, `native/linux-x64`, …)
+holding `codsh-rust`, `artifact.json` (target, SHA-256, the Launcher version it
+belongs to, the dsh floor) and its license/notice files. `codsh --rust` runs it
+only after the manifest, hash, executable header and version all match; a
+mismatch is refused with the reinstall and rollback commands, never a fallback
+to the legacy runtime. `codsh --rust install-check` shows the same verdict
+without starting anything.
+_Avoid_: binary package, download
+
 **Bundle**:
 The `codsh-bundle` npm package — the interactive surface and agent preset,
 installed into dsh profiles, never globally.

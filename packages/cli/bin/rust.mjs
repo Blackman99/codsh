@@ -2,10 +2,10 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { createHash } from 'node:crypto'
 import { enabled as webFlag } from './rust-acp-web.mjs'
+import { dshFloorProblem, dshPackage, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
 
 const requireFromHere = createRequire(import.meta.url)
 
@@ -95,7 +95,105 @@ function findDsh() {
     const bin = JSON.parse(readFileSync(manifest, 'utf8')).bin
     return join(dirname(manifest), typeof bin === 'string' ? bin : bin.dsh)
   } catch {
-    return 'dsh'
+    // Not installed beside codsh-cli. A dsh on PATH is passed as its real
+    // path, so helpers that resolve harness packages from DSH_BIN can.
+    // Nothing found stays the bare name; the client then reports it missing.
+    return whichOnPath('dsh') ?? 'dsh'
+  }
+}
+
+/** Harness package entry beside the dsh this launch uses, or undefined. */
+function resolveBesideDsh(dshBin, name) {
+  const owner = dshPackage(dshBin)
+  if (owner === undefined) return undefined
+  try {
+    return createRequire(join(owner.root, 'package.json')).resolve(name)
+  } catch {
+    return undefined
+  }
+}
+
+const OWN = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+
+function report(problem) {
+  console.error(`codsh: ${problem.message}`)
+  for (const line of problem.recovery ?? []) console.error(`  ${line}`)
+}
+
+/**
+ * `codsh --rust install-check [--json]` (ticket 66): what this install would
+ * run, verified without starting the client or dsh and without writing.
+ */
+function installCheck(args) {
+  const json = args.includes('--json')
+  const unknown = args.filter(arg => arg !== '--json')
+  if (unknown.length > 0) {
+    console.error(`codsh: install-check takes only --json (got ${unknown.join(' ')})`)
+    return 2
+  }
+  const nativeRoot = fileURLToPath(new URL('../native/', import.meta.url))
+  const artifact = verifyArtifact({ nativeRoot, version: OWN.version })
+  const dshBin = findDsh()
+  const need = OWN.codsh?.requiresDsh
+  const owner = dshPackage(dshBin)
+  const reachable = isAbsolute(dshBin) ? existsSync(dshBin) : whichOnPath(dshBin) !== undefined
+  const dshProblem = !reachable
+    ? {
+        ok: false, code: 'dsh-missing',
+        message: `no dsh runtime found (DSH_BIN=${dshBin}) — the Rust client runs its turns through dsh.`,
+        recovery: [`install one:      npm install -g @deepseek-ai/dsh${need ? `   (${need} or newer)` : ''}`, 'or point at one:  DSH_BIN=/path/to/dsh codsh --rust'],
+      }
+    : dshFloorProblem(dshBin, need, OWN.version)
+  let stamp
+  try {
+    stamp = JSON.parse(readFileSync(join(realpathSync(homedir()), '.codsh-rust', 'codsh-version.json'), 'utf8'))
+  } catch {
+    stamp = undefined
+  }
+  const result = {
+    schema: 'codsh.install-check.v1',
+    ok: artifact.ok && dshProblem === undefined,
+    launcher: { name: OWN.name, version: OWN.version, node: process.version, platform: process.platform, arch: process.arch },
+    artifact: artifact.ok
+      ? { ok: true, key: artifact.key, binary: artifact.binary, target: artifact.manifest.target, version: artifact.manifest.version ?? null, sha256: artifact.sha256, format: artifact.header.format, cpus: artifact.header.cpus }
+      : { ok: false, code: artifact.code, message: artifact.message, recovery: artifact.recovery },
+    dsh: {
+      ok: dshProblem === undefined, entry: dshBin, version: owner?.version ?? null, requires: need ?? null,
+      ...(dshProblem === undefined ? {} : { code: dshProblem.code, message: dshProblem.message, recovery: dshProblem.recovery }),
+    },
+    home: { path: join(realpathSync(homedir()), '.codsh-rust'), lastVersion: stamp?.lastVersion ?? null, previousVersion: stamp?.previousVersion ?? null },
+  }
+  if (json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  } else {
+    console.log(`codsh-cli ${OWN.version} · Node ${process.version} ${process.platform}-${process.arch}`)
+    console.log(artifact.ok
+      ? `Rust client: ok · ${artifact.key} (${artifact.manifest.target ?? 'unknown target'}) · ${artifact.header.format} ${artifact.header.cpus.join('+')} · sha256 ${artifact.sha256.slice(0, 12)}…`
+      : `Rust client: ${artifact.code} · ${artifact.message}`)
+    console.log(dshProblem === undefined
+      ? `dsh: ok · ${dshBin}${owner ? ` · ${owner.version}` : ' · version not readable'}${need ? ` (needs ${need}+)` : ''}`
+      : `dsh: ${dshProblem.code} · ${dshProblem.message}`)
+    console.log(`Rust Home: ${result.home.path}${stamp?.lastVersion ? ` · last used by ${stamp.lastVersion}` : ' · not used yet'}`)
+    for (const line of [...(artifact.ok ? [] : artifact.recovery), ...(dshProblem?.recovery ?? [])]) console.log(`  ${line}`)
+  }
+  return result.ok ? 0 : 1
+}
+
+/** Record the running version in the Rust Home; say so when it changed. */
+function stampHome(root) {
+  const file = join(root, 'codsh-version.json')
+  const existing = lstatSync(file, { throwIfNoEntry: false })
+  if (existing?.isSymbolicLink() || (existing && !existing.isFile())) throw new Error(`refusing non-file or symlink: ${file}`)
+  let previous
+  try {
+    previous = existing ? JSON.parse(readFileSync(file, 'utf8')) : undefined
+  } catch {
+    previous = undefined
+  }
+  const { next, notice } = stampTransition(previous, OWN.version)
+  if (notice) console.error(notice)
+  if (previous?.lastVersion !== next.lastVersion || previous?.newestVersion !== next.newestVersion || existing === undefined) {
+    writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
   }
 }
 
@@ -212,16 +310,13 @@ function privateDirectory(path) {
 
 export async function launchRust(args) {
   try {
-    const native = fileURLToPath(new URL(`../native/${process.platform}-${process.arch}/`, import.meta.url))
-    const binary = join(native, process.platform === 'win32' ? 'codsh-rust.exe' : 'codsh-rust')
-    if (!existsSync(binary)) {
-      throw new Error(`Rust client artifact is not installed for ${process.platform}-${process.arch}. Use a locally staged candidate (pnpm run build:rust); ordinary codsh remains available.`)
+    if (args[0] === 'install-check') return installCheck(args.slice(1))
+    const artifact = verifyArtifact({ nativeRoot: fileURLToPath(new URL('../native/', import.meta.url)), version: OWN.version })
+    if (!artifact.ok) {
+      report(artifact)
+      return 1
     }
-    const manifest = JSON.parse(readFileSync(join(native, 'artifact.json'), 'utf8'))
-    const digest = createHash('sha256').update(readFileSync(binary)).digest('hex')
-    if (manifest.sha256 !== digest || manifest.platform !== process.platform || manifest.arch !== process.arch) {
-      throw new Error('Rust client artifact integrity/platform mismatch; rebuild the candidate')
-    }
+    const binary = artifact.binary
     const parent = realpathSync(homedir())
     const root = join(parent, '.codsh-rust')
     if (lstatSync(root, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`refusing symlink: ${root}`)
@@ -235,8 +330,15 @@ export async function launchRust(args) {
       || (args[0] === 'plugin' && args.slice(1).every(flag => flag === '--help' || flag === '-h'))
       || (args[0] === 'completions' && args.length === 2 && !args[1].startsWith('-'))
       || (args[0] === 'help' && args.length === 2 && args[1] === 'completions')
+    const dshBin = findDsh()
     if (!helpOnly) {
+      const floor = dshFloorProblem(dshBin, OWN.codsh?.requiresDsh, OWN.version)
+      if (floor !== undefined) {
+        report(floor)
+        return 1
+      }
       privateDirectory(root)
+      stampHome(root)
       privateDirectory(join(root, 'dsh'))
       privateDirectory(join(root, 'dsh', 'profiles'))
       privateDirectory(join(root, 'dsh', 'profiles', 'rust'))
@@ -252,7 +354,8 @@ export async function launchRust(args) {
       USERPROFILE: root,
       DSH_HOME: join(root, 'dsh'),
       DSH_PROFILE: 'rust',
-      DSH_BIN: findDsh(),
+      DSH_BIN: dshBin,
+      CODSH_REQUIRES_DSH: OWN.codsh?.requiresDsh ?? '',
       CODSH_NODE: process.execPath,
       DSH_TELEMETRY_DISABLED: '1',
       DSH_TELEMETRY_MODE: 'OFF',
@@ -288,13 +391,15 @@ export async function launchRust(args) {
       const background = fileURLToPath(new URL('./rust-acp-background.mjs', import.meta.url))
       const goal = fileURLToPath(new URL('./rust-acp-goal.mjs', import.meta.url))
       const overlay = join(root, 'dsh', 'rust-file-approval.yml')
-      const lsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
-      const toolLsp = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
+      // Optional harness plugins come from the dsh this launch uses; the
+      // relative paths are a development checkout's workspace node_modules.
+      const lsp = resolveBesideDsh(dshBin, '@deepseek-ai/dsh-lsp') ?? fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-lsp/lib/index.js', import.meta.url))
+      const toolLsp = resolveBesideDsh(dshBin, '@deepseek-ai/dsh-tool-lsp') ?? fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-lsp/lib/index.js', import.meta.url))
       const lspInsert = existsSync(lsp) && existsSync(toolLsp)
         ? ['    - id: lsp', `      name: '${pathToFileURL(lsp).href}'`, '    - id: tool-lsp', `      name: '${pathToFileURL(toolLsp).href}'`]
         : []
       // ask_user_question (ticket 179): the acp profile does not load dsh's tool.
-      const askUser = fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js', import.meta.url))
+      const askUser = resolveBesideDsh(dshBin, '@deepseek-ai/dsh-tool-ask-user') ?? fileURLToPath(new URL('../../../node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js', import.meta.url))
       const askInsert = existsSync(askUser) ? ['    - id: tool-ask-user', `      name: '${pathToFileURL(askUser).href}'`] : []
       writeFileSync(overlay, [
         '- id: web-search-deepseek',

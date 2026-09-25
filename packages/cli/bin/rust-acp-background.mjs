@@ -37,9 +37,10 @@
  * cancelled by dsh when their owner agent is disposed; nothing here revives
  * them.
  */
-import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { registerMonitor } from './rust-acp-monitor.mjs'
+const { HarnessError, createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { TOOL_ABORTED } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const name = 'rust-acp-background'
 export const inject = ['tools']

@@ -11,10 +11,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 if (process.argv[2] === '--rust') {
   const { launchRust } = await import('./rust.mjs')
@@ -125,6 +126,25 @@ if (process.argv[2] === 'update') {
   else if (moved.status === 'pinned') console.log(`${done} · the code profile pins ${BUNDLE} to "${moved.current}" — leaving it as-is`)
   else if (moved.status === 'current') console.log(`${done} · the code profile already carries ${BUNDLE} ${moved.current}`)
   else console.log(`${done} · the next codsh start registers the matching runtime`)
+  // The Rust client ships inside this package (ticket 66). Someone who has
+  // used it hears now, not at the next `codsh --rust`, when the new package
+  // cannot run it on this machine, and how to go back. The new files are
+  // already in place, so this runs the just-installed launcher's check.
+  let rustHome
+  try {
+    rustHome = join(realpathSync(homedir()), '.codsh-rust')
+  } catch {
+    rustHome = undefined
+  }
+  if (rustHome !== undefined && existsSync(rustHome)) {
+    const check = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--rust', 'install-check'], { encoding: 'utf8', timeout: 30_000 })
+    if (check.status !== 0) {
+      console.error(`codsh: codsh-cli ${latest} is installed, but its Rust client (codsh --rust) does not verify on this machine:`)
+      for (const line of String(check.stdout ?? '').split('\n').filter(Boolean)) console.error(`  ${line}`)
+      console.error(`  go back to the version you had:  npm install -g ${LAUNCHER}@${own.version}`)
+      process.exit(1)
+    }
+  }
   process.exit(0)
 }
 

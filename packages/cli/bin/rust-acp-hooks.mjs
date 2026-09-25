@@ -16,7 +16,8 @@ export const inject = ['tools', 'sessionProjections']
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { importFromDsh } from './rust-acp-dsh.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
 
 const MARK = '\u241ehook\u241e'
 const DEFAULT_TIMEOUT_SEC = 5

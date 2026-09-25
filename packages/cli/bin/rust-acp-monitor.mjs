@@ -60,8 +60,9 @@
  * status line and transcript.
  */
 import { realpathSync } from 'node:fs'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { importFromDsh } from './rust-acp-dsh.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
+const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 
 export const MONITOR_TOOL = 'monitor'
 export const PLUGIN = 'rust-acp-monitor'

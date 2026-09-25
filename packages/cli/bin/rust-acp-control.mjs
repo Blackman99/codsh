@@ -45,9 +45,10 @@
  * so tool children never inherit them. Without them the plugin is inert.
  */
 import { createConnection } from 'node:net'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { importFromDsh } from './rust-acp-dsh.mjs'
 import { createInteraction } from './rust-acp-interaction.mjs'
 import { composeLedger } from './rust-usage.mjs'
+const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
 
 export const name = 'rust-acp-control'
 export const inject = ['llm']

@@ -350,6 +350,62 @@ Cross-target packaging/CI publication and native Linux/Windows verification are
 later tickets, not established by a macOS build. Packages lacking the artifact
 fail explicitly. The regular legacy `build` does not add native artifacts.
 
+Prebuilt packaging (ticket 66) keeps every platform's client inside the one
+`codsh-cli` package, so the fixed `codsh-cli`/`codsh-bundle` Changesets group and
+`pnpm run release` are unchanged; splitting into per-platform optional packages
+would be a separate, owner-approved release-layout change. `artifact.json` now
+also records `version` (the `codsh-cli` version), `requiresDsh`, `binary` and
+`format`; the launcher refuses a staged client whose version differs from its
+own package (an interrupted update), whose SHA-256 or executable header
+(Mach-O/ELF/PE and CPU, universal Mach-O accepted) does not match its directory,
+or whose directory is missing, and prints the reinstall/rollback commands.
+`pnpm run build:rust -- --target <triple>` stages another target
+(`aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, …)
+when this machine has that Rust target and its linker/SDK; on an Apple silicon
+Mac, `rustup target add x86_64-apple-darwin` then that command stages the Intel
+build. Linux cannot build the macOS targets: `aws-lc-sys` needs Apple clang and
+the SDK, and the client links AppKit/CoreFoundation, so macOS artifacts are
+staged on a Mac (ad-hoc signed by the Apple linker; no Developer ID signing or
+notarization is performed or claimed). Before a release that promises macOS
+prebuilds, run `pnpm run check:rust-package -- --require darwin-arm64,darwin-x64`:
+it lists what `npm pack` would ship (dry run; nothing is packed, uploaded or
+published) and verifies each staged directory for its own platform.
+
+The `rust-acp-*.mjs` dsh plugins load harness packages (`@deepseek-ai/dsh-llm`,
+`@deepseek-ai/dsh-tools`) from the running dsh through `rust-acp-dsh.mjs`,
+because after `npm install -g @deepseek-ai/dsh codsh-cli` those packages live
+under dsh's own `node_modules`, not above `codsh-cli`; a bare import only worked
+in this workspace. The launcher also resolves the optional LSP/ask-user plugins
+beside that dsh, passes a dsh found on PATH as its real path, refuses a dsh
+package older than `codsh.requiresDsh` before creating the Rust Home, and
+records the running version in `~/.codsh-rust/codsh-version.json` so an update
+or a rollback to an older `codsh-cli` is announced once. `codsh update` runs the
+new package's `codsh --rust install-check` when `~/.codsh-rust` exists and, if
+it fails, prints the command that returns to the previous version.
+
+```sh
+pnpm run build:rust
+pnpm exec vitest run scripts/rust-artifact.spec.mjs
+python3 scripts/rust-install-test.py
+pnpm run check:rust-package
+```
+
+`scripts/rust-artifact.spec.mjs` covers the header reader, every refusal, the
+dsh floor, the version stamp, the plugins loading from a dsh laid out like a
+global npm install (no harness package above `codsh-cli`), and launcher
+refusals that leave no Rust Home behind. `scripts/rust-install-test.py` packs
+`packages/cli`, installs it with `npm install -g` into a fresh prefix beside a
+dsh (this checkout's, or `CODSH_INSTALL_TEST_DSH=<dsh package dir>` for one
+installed from the registry), and runs without `CODSH_ACP_PATCH` against a
+local OpenAI-compatible fixture: `install-check`, a headless turn, a PTY turn
+with terminal restoration, an in-place update that keeps sessions, refusals for
+a half-updated, damaged, wrong-CPU and missing client (no dsh start, no Home
+change), an old and a missing dsh, a rollback, and `codsh update` to a package
+without this platform's client. Fake `cargo`/`rustc`/`rustup`/`grok` on PATH must
+never run and legacy `~/.dsh`/`~/.grok` canaries stay byte-identical. It runs on
+Linux; the same script on macOS (both CPUs, Rosetta) and on a clean Mac is still
+required evidence for ticket 66.
+
 `test:rust:pty` requires macOS, Python 3 and clang. It packs and locally installs
 the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,
 operates the actual Rust UI through a PTY, and checks termios, screen/paste/cursor

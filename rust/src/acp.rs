@@ -638,6 +638,83 @@ pub fn dsh_spawn_spec(
     })
 }
 
+/// The dsh floor the launcher was published against (ticket 66).
+fn dsh_install_command() -> String {
+    match std::env::var("CODSH_REQUIRES_DSH") {
+        Ok(floor) if !floor.trim().is_empty() => {
+            format!(
+                "`npm install -g @deepseek-ai/dsh` ({} or newer)",
+                floor.trim()
+            )
+        }
+        _ => "`npm install -g @deepseek-ai/dsh`".into(),
+    }
+}
+
+/// A missing dsh (or the Node.js that runs a dsh script) names the fix
+/// instead of a bare "No such file or directory".
+fn dsh_spawn_error(program: &Path, error: io::Error) -> io::Error {
+    if error.kind() != io::ErrorKind::NotFound {
+        return error;
+    }
+    let what = if std::env::var_os("CODSH_NODE").is_some_and(|node| Path::new(&node) == program) {
+        format!(
+            "the Node.js that runs dsh ({}) was not found",
+            program.display()
+        )
+    } else {
+        format!("the dsh runtime ({}) was not found", program.display())
+    };
+    io::Error::new(
+        io::ErrorKind::NotFound,
+        format!(
+            "{what}. Install it with {} or set DSH_BIN to a dsh executable; `codsh --rust install-check` shows what this install uses",
+            dsh_install_command()
+        ),
+    )
+}
+
+/// After a failed start, the dsh plugin-load lines from this run's
+/// `acp-stderr.log`, so a broken or incomplete dsh install is named.
+pub fn startup_failure_hint(since: std::time::SystemTime) -> Option<String> {
+    let home = std::env::var_os("DSH_HOME")?;
+    let log = Path::new(&home).join("acp-stderr.log");
+    let modified = std::fs::metadata(&log).ok()?.modified().ok()?;
+    if modified < since {
+        return None;
+    }
+    let text = std::fs::read_to_string(&log).ok()?;
+    startup_hint_from_log(&text, &log)
+}
+
+fn startup_hint_from_log(text: &str, log: &Path) -> Option<String> {
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            line.contains("Cannot find package")
+                || line.contains("Cannot find module")
+                || line.contains("failed to import loader entry")
+                || line.contains("could not be resolved")
+        })
+        .take(3)
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    let mut out = String::from("dsh could not load its plugins:\n");
+    for line in lines {
+        let shown: String = line.chars().take(300).collect();
+        out.push_str(&format!("  {shown}\n"));
+    }
+    out.push_str(&format!(
+        "  full log: {}\n  reinstall a complete runtime with {}; `codsh --rust install-check` shows what this install uses",
+        log.display(),
+        dsh_install_command()
+    ));
+    Some(out)
+}
+
 impl AcpClient {
     pub fn spawn(spec: SpawnSpec) -> io::Result<Self> {
         let mut command = Command::new(&spec.program);
@@ -685,7 +762,13 @@ impl AcpClient {
             .iter()
             .find(|(key, _)| key == crate::mcp::PLAN_ENV)
             .map(|(_, value)| PathBuf::from(value));
-        let mut child = command.spawn()?;
+        let mut child = command.spawn().map_err(|error| {
+            if spec.remote {
+                error
+            } else {
+                dsh_spawn_error(&spec.program, error)
+            }
+        })?;
         let stdin = child.stdin.take();
         let stdout = child
             .stdout
@@ -2314,6 +2397,35 @@ impl Drop for AcpClient {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn startup_hint_names_unresolved_plugins_and_missing_dsh() {
+        let log = Path::new("/tmp/h/acp-stderr.log");
+        assert!(startup_hint_from_log("plain crash\n", log).is_none());
+        let text = "Error: failed to import loader entry rust-acp-hooks (file:///x/rust-acp-hooks.mjs): Cannot find package '@deepseek-ai/dsh-llm' imported from /x\nat boot\n";
+        let hint = startup_hint_from_log(text, log).unwrap();
+        assert!(hint.contains("dsh could not load its plugins"));
+        assert!(hint.contains("@deepseek-ai/dsh-llm"));
+        assert!(hint.contains("/tmp/h/acp-stderr.log"));
+        assert!(hint.contains("install-check"));
+        let missing = dsh_spawn_error(
+            Path::new("/nowhere/dsh"),
+            io::Error::new(io::ErrorKind::NotFound, "No such file or directory"),
+        );
+        assert_eq!(missing.kind(), io::ErrorKind::NotFound);
+        assert!(
+            missing
+                .to_string()
+                .contains("the dsh runtime (/nowhere/dsh) was not found")
+        );
+        assert!(
+            missing
+                .to_string()
+                .contains("npm install -g @deepseek-ai/dsh")
+        );
+        let other = dsh_spawn_error(Path::new("/x"), io::Error::other("boom"));
+        assert_eq!(other.to_string(), "boom");
+    }
+
     use super::*;
 
     #[test]
