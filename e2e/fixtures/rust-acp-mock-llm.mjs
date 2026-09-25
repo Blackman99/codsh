@@ -870,7 +870,11 @@ class RustAcpMockAdapter extends LlmAdapter {
       return
     }
     if (MODE === 'hook-bash') {
-      const done = toolResults(options)
+      // Only this prompt's results count, so each turn of one session makes
+      // its own bash call. Hook notes are user text marked with ␞hook␞.
+      const isPrompt = message => message.role === 'user' && message.content.some(block => block.type === 'text'
+        && !block.text.startsWith('\u241ehook\u241e') && !/Current runtime context|This snapshot supersedes/i.test(block.text))
+      const done = toolResults({ messages: options.messages.slice(options.messages.findLastIndex(isPrompt) + 1) })
       if (done.length > 0) {
         const last = done.at(-1)
         const text = resultText(last)
@@ -886,7 +890,7 @@ class RustAcpMockAdapter extends LlmAdapter {
         yield* mockText('RUST_ACP_HOOK_PROMPT_RAN')
         return
       }
-      yield* mockToolCall('rust-acp-hook-bash', 'bash', { command: 'printf HOOK_SIDE_EFFECT', description: 'hook fixture' })
+      yield* mockToolCall(`rust-acp-hook-bash-${toolResults(options).length + 1}`, 'bash', { command: 'printf HOOK_SIDE_EFFECT', description: 'hook fixture' })
       return
     }
     if (MODE === 'hook-prompt-block') {
@@ -996,7 +1000,7 @@ class RustAcpMockAdapter extends LlmAdapter {
     const history = echoUserText(userTexts(options).join('\n'))
     const latest = echoUserText(latestUserText(options))
     const corpus = userTexts(options).join('\n')
-    const markers = ['HOME_RULE', 'ROOT_RULE', 'DEEP_RULE', 'DIR_RULE_A', 'EXTRA_RULE', 'NESTED_RULE', 'IGNORED_LOCAL', 'UNTRUSTED_PROJECT', 'COMMIT_BODY', 'SHIP_NOTE_BODY', 'REVIEWER_BODY', 'SKILL_ADDED', 'SKILL_REMOVED']
+    const markers = ['HOME_RULE', 'ROOT_RULE', 'DEEP_RULE', 'DIR_RULE_A', 'EXTRA_RULE', 'NESTED_RULE', 'IGNORED_LOCAL', 'UNTRUSTED_PROJECT', 'COMMIT_BODY', 'SHIP_NOTE_BODY', 'REVIEWER_BODY', 'SKILL_ADDED', 'SKILL_REMOVED', 'PLUGIN_RULE_BODY', 'PLUGIN_SKILL_BODY', 'PLUGIN_COMMAND_BODY', 'PLUGIN_AGENT_BODY', 'PLUGIN_V2_BODY']
       .filter(marker => corpus.includes(marker))
     const markerText = markers.length ? ` markers=${markers.join(',')}` : ''
     const reply = `RUST_ACP_ANSWER turn=${turn} route=${route} effort=${effort} model=${model} latest=${latest}${imageEcho(options)}${markerText} ${history}`

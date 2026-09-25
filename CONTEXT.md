@@ -225,7 +225,17 @@ Global rules still load when the project is untrusted. `paths.extra_skill_dirs`
 is not a skill discovery root. Isolated plugin
 marketplace add/list/update/remove and plugin install/update/uninstall copy
 files into `$GROK_HOME/installed-plugins` with inspectable provenance.
-Installation does not enable execution. Official marketplace auto-register is
+Installation does not enable execution. Enable/disable (`plugin enable|disable`,
+Space in `/plugins`) is the only switch for plugin content: `plugin::active_roots`
+(enabled, not disabled, install-trusted or workspace-trusted for project
+plugins, present, not shadowed) feeds `assets::discover` (plugin rules before
+project rules, `/plugin:name` skills and commands, `plugin:agent` agents) and
+`plugin::hook_env` writes `CODSH_PLUGIN_HOOKS` for `rust-acp-hooks.mjs`, which
+runs those command hooks under the same contract. Enabling never widens tool
+permissions (`executionGranted` stays false). A live TUI session replaces the
+dsh child on the next prompt when plugin hooks or agent types changed; rules,
+skills, and commands are rescanned every prompt. Plugin MCP servers are not
+started. Official marketplace auto-register is
 off unless `GROK_OFFICIAL_MARKETPLACE_AUTO_REGISTER` is set. Git marketplace
 catalogs are read from `$GROK_HOME/marketplace-cache` after add/update.
 Each marketplace plugin installs into its own dest under `installed-plugins`.

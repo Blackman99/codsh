@@ -59,7 +59,12 @@ beside the user file as `managed_config.toml` and `requirements.toml`. Untrusted
 workspaces prompt before project Hooks/plugins/instructions run; `--trust`
 saves a grant and `--revoke-trust` withdraws it. `codsh --rust plugin`
 marketplace/install/update/uninstall records isolated plugin files and
-provenance; install does not grant execution. A present
+provenance; install does not grant execution. `plugin enable|disable` (or Space
+in `/plugins`) adds or withdraws an installed, trusted plugin's rules, skills and
+commands (`/plugin:name`), agents, and command hooks through the normal
+discovery and hook runner; project plugins also need workspace trust, enabling
+never grants tool permissions, and `plugin list --json` shows each plugin's
+state and contributions. A present
 `strict_known_marketplaces` list binds catalog load, named install, the
 catalog clone URL, and later git update. Layers are strictest-wins. URL
 comparison folds scheme and host only, including GitHub, and strips one

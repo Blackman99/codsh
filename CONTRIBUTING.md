@@ -305,6 +305,7 @@ python3 scripts/rust-permission-pty-test.py
 python3 scripts/rust-screen-pty-test.py
 python3 scripts/rust-fork-pty-test.py
 python3 scripts/rust-plugin-pty-test.py
+python3 scripts/rust-plugin-content-pty-test.py
 python3 scripts/rust-prompt-pty-test.py
 python3 scripts/rust-voice-pty-test.py
 python3 scripts/rust-nav-pty-test.py
@@ -459,7 +460,15 @@ packed client and real dsh sessions. Search uses a local Responses-shaped
 substitute and a local SearXNG JSON fixture; the SearXNG request is a keyless
 GET and result URLs stay inside the configured domain list. One fetch uses
 the public `http://example.com/` page. A real SearXNG process is not started
-by that script. The assets test
+by that script. `python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
+and macOS through the repo launcher and the `pnpm run build:rust` binary: a
+temp plugin with a rule, skill, command, agent, and PreToolUse hook is
+installed with `--trust`, `/plugins` Space enables it, the next prompt must
+carry the skill, and the replaced dsh child must let the plugin hook deny a
+real bash call; Space again must withdraw both. `pnpm exec vitest run
+scripts/rust-plugin-content.spec.mjs` covers install, enable, update, disable,
+uninstall, a broken plugin beside a good one, and project plugins behind
+workspace trust with real dsh and the keyless mock. The assets test
 trusts a fixture repo, checks that ordered rules, a skill, and a flat custom
 command change the dsh request, rescans an added skill, requires the deleted
 skill to be absent from the next dsh reply, checks `--rules`, and checks an

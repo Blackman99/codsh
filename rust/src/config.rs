@@ -2070,6 +2070,9 @@ fn discover_assets(
         bool_from_toml(cursor.and_then(|value| value.get("skills"))),
         std::env::var("GROK_CURSOR_SKILLS_ENABLED").ok().as_ref(),
     );
+    // Enabled, trusted plugins join the same discovery. Project plugins
+    // need the workspace trust that also gates project assets.
+    let plugins = crate::plugin::active_roots(grok_home, cwd, project_active);
     crate::assets::discover(&crate::assets::DiscoverInput {
         cwd,
         grok_home,
@@ -2085,7 +2088,35 @@ fn discover_assets(
         skill_ignore: &skill_ignore,
         skill_disabled: &skill_disabled,
         builtin_commands: crate::prompt_edit::builtin_command_names(),
+        plugins: &plugins,
     })
+}
+
+/// `CODSH_PLUGIN_HOOKS` for the next dsh spawn: hooks from active plugins.
+pub fn plugin_hook_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    vec![crate::plugin::hook_env(
+        &config.grok_home,
+        &config.cwd,
+        config.project_assets_active,
+    )]
+}
+
+/// Whether plugin hooks or plugin agents changed since `spawned` was handed
+/// to dsh. The dsh child reads both once at start, so a change replaces it.
+pub fn plugin_runtime_changed(config: &EffectiveConfig, spawned: &[(String, String)]) -> bool {
+    let current = |key: &str| {
+        spawned
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone())
+    };
+    let hooks = plugin_hook_env(config);
+    let hooks_changed = hooks
+        .iter()
+        .any(|(key, value)| current(key).as_deref() != Some(value.as_str()));
+    let policy = subagent_policy(config).to_json().to_string();
+    let policy_changed = current("CODSH_SUBAGENT_POLICY").is_some_and(|value| value != policy);
+    hooks_changed || policy_changed
 }
 
 fn string_list(value: Option<&TomlValue>) -> Vec<String> {
@@ -3766,6 +3797,79 @@ mod tests {
             .iter()
             .find(|setting| setting.key == key)
             .map(|setting| (setting.value.as_str(), setting.source.as_str()))
+    }
+
+    #[test]
+    fn plugin_hooks_and_agents_mark_the_live_dsh_env_stale() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        let grok_home = load.grok_home.clone().unwrap();
+        let home = load.home.clone();
+        let mut config = load_from(load);
+        let spawned = |config: &EffectiveConfig| {
+            let mut env = subagent_env(config);
+            env.extend(plugin_hook_env(config));
+            env
+        };
+        let before = spawned(&config);
+        assert!(!plugin_runtime_changed(&config, &before));
+        assert!(
+            before
+                .iter()
+                .any(|(key, value)| key == "CODSH_PLUGIN_HOOKS" && value == "[]")
+        );
+
+        let source = dir.path().join("plugin-src");
+        fs::create_dir_all(source.join("hooks")).unwrap();
+        fs::create_dir_all(source.join("agents")).unwrap();
+        fs::write(
+            source.join("plugin.json"),
+            r#"{"name":"guard","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        fs::write(
+            source.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"true"}]}]}}"#,
+        )
+        .unwrap();
+        fs::write(source.join("agents/checker.md"), "checks\n").unwrap();
+        let env = BTreeMap::new();
+        for command in [
+            crate::plugin::PluginCommand::Install {
+                source: source.display().to_string(),
+                trust: true,
+            },
+            crate::plugin::PluginCommand::Enable {
+                name: "guard".into(),
+            },
+        ] {
+            crate::plugin::run(&grok_home, &config.cwd, &env, true, &command).unwrap();
+        }
+        refresh_assets(&mut config, &home);
+        assert!(
+            config
+                .assets
+                .agents
+                .iter()
+                .any(|agent| agent.name == "guard:checker")
+        );
+        assert!(plugin_runtime_changed(&config, &before));
+        let after = spawned(&config);
+        assert!(!plugin_runtime_changed(&config, &after));
+
+        crate::plugin::run(
+            &grok_home,
+            &config.cwd,
+            &env,
+            true,
+            &crate::plugin::PluginCommand::Disable {
+                name: "guard".into(),
+            },
+        )
+        .unwrap();
+        refresh_assets(&mut config, &home);
+        assert!(config.assets.agents.is_empty());
+        assert!(plugin_runtime_changed(&config, &after));
     }
 
     #[test]

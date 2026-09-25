@@ -638,7 +638,23 @@ rules but do not inject project rules, skills, commands, or agent definitions.
 `codsh --rust plugin marketplace add|list|update|remove` manages local git/path
 catalogs. `plugin install|update|uninstall|list` copies plugin files into the
 isolated Home with version, source, and license provenance. Install requires
-`--trust` and still does not grant execution; enablement is a later ticket.
+`--trust` and still does not grant execution. `plugin enable|disable` (or Space
+in `/plugins`) adds or withdraws an installed, trusted plugin's contributions
+through the same discovery and hook runner used for your own files: `rules/*.md`
+join the rule block after global rules and before project rules; skills and
+commands answer to `/plugin:name` (and the bare `/name` when nothing native,
+built-in, or in another plugin already owns it); `agents/*.md` become
+`plugin:agent` types; command hooks from `hooks/hooks.json` (or a manifest
+`hooks` path/table) run under the normal hook contract with `GROK_PLUGIN_ROOT`
+and `GROK_PLUGIN_DATA`. A project plugin in `.grok/plugins/` also needs
+workspace trust. Enabling never grants tool permissions: tool calls still follow
+the permission mode and rules. A live session picks up a change on its next
+prompt (dsh is restarted on the same session when hooks or agents changed);
+update, disable, and uninstall withdraw the old content. `plugin list --json`,
+`inspect`, and the expanded `/plugins` row show each plugin's `state`
+(`active`, `disabled`, `blocked`, `missing`, `shadowed`), its contributions,
+and per-plugin problems; one broken file does not stop other plugins. Plugin
+MCP servers are not started yet.
 Failed download, checksum, conflict, offline, or cancel leaves no success
 record. `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` also
 refuse unpinned remote updates and leave the previous install. Official marketplace auto-register stays off unless

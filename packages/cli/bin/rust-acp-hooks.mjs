@@ -6,6 +6,9 @@
  * A hook runs only as a child of dsh. An allow does not skip permission
  * checks. A hook cannot widen a sandbox or permission deny. Untrusted project
  * hooks are omitted. HTTP, prompt, and agent handlers do not run.
+ * Hooks from enabled, trusted plugins arrive in CODSH_PLUGIN_HOOKS (written by
+ * codsh-rust from the same gate as plugin skills and rules) and run under this
+ * same contract, with GROK_PLUGIN_ROOT / GROK_PLUGIN_DATA set.
  */
 export const name = 'rust-acp-hooks'
 export const inject = ['tools', 'sessionProjections']
@@ -221,7 +224,51 @@ function expand(text, env) {
   })
 }
 
-function handlerFrom(raw, source, file, env) {
+/**
+ * Plugin hook sources from CODSH_PLUGIN_HOOKS. A malformed value loads no
+ * plugin hooks and becomes one warning; one bad entry skips only itself.
+ */
+export function pluginHookSources(raw, warnings = []) {
+  if (raw === undefined || raw === '') return []
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    warnings.push(`plugin hooks unreadable (${error.message})`)
+    return []
+  }
+  if (!Array.isArray(parsed)) {
+    warnings.push('plugin hooks must be a list')
+    return []
+  }
+  const out = []
+  for (const entry of parsed) {
+    const item = asObject(entry)
+    if (!item || typeof item.plugin !== 'string' || typeof item.root !== 'string') {
+      warnings.push('skipped a plugin hook entry without plugin and root')
+      continue
+    }
+    const file = typeof item.file === 'string' && item.file ? item.file : ''
+    const body = typeof item.body === 'string' && item.body ? item.body : undefined
+    if (!file && body === undefined) continue
+    const data = typeof item.data === 'string' ? item.data : ''
+    out.push({
+      plugin: item.plugin,
+      scope: item.scope === 'project' ? 'project' : 'user',
+      file: file || join(item.root, 'plugin.json'),
+      body,
+      env: {
+        GROK_PLUGIN_ROOT: item.root,
+        CLAUDE_PLUGIN_ROOT: item.root,
+        GROK_PLUGIN_DATA: data,
+        CLAUDE_PLUGIN_DATA: data,
+      },
+    })
+  }
+  return out
+}
+
+function handlerFrom(raw, source, file, env, ownedEnv) {
   const type = typeof raw?.type === 'string' ? raw.type : 'command'
   if (type !== 'command') return { skipped: type }
   if (typeof raw.command !== 'string' || raw.command.trim() === '') return null
@@ -234,6 +281,9 @@ function handlerFrom(raw, source, file, env) {
       if (typeof value === 'string') hookEnv[key] = value
     }
   }
+  // Plugin-owned keys win over a hook's own env, so a plugin cannot repoint
+  // its root.
+  if (ownedEnv) Object.assign(hookEnv, ownedEnv)
   return {
     type: 'command',
     command,
@@ -245,7 +295,7 @@ function handlerFrom(raw, source, file, env) {
   }
 }
 
-function groupsFromJson(parsed, source, file, env) {
+function groupsFromJson(parsed, source, file, env, ownedEnv) {
   const root = asObject(parsed)
   const map = root ? asObject(root.hooks) ?? root : null
   if (!map) return { groups: [], skipped: [], unknown: [] }
@@ -264,7 +314,7 @@ function groupsFromJson(parsed, source, file, env) {
       if (!group || !Array.isArray(group.hooks)) continue
       const hooks = []
       for (const raw of group.hooks) {
-        const handler = handlerFrom(asObject(raw), source, file, env)
+        const handler = handlerFrom(asObject(raw), source, file, ownedEnv ? { ...env, ...ownedEnv } : env, ownedEnv)
         if (!handler) continue
         if (handler.skipped) {
           skipped.push({ event, type: handler.skipped })
@@ -286,7 +336,7 @@ export function discoverHooks(options) {
   const grokHome = options.grokHome
   const trusted = options.trusted === true
   const sources = []
-  const pushFile = (file, source, body) => sources.push({ file, source, body })
+  const pushFile = (file, source, body, ownedEnv) => sources.push({ file, source, body, ownedEnv })
   for (const file of jsonFiles(grokHome ? join(grokHome, 'hooks') : '')) pushFile(file, 'global')
   if (compatEnabled('claude', env)) {
     for (const name of ['settings.json', 'settings.local.json']) {
@@ -304,6 +354,12 @@ export function discoverHooks(options) {
   for (const layer of options.managed ?? []) pushFile(layer, 'managed')
   for (const layer of options.requirements ?? []) pushFile(layer, 'requirements')
   if (options.userConfig && existsSync(options.userConfig)) pushFile(options.userConfig, 'user')
+  for (const plugin of options.plugins ?? []) {
+    // codsh-rust already drops project plugins in an untrusted workspace;
+    // this keeps the same rule if an entry arrives anyway.
+    if (plugin.scope === 'project' && !trusted) continue
+    pushFile(plugin.file, `plugin:${plugin.plugin}`, plugin.body, plugin.env)
+  }
   if (trusted) {
     for (const dir of [...walkParents(cwd)].reverse()) {
       for (const file of jsonFiles(join(dir, '.grok', 'hooks'))) pushFile(file, 'project')
@@ -342,7 +398,7 @@ export function discoverHooks(options) {
         parsed.hooks[group.event].push({ matcher: group.matcher, hooks: group.hooks })
       }
     }
-    const loaded = groupsFromJson(parsed, source.source, source.file ?? source.source, env)
+    const loaded = groupsFromJson(parsed, source.source, source.file ?? source.source, env, source.ownedEnv)
     for (const key of loaded.unknown) warnings.push(`skipped unknown hook event ${key}`)
     for (const item of loaded.skipped) warnings.push(`skipped ${item.type} hook on ${item.event}; only command hooks run`)
     for (const group of loaded.groups) {
@@ -630,15 +686,18 @@ export function apply(ctx) {
   const grokHome = process.env.GROK_HOME ?? ''
   const trusted = process.env.CODSH_WORKSPACE_TRUSTED === '1'
   const cwd = process.cwd()
+  const pluginWarnings = []
+  const plugins = pluginHookSources(process.env.CODSH_PLUGIN_HOOKS, pluginWarnings)
   const registry = discoverHooks({
     cwd,
     grokHome,
     trusted,
+    plugins,
     env: process.env,
     userConfig: grokHome ? join(grokHome, 'config.toml') : '',
     workspaceConfig: trusted ? join(cwd, '.grok', 'config.toml') : '',
   })
-  for (const warning of registry.warnings) ctx.logger?.warn?.(`rust-acp-hooks: ${warning}`)
+  for (const warning of [...pluginWarnings, ...registry.warnings]) ctx.logger?.warn?.(`rust-acp-hooks: ${warning}`)
   const continuations = new Map()
   ctx.on('agent/session-start', ({ agent }) => {
     const payload = basePayload(agent, 'SessionStart', loadPolicy())

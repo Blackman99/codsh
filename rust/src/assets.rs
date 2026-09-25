@@ -88,6 +88,35 @@ pub struct AssetCatalog {
     pub project_active: bool,
 }
 
+/// One enabled, trusted plugin whose files join the normal discovery.
+/// `plugin::active_roots` decides which plugins qualify; this module only
+/// reads the directories it is given.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PluginRoot {
+    pub name: String,
+    pub scope: String,
+    pub root: PathBuf,
+    pub rule_dirs: Vec<PathBuf>,
+    pub skill_dirs: Vec<PathBuf>,
+    pub command_dirs: Vec<PathBuf>,
+    pub agent_dirs: Vec<PathBuf>,
+}
+
+/// What one plugin contributes, read with the same parsers as native assets.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PluginAssets {
+    pub rules: Vec<RuleFile>,
+    pub skills: Vec<SkillAsset>,
+    pub commands: Vec<CommandAsset>,
+    pub agents: Vec<AgentAsset>,
+    pub diagnostics: Vec<AssetDiagnostic>,
+}
+
+/// Scope names native assets already use as a `/scope:name` prefix.
+const RESERVED_PLUGIN_NAMESPACES: &[&str] = &[
+    "local", "repo", "ancestor", "user", "project", "config", "global",
+];
+
 #[derive(Clone, Debug)]
 pub struct DiscoverInput<'a> {
     pub cwd: &'a Path,
@@ -104,16 +133,25 @@ pub struct DiscoverInput<'a> {
     pub skill_ignore: &'a [String],
     pub skill_disabled: &'a [String],
     pub builtin_commands: &'a [&'a str],
+    pub plugins: &'a [PluginRoot],
 }
 
 pub fn discover(input: &DiscoverInput<'_>) -> AssetCatalog {
     let mut diagnostics = Vec::new();
-    let rules = discover_rules(input, &mut diagnostics);
+    let mut rules = discover_rules(input, &mut diagnostics);
     let mut skills = Vec::new();
     let mut commands = Vec::new();
     discover_skills_and_commands(input, &mut skills, &mut commands, &mut diagnostics);
     mark_collisions(&mut skills, &mut commands, input.builtin_commands);
-    let agents = discover_agents(input, &mut diagnostics);
+    let mut agents = discover_agents(input, &mut diagnostics);
+    merge_plugins(
+        input,
+        &mut rules,
+        &mut skills,
+        &mut commands,
+        &mut agents,
+        &mut diagnostics,
+    );
     AssetCatalog {
         rules,
         skills,
@@ -1208,6 +1246,251 @@ fn mark_collisions(skills: &mut [SkillAsset], commands: &mut [CommandAsset], bui
     }
 }
 
+/// Read one plugin's rules, skills, commands, and agents with the native
+/// parsers. Names are namespaced as `plugin:name`. A bad file becomes a
+/// diagnostic for that plugin; it does not stop the other plugins.
+pub fn plugin_assets(input: &DiscoverInput<'_>, plugin: &PluginRoot) -> PluginAssets {
+    let mut out = PluginAssets::default();
+    if !plugin.root.is_dir() {
+        out.diagnostics.push(AssetDiagnostic {
+            kind: "plugin-missing".into(),
+            path: plugin.root.display().to_string(),
+            detail: format!(
+                "plugin {} directory is missing; nothing loaded",
+                plugin.name
+            ),
+        });
+        return out;
+    }
+    let source = format!("plugin:{}", plugin.name);
+    let mut seen = BTreeSet::new();
+    for dir in &plugin.rule_dirs {
+        push_rule_dir(
+            &mut out.rules,
+            &mut seen,
+            &mut out.diagnostics,
+            dir,
+            &source,
+            true,
+            false,
+        );
+    }
+    let mut raw = Vec::new();
+    for dir in &plugin.skill_dirs {
+        walk_named_skills(
+            input,
+            dir,
+            &source,
+            &plugin.name,
+            PLUGIN_RANK,
+            &mut raw,
+            &mut out.diagnostics,
+            0,
+        );
+    }
+    raw.sort_by(|left, right| left.path.cmp(&right.path));
+    for mut skill in raw {
+        // The skill directory name is the identity (`plugin:<dir>`), so two
+        // sibling skills with the same frontmatter name stay distinct.
+        if let Some(dir) = skill
+            .path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .map(normalize_name)
+            .filter(|name| !name.is_empty() && name.len() <= 64)
+            && skill.path.file_name().and_then(|name| name.to_str()) == Some("SKILL.md")
+            && !plugin
+                .skill_dirs
+                .iter()
+                .any(|root| Some(root.as_path()) == skill.path.parent())
+        {
+            skill.name = dir;
+        }
+        let qualified = format!("{}:{}", plugin.name, skill.name);
+        skill.disabled = skill.disabled
+            || input
+                .skill_disabled
+                .iter()
+                .any(|item| item == &skill.name || item == &qualified);
+        if out.skills.iter().any(|item| item.name == skill.name) {
+            out.diagnostics.push(AssetDiagnostic {
+                kind: "plugin-collision".into(),
+                path: skill.path.display().to_string(),
+                detail: format!("/{qualified} is already defined in this plugin; kept the first"),
+            });
+            continue;
+        }
+        out.skills.push(SkillAsset {
+            qualified,
+            name: skill.name,
+            description: skill.description,
+            source: skill.source,
+            path: skill.path,
+            user_invocable: skill.user_invocable,
+            model_invocable: skill.model_invocable,
+            argument_hint: skill.argument_hint,
+            body: skill.body,
+            truncated: skill.truncated,
+            disabled: skill.disabled,
+            collides_with: None,
+            rank: skill.rank,
+        });
+    }
+    let mut commands = Vec::new();
+    for dir in &plugin.command_dirs {
+        scan_command_root(
+            input,
+            dir,
+            &source,
+            &plugin.name,
+            PLUGIN_RANK,
+            &mut commands,
+        );
+    }
+    for command in commands {
+        if out.commands.iter().any(|item| item.name == command.name) {
+            out.diagnostics.push(AssetDiagnostic {
+                kind: "plugin-collision".into(),
+                path: command.path.display().to_string(),
+                detail: format!(
+                    "/{} is already defined in this plugin; kept the first",
+                    command.qualified
+                ),
+            });
+            continue;
+        }
+        out.commands.push(command);
+    }
+    let mut agent_seen = BTreeSet::new();
+    let mut agents = Vec::new();
+    for dir in &plugin.agent_dirs {
+        push_agents(
+            &mut agents,
+            &mut agent_seen,
+            &mut out.diagnostics,
+            dir,
+            &source,
+        );
+    }
+    for mut agent in agents {
+        agent.name = format!("{}:{}", plugin.name, agent.name);
+        out.agents.push(agent);
+    }
+    out
+}
+
+const PLUGIN_RANK: u16 = 5;
+
+/// Enabled plugins join after native assets. A native skill, command, or
+/// built-in keeps its bare `/name`; the plugin entry stays reachable as
+/// `/plugin:name`. Two plugins with the same bare name both need the prefix.
+fn merge_plugins(
+    input: &DiscoverInput<'_>,
+    rules: &mut Vec<RuleFile>,
+    skills: &mut Vec<SkillAsset>,
+    commands: &mut Vec<CommandAsset>,
+    agents: &mut Vec<AgentAsset>,
+    diagnostics: &mut Vec<AssetDiagnostic>,
+) {
+    if input.plugins.is_empty() {
+        return;
+    }
+    let mut taken: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for name in input.builtin_commands {
+        taken.insert((*name).to_string(), "a built-in command".into());
+    }
+    for skill in skills.iter() {
+        taken
+            .entry(skill.name.clone())
+            .or_insert_with(|| format!("{} skill {}", skill.source, skill.path.display()));
+    }
+    for command in commands.iter() {
+        taken
+            .entry(command.name.clone())
+            .or_insert_with(|| format!("{} command {}", command.source, command.path.display()));
+    }
+    let mut plugin_rules = Vec::new();
+    let mut plugin_skills: Vec<SkillAsset> = Vec::new();
+    let mut plugin_commands: Vec<CommandAsset> = Vec::new();
+    let mut seen_names = BTreeSet::new();
+    for plugin in input.plugins {
+        if !seen_names.insert(plugin.name.clone()) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "plugin-collision".into(),
+                path: plugin.root.display().to_string(),
+                detail: format!("plugin {} is listed twice; kept the first", plugin.name),
+            });
+            continue;
+        }
+        if RESERVED_PLUGIN_NAMESPACES.contains(&plugin.name.as_str()) {
+            diagnostics.push(AssetDiagnostic {
+                kind: "plugin-namespace".into(),
+                path: plugin.root.display().to_string(),
+                detail: format!(
+                    "plugin name {} matches a native scope; native /{}:name entries win",
+                    plugin.name, plugin.name
+                ),
+            });
+        }
+        let found = plugin_assets(input, plugin);
+        diagnostics.extend(found.diagnostics);
+        plugin_rules.extend(found.rules);
+        plugin_skills.extend(found.skills);
+        plugin_commands.extend(found.commands);
+        for agent in found.agents {
+            if agents.iter().any(|item| item.name == agent.name) {
+                diagnostics.push(AssetDiagnostic {
+                    kind: "agent-collision".into(),
+                    path: agent.path.display().to_string(),
+                    detail: format!("{} is shadowed by an earlier agent", agent.name),
+                });
+                continue;
+            }
+            agents.push(agent);
+        }
+    }
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for name in plugin_skills
+        .iter()
+        .map(|skill| &skill.name)
+        .chain(plugin_commands.iter().map(|command| &command.name))
+    {
+        *counts.entry(name.clone()).or_default() += 1;
+    }
+    let mut contest = |name: &str, qualified: &str, path: &Path| -> Option<String> {
+        let owner = taken.get(name).cloned().or_else(|| {
+            (counts.get(name).copied().unwrap_or(0) > 1).then(|| "another plugin".to_string())
+        })?;
+        diagnostics.push(AssetDiagnostic {
+            kind: "plugin-collision".into(),
+            path: path.display().to_string(),
+            detail: format!("/{name} belongs to {owner}; use /{qualified}"),
+        });
+        Some(format!("/{name}"))
+    };
+    for skill in &mut plugin_skills {
+        skill.collides_with = contest(&skill.name, &skill.qualified, &skill.path);
+    }
+    for command in &mut plugin_commands {
+        command.collides_with = contest(&command.name, &command.qualified, &command.path);
+    }
+    // Plugin rules sit after global rules and before project rules, so a
+    // project file still has the last word.
+    let at = rules
+        .iter()
+        .position(|rule| rule.scope == "project")
+        .unwrap_or(rules.len());
+    let known: BTreeSet<PathBuf> = rules.iter().map(|rule| rule.path.clone()).collect();
+    let fresh: Vec<RuleFile> = plugin_rules
+        .into_iter()
+        .filter(|rule| !known.contains(&rule.path))
+        .collect();
+    rules.splice(at..at, fresh);
+    skills.extend(plugin_skills);
+    commands.extend(plugin_commands);
+}
+
 fn push_named(
     rules: &mut Vec<RuleFile>,
     seen: &mut BTreeSet<PathBuf>,
@@ -1553,6 +1836,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: disabled,
             builtin_commands: &["compact"],
+            plugins: &[],
         })
     }
 
@@ -1880,6 +2164,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: &[],
             builtin_commands: crate::prompt_edit::builtin_command_names(),
+            plugins: &[],
         });
         let menu = menu_entries(&catalog);
         for name in ["login", "logout", "feedback"] {
@@ -1932,6 +2217,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: &[],
             builtin_commands: crate::prompt_edit::builtin_command_names(),
+            plugins: &[],
         });
         let menu = menu_entries(&catalog);
         for name in ["login", "logout", "feedback"] {
@@ -2045,6 +2331,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: &["commit".into()],
             builtin_commands: &["compact"],
+            plugins: &[],
         });
         let mid_skill = catalog
             .skills
@@ -2135,6 +2422,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: &[],
             builtin_commands: &[],
+            plugins: &[],
         });
         assert!(!catalog.skills.iter().any(|skill| skill.name == "smuggled"));
     }
@@ -2184,6 +2472,7 @@ mod tests {
             skill_ignore: &[],
             skill_disabled: &[],
             builtin_commands: &[],
+            plugins: &[],
         });
         assert!(
             catalog
@@ -2213,5 +2502,171 @@ mod tests {
                 .any(|skill| skill.name == "config-deep7"),
             "a configured path returns when depth is greater than five"
         );
+    }
+
+    fn plugin_root(base: &Path, name: &str) -> PluginRoot {
+        let root = base.join(name);
+        PluginRoot {
+            name: name.into(),
+            scope: "user".into(),
+            rule_dirs: vec![root.join("rules")],
+            skill_dirs: vec![root.join("skills")],
+            command_dirs: vec![root.join("commands")],
+            agent_dirs: vec![root.join("agents")],
+            root,
+        }
+    }
+
+    fn plugin_catalog(root: &Path, plugins: &[PluginRoot], disabled: &[String]) -> AssetCatalog {
+        discover(&DiscoverInput {
+            cwd: &root.join("repo").join("src"),
+            grok_home: &root.join("grok"),
+            home: &root.join("home"),
+            project_active: true,
+            claude_rules: false,
+            cursor_rules: false,
+            claude_agents: false,
+            claude_skills: false,
+            cursor_skills: false,
+            extra_rule_dirs: &[],
+            skill_paths: &[],
+            skill_ignore: &[],
+            skill_disabled: disabled,
+            builtin_commands: &["compact"],
+            plugins,
+        })
+    }
+
+    #[test]
+    fn plugin_contributions_join_discovery_with_namespaced_names() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("plugins");
+        write(&root.path().join("repo/.git/HEAD"), "ref: main\n");
+        write(&root.path().join("repo/AGENTS.md"), "PROJECT_RULE\n");
+        write(&root.path().join("grok/rules/home.md"), "HOME_RULE\n");
+        write(
+            &root.path().join("grok/skills/greet/SKILL.md"),
+            "NATIVE_GREET\n",
+        );
+        write(&base.join("demo/rules/style.md"), "PLUGIN_RULE\n");
+        write(
+            &base.join("demo/skills/greet/SKILL.md"),
+            "---\nname: other\n---\nDEMO_GREET\n",
+        );
+        write(&base.join("demo/skills/unique/SKILL.md"), "DEMO_UNIQUE\n");
+        write(&base.join("demo/commands/compact.md"), "DEMO_COMPACT\n");
+        write(&base.join("demo/commands/ship.md"), "DEMO_SHIP\n");
+        write(&base.join("demo/agents/reviewer.md"), "DEMO_AGENT\n");
+        write(&base.join("other/skills/unique/SKILL.md"), "OTHER_UNIQUE\n");
+        let plugins = vec![plugin_root(&base, "demo"), plugin_root(&base, "other")];
+        let catalog = plugin_catalog(root.path(), &plugins, &[]);
+
+        // Rules: global, then plugin, then project, so the project speaks last.
+        let scopes: Vec<&str> = catalog
+            .rules
+            .iter()
+            .map(|rule| rule.scope.as_str())
+            .collect();
+        assert_eq!(scopes, vec!["global", "plugin:demo", "project"]);
+        assert!(rule_context(&catalog).contains("PLUGIN_RULE"));
+
+        // A native skill keeps the bare name; the plugin's is namespaced.
+        let bare = skill_invocation(&catalog, "/greet").unwrap();
+        assert!(bare.body.contains("NATIVE_GREET"));
+        let namespaced = skill_invocation(&catalog, "/demo:greet go").unwrap();
+        assert!(namespaced.body.contains("DEMO_GREET"));
+        assert_eq!(namespaced.collides_with.as_deref(), Some("/greet"));
+        // Two plugins with the same name both need their prefix.
+        assert!(skill_invocation(&catalog, "/unique").is_none());
+        assert!(
+            skill_invocation(&catalog, "/demo:unique")
+                .unwrap()
+                .body
+                .contains("DEMO_UNIQUE")
+        );
+        assert!(
+            skill_invocation(&catalog, "/other:unique")
+                .unwrap()
+                .body
+                .contains("OTHER_UNIQUE")
+        );
+        // A built-in keeps its name; an uncontested plugin command is bare.
+        assert!(command_invocation(&catalog, "/compact").is_none());
+        assert!(command_invocation(&catalog, "/demo:compact").is_some());
+        let ship = invocation_prompt(&catalog, "/ship now").unwrap();
+        assert!(ship.contains("DEMO_SHIP") && ship.contains("demo:ship"));
+        assert!(
+            catalog
+                .agents
+                .iter()
+                .any(|agent| agent.name == "demo:reviewer")
+        );
+        assert!(agent_context(&catalog).contains("DEMO_AGENT"));
+        let menu: Vec<String> = menu_entries(&catalog)
+            .into_iter()
+            .map(|(label, _)| label)
+            .collect();
+        assert!(menu.contains(&"/demo:greet".to_string()), "{menu:?}");
+        assert!(menu.contains(&"/ship".to_string()), "{menu:?}");
+        assert!(
+            catalog
+                .diagnostics
+                .iter()
+                .any(|item| item.kind == "plugin-collision" && item.detail.contains("/demo:greet")),
+            "{:?}",
+            catalog.diagnostics
+        );
+        let json = inspect_json(&catalog);
+        assert!(
+            json["skills"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|skill| skill["source"] == "plugin:demo"
+                    && skill["invocableAs"] == "/demo:greet")
+        );
+    }
+
+    #[test]
+    fn a_broken_plugin_does_not_hide_the_others_and_disable_lists_apply() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("plugins");
+        write(&base.join("good/skills/hello/SKILL.md"), "GOOD_HELLO\n");
+        write(&base.join("good/skills/quiet/SKILL.md"), "GOOD_QUIET\n");
+        write(
+            &base.join("good/skills/bad/SKILL.md"),
+            "---\nname: '!!!'\n---\nBAD\n",
+        );
+        let missing = plugin_root(&base, "gone");
+        let catalog = plugin_catalog(
+            root.path(),
+            &[missing, plugin_root(&base, "good")],
+            &["good:quiet".to_string()],
+        );
+        assert!(
+            skill_invocation(&catalog, "/hello")
+                .unwrap()
+                .body
+                .contains("GOOD_HELLO")
+        );
+        assert!(
+            skill_invocation(&catalog, "/good:quiet").is_none(),
+            "skills.disabled takes the qualified name"
+        );
+        assert!(
+            catalog
+                .diagnostics
+                .iter()
+                .any(|item| item.kind == "plugin-missing")
+        );
+        assert!(
+            catalog
+                .diagnostics
+                .iter()
+                .any(|item| item.kind == "skill-name")
+        );
+        // No plugins: no plugin assets at all.
+        let bare = plugin_catalog(root.path(), &[], &[]);
+        assert!(bare.skills.is_empty() && bare.commands.is_empty());
     }
 }

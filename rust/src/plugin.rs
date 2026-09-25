@@ -1,7 +1,10 @@
 //! Plugin marketplace, install, update, and remove for the isolated Rust client.
 //!
-//! Install records provenance and files under `$GROK_HOME`. It does not enable
-//! execution, load hooks/MCP, or touch legacy `~/.grok` / dsh profile packages.
+//! Install records provenance and files under `$GROK_HOME`. It does not touch
+//! legacy `~/.grok` / dsh profile packages. An enabled, trusted plugin feeds
+//! its rules, skills, commands, agents, and command hooks into the existing
+//! asset discovery and hook runner (`active_roots`, `hook_env`); it never
+//! grants tool permissions and its MCP servers are not started here.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -228,7 +231,66 @@ pub struct InstalledView {
     pub commit: Option<String>,
     pub trusted: bool,
     pub enabled: bool,
+    /// Always false: enabling a plugin never widens tool permissions. Its
+    /// hooks run under the hook contract and its tool calls still ask.
     pub execution_granted: bool,
+    /// `active`, `disabled`, `blocked`, `missing`, or `shadowed`.
+    pub status: String,
+    /// Why the plugin is in that state, in one line.
+    pub status_detail: String,
+    /// What the plugin provides, read with the same parsers dsh uses.
+    pub contributions: Contributions,
+}
+
+/// The extension view: each contribution by the name a user invokes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Contributions {
+    pub rules: Vec<String>,
+    pub skills: Vec<String>,
+    pub commands: Vec<String>,
+    pub agents: Vec<String>,
+    pub hooks: Vec<String>,
+    /// `.mcp.json` or `mcpServers` is present. This build does not start
+    /// plugin MCP servers; the MCP ticket owns that.
+    pub mcp: bool,
+    pub problems: Vec<String>,
+}
+
+impl Contributions {
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        for (count, one, many) in [
+            (self.rules.len(), "rule", "rules"),
+            (self.skills.len(), "skill", "skills"),
+            (self.commands.len(), "command", "commands"),
+            (self.agents.len(), "agent", "agents"),
+            (self.hooks.len(), "hook", "hooks"),
+        ] {
+            if count > 0 {
+                parts.push(format!("{count} {}", if count == 1 { one } else { many }));
+            }
+        }
+        if self.mcp {
+            parts.push("MCP config (not loaded)".into());
+        }
+        if parts.is_empty() {
+            "no contributions".into()
+        } else {
+            parts.join(" · ")
+        }
+    }
+
+    fn json(&self) -> JsonValue {
+        json!({
+            "rules": self.rules,
+            "skills": self.skills,
+            "commands": self.commands,
+            "agents": self.agents,
+            "hooks": self.hooks,
+            "mcp": self.mcp,
+            "problems": self.problems,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -297,7 +359,8 @@ Commands:\n  \
 Options:\n      --debug                 Enable debug logging\n      \
   --debug-file <FILE>     Write debug logs to FILE\n  \
   -h, --help                  Print help\n\n\
-Leader sockets are unused; dsh owns execution. Install records files and provenance only; it does not enable hooks, MCP, or tool execution."
+Leader sockets are unused; dsh owns execution. Install records files and provenance only.\n\
+An enabled, trusted plugin adds its rules, skills (/plugin:name), commands, agents, and command hooks to the normal discovery; disable or uninstall withdraws them. Enabling never grants tool permissions, and plugin MCP servers are not started."
 }
 
 pub fn marketplace_help() -> &'static str {
@@ -511,6 +574,9 @@ pub fn inspect_json_value(snapshot: &PluginInspect) -> JsonValue {
             "trusted": plugin.trusted,
             "enabled": plugin.enabled,
             "executionGranted": plugin.execution_granted,
+            "state": plugin.status,
+            "stateDetail": plugin.status_detail,
+            "contributions": plugin.contributions.json(),
         })).collect::<Vec<_>>(),
         "warnings": snapshot.warnings,
     })
@@ -570,6 +636,11 @@ pub fn inspect_text(snapshot: &PluginInspect) -> String {
             if let Some(commit) = &plugin.commit {
                 lines.push(format!("    commit {commit}"));
             }
+            lines.push(format!(
+                "    status {}  {}",
+                plugin.status, plugin.status_detail
+            ));
+            lines.extend(contribution_lines(&plugin.contributions, "    "));
         }
     }
     lines.join("\n")
@@ -609,9 +680,14 @@ pub fn overlay_text(
                 lines.push("  (no installed plugins)".into());
             } else {
                 for (index, plugin) in snapshot.installed.iter().enumerate() {
+                    // The notice area shows six rows. An expanded plugin shows
+                    // only its own row and details so the view stays on screen.
+                    if overlay.expanded && index != overlay.cursor {
+                        continue;
+                    }
                     let mark = if index == overlay.cursor { ">" } else { " " };
                     lines.push(format!(
-                        "{mark} {}  v{}  {}  {}  trusted={} enabled={} exec={}  license={}",
+                        "{mark} {}  v{}  {}  {}  [{}]  trusted={} enabled={} exec={}  license={}",
                         plugin.name,
                         plugin.version.as_deref().unwrap_or("unspecified"),
                         plugin.scope,
@@ -619,14 +695,14 @@ pub fn overlay_text(
                             .marketplace
                             .as_deref()
                             .unwrap_or(plugin.source.as_str()),
+                        plugin.status,
                         plugin.trusted,
                         plugin.enabled,
                         plugin.execution_granted,
                         plugin.license.as_deref().unwrap_or("unspecified")
                     ));
                     if overlay.expanded && index == overlay.cursor {
-                        lines.push(format!("    path {}", plugin.path.display()));
-                        lines.push(format!("    source {}", plugin.source));
+                        lines.extend(extension_view(plugin));
                     }
                 }
             }
@@ -856,6 +932,9 @@ fn cmd_list(ctx: &Context, json: bool, available: bool) -> Result<String, Plugin
                     "trusted": plugin.trusted,
                     "enabled": plugin.enabled,
                     "executionGranted": plugin.execution_granted,
+                    "state": plugin.status,
+                    "stateDetail": plugin.status_detail,
+                    "contributions": plugin.contributions.json(),
                 })
             })
             .collect();
@@ -886,14 +965,20 @@ fn cmd_list(ctx: &Context, json: bool, available: bool) -> Result<String, Plugin
     let mut lines = Vec::new();
     for plugin in installed {
         lines.push(format!(
-            "  {}: {} [{}] license={} trusted={} enabled={} exec={}",
+            "  {}: {} [{}] license={} trusted={} enabled={} exec={} status={}",
             plugin.name,
             plugin.source,
             plugin.scope,
             plugin.license.as_deref().unwrap_or("unspecified"),
             plugin.trusted,
             plugin.enabled,
-            plugin.execution_granted
+            plugin.execution_granted,
+            plugin.status
+        ));
+        lines.push(format!(
+            "    {} · provides {}",
+            plugin.status_detail,
+            plugin.contributions.summary()
         ));
     }
     Ok(lines.join("\n"))
@@ -1310,12 +1395,26 @@ fn cmd_enable(ctx: &Context, name: &str, enable: bool) -> Result<String, PluginE
         disabled.insert(name.to_string());
     }
     write_enabled_lists(ctx, &enabled, &disabled)?;
+    let view = list_installed_views(ctx)
+        .into_iter()
+        .find(|plugin| plugin.name == name && plugin.status != "shadowed");
+    let (status, detail, provides) = view
+        .map(|plugin| {
+            (
+                plugin.status,
+                plugin.status_detail,
+                plugin.contributions.summary(),
+            )
+        })
+        .unwrap_or_default();
     if enable {
         Ok(format!(
-            "Enabled plugin: {name}\nDiscovery may load on the next session; install trust is unchanged and does not grant tools."
+            "Enabled plugin: {name} [{status}] {detail}\nProvides {provides}. A running session picks this up on its next prompt; enabling does not grant tool permissions."
         ))
     } else {
-        Ok(format!("Disabled plugin: {name}"))
+        Ok(format!(
+            "Disabled plugin: {name} [{status}]\nIts rules, skills, commands, agents, and hooks are withdrawn from the next prompt."
+        ))
     }
 }
 
@@ -1888,7 +1987,9 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
     let registry = load_registry(ctx).unwrap_or_else(|_| InstallRegistry::empty());
     let trusted = trusted_set(ctx).unwrap_or_default();
     let enabled = enabled_set(ctx);
+    let disabled = disabled_set(ctx);
     let mut views = Vec::new();
+    let mut seen = BTreeSet::new();
     for repo in registry.repos.values() {
         for (name, plugin) in &repo.plugins {
             let path = match &plugin.subdir {
@@ -1896,7 +1997,22 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                 None => repo.path.clone(),
             };
             let is_trusted = trusted.contains(name);
-            let is_enabled = enabled.contains(name);
+            let is_enabled = enabled.contains(name) && !disabled.contains(name);
+            let (status, status_detail) = if !seen.insert(name.clone()) {
+                (
+                    "shadowed",
+                    "another installed repo already provides this name; only the first loads"
+                        .to_string(),
+                )
+            } else {
+                plugin_status(
+                    &path,
+                    is_enabled,
+                    disabled.contains(name),
+                    is_trusted,
+                    "user",
+                )
+            };
             views.push(InstalledView {
                 name: name.clone(),
                 version: plugin.version.clone(),
@@ -1906,6 +2022,7 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                     InstallKind::Git { url, .. } => url.clone(),
                     InstallKind::Local { source_path, .. } => source_path.display().to_string(),
                 },
+                contributions: contributions_for(ctx, name, &path),
                 path,
                 marketplace: repo
                     .marketplace
@@ -1918,6 +2035,8 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                 trusted: is_trusted,
                 enabled: is_enabled,
                 execution_granted: false,
+                status: status.into(),
+                status_detail,
             });
         }
     }
@@ -1925,10 +2044,24 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
     if project.is_dir() {
         for child in read_dirs(&project).unwrap_or_default() {
             if let Ok(Some((name, plugin))) = read_plugin_at(&child) {
-                if views.iter().any(|row| row.name == name) {
-                    continue;
-                }
+                let is_enabled = enabled.contains(&name) && !disabled.contains(&name);
+                let (status, status_detail) = if seen.contains(&name) {
+                    (
+                        "shadowed",
+                        "an installed user plugin has the same name and loads instead".to_string(),
+                    )
+                } else {
+                    seen.insert(name.clone());
+                    plugin_status(
+                        &child,
+                        is_enabled,
+                        disabled.contains(&name),
+                        ctx.workspace_trusted,
+                        "project",
+                    )
+                };
                 views.push(InstalledView {
+                    contributions: contributions_for(ctx, &name, &child),
                     name,
                     version: plugin.version,
                     license: plugin.license,
@@ -1938,14 +2071,449 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                     marketplace: None,
                     commit: None,
                     trusted: ctx.workspace_trusted,
-                    enabled: false,
+                    enabled: is_enabled,
                     execution_granted: false,
+                    status: status.into(),
+                    status_detail,
                 });
             }
         }
     }
     views.sort_by(|a, b| a.name.cmp(&b.name));
     views
+}
+
+fn plugin_status(
+    path: &Path,
+    enabled: bool,
+    disabled: bool,
+    trusted: bool,
+    scope: &str,
+) -> (&'static str, String) {
+    if !path.is_dir() {
+        return (
+            "missing",
+            format!("plugin files are gone from {}", path.display()),
+        );
+    }
+    if disabled {
+        return ("disabled", "listed in [plugins] disabled".into());
+    }
+    if !enabled {
+        return (
+            "disabled",
+            "not enabled; `plugin enable` or Space in /plugins turns it on".into(),
+        );
+    }
+    if !trusted {
+        return (
+            "blocked",
+            if scope == "project" {
+                "enabled, but this workspace is not trusted".into()
+            } else {
+                "enabled, but not trusted; reinstall with --trust".into()
+            },
+        );
+    }
+    (
+        "active",
+        "contributions load through normal discovery; tool calls still ask".into(),
+    )
+}
+
+/// Directories and hook source one plugin declares, with path problems.
+#[derive(Debug, Clone, Default)]
+struct PluginLayout {
+    rule_dirs: Vec<PathBuf>,
+    skill_dirs: Vec<PathBuf>,
+    command_dirs: Vec<PathBuf>,
+    agent_dirs: Vec<PathBuf>,
+    hooks_file: Option<PathBuf>,
+    hooks_inline: Option<JsonValue>,
+    mcp: bool,
+    problems: Vec<String>,
+}
+
+const MANIFEST_FILES: &[&str] = &[
+    "plugin.json",
+    ".grok-plugin/plugin.json",
+    ".claude-plugin/plugin.json",
+];
+
+/// Manifest `rules`, `skills`, `commands`, `agents` (a path or a list) and
+/// `hooks` (a path or an inline object) replace the default `rules/`,
+/// `skills/`, `commands/`, `agents/`, and `hooks/hooks.json`. Every path
+/// stays inside the plugin root.
+fn plugin_layout(root: &Path) -> PluginLayout {
+    let mut layout = PluginLayout::default();
+    let mut manifest = JsonValue::Null;
+    for rel in MANIFEST_FILES {
+        let path = root.join(rel);
+        if !path.is_file() {
+            continue;
+        }
+        match fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|text| {
+                serde_json::from_str::<JsonValue>(&text).map_err(|error| error.to_string())
+            }) {
+            Ok(value) => manifest = value,
+            Err(error) => layout
+                .problems
+                .push(format!("manifest {} unreadable: {error}", path.display())),
+        }
+        break;
+    }
+    let dirs = |key: &str, problems: &mut Vec<String>| -> Vec<PathBuf> {
+        let declared: Vec<String> = match manifest.get(key) {
+            Some(JsonValue::String(one)) => vec![one.clone()],
+            Some(JsonValue::Array(many)) => many
+                .iter()
+                .filter_map(JsonValue::as_str)
+                .map(str::to_string)
+                .collect(),
+            Some(_) => {
+                problems.push(format!("manifest {key} must be a path or a list of paths"));
+                return Vec::new();
+            }
+            None => {
+                let default = root.join(key);
+                return if default.is_dir() {
+                    vec![default]
+                } else {
+                    Vec::new()
+                };
+            }
+        };
+        let mut out = Vec::new();
+        for rel in declared {
+            match component_path(root, &rel) {
+                Ok(path) if path.is_dir() => out.push(path),
+                Ok(path) => {
+                    problems.push(format!("{key} path {} is not a directory", path.display()))
+                }
+                Err(error) => problems.push(format!("{key} path {rel}: {error}")),
+            }
+        }
+        out
+    };
+    layout.rule_dirs = dirs("rules", &mut layout.problems);
+    layout.skill_dirs = dirs("skills", &mut layout.problems);
+    layout.command_dirs = dirs("commands", &mut layout.problems);
+    layout.agent_dirs = dirs("agents", &mut layout.problems);
+    match manifest.get("hooks") {
+        Some(JsonValue::String(rel)) => match component_path(root, rel) {
+            Ok(path) if path.is_file() => layout.hooks_file = Some(path),
+            Ok(path) => layout
+                .problems
+                .push(format!("hooks file {} is missing", path.display())),
+            Err(error) => layout.problems.push(format!("hooks path {rel}: {error}")),
+        },
+        Some(value @ JsonValue::Object(_)) => layout.hooks_inline = Some(value.clone()),
+        Some(_) => layout
+            .problems
+            .push("manifest hooks must be a path or an object".into()),
+        None => {
+            let default = root.join("hooks").join("hooks.json");
+            if default.is_file() {
+                layout.hooks_file = Some(default);
+            }
+        }
+    }
+    layout.mcp = root.join(".mcp.json").is_file() || manifest.get("mcpServers").is_some();
+    layout
+}
+
+fn component_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let trimmed = rel.trim();
+    if trimmed.is_empty() || trimmed == "." || trimmed == "./" {
+        return Ok(root.to_path_buf());
+    }
+    let normalized =
+        normalize_rel(trimmed).map_err(|_| "must stay inside the plugin".to_string())?;
+    let candidate = root.join(normalized);
+    let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    if let Ok(canonical) = fs::canonicalize(&candidate)
+        && !canonical.starts_with(&canonical_root)
+    {
+        return Err("escapes the plugin root".into());
+    }
+    Ok(candidate)
+}
+
+/// Event and matcher labels for the view, plus handlers that will not run.
+fn hook_labels(value: &JsonValue, problems: &mut Vec<String>) -> Vec<String> {
+    let map = value
+        .get("hooks")
+        .and_then(JsonValue::as_object)
+        .or_else(|| value.as_object());
+    let Some(map) = map else {
+        problems.push("hooks config has no event table".into());
+        return Vec::new();
+    };
+    let mut labels = Vec::new();
+    for (event, groups) in map {
+        let Some(groups) = groups.as_array() else {
+            continue;
+        };
+        for group in groups {
+            let matcher = group
+                .get("matcher")
+                .and_then(JsonValue::as_str)
+                .filter(|matcher| !matcher.is_empty());
+            let handlers = group
+                .get("hooks")
+                .and_then(JsonValue::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for handler in handlers {
+                let kind = handler
+                    .get("type")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("command");
+                if kind != "command" {
+                    problems.push(format!(
+                        "{kind} hook on {event} does not run; only command hooks run"
+                    ));
+                    continue;
+                }
+                labels.push(match matcher {
+                    Some(matcher) => format!("{event}({matcher})"),
+                    None => event.clone(),
+                });
+            }
+        }
+    }
+    labels
+}
+
+fn read_hooks_value(layout: &PluginLayout, problems: &mut Vec<String>) -> Option<JsonValue> {
+    if let Some(inline) = &layout.hooks_inline {
+        return Some(inline.clone());
+    }
+    let file = layout.hooks_file.as_ref()?;
+    match fs::read_to_string(file)
+        .map_err(|error| error.to_string())
+        .and_then(|text| {
+            serde_json::from_str::<JsonValue>(&text).map_err(|error| error.to_string())
+        }) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            problems.push(format!("hooks file {} unreadable: {error}", file.display()));
+            None
+        }
+    }
+}
+
+fn asset_root(
+    name: &str,
+    scope: &str,
+    root: &Path,
+    layout: &PluginLayout,
+) -> crate::assets::PluginRoot {
+    crate::assets::PluginRoot {
+        name: name.to_string(),
+        scope: scope.to_string(),
+        root: root.to_path_buf(),
+        rule_dirs: layout.rule_dirs.clone(),
+        skill_dirs: layout.skill_dirs.clone(),
+        command_dirs: layout.command_dirs.clone(),
+        agent_dirs: layout.agent_dirs.clone(),
+    }
+}
+
+fn contributions_for(ctx: &Context, name: &str, root: &Path) -> Contributions {
+    let mut out = Contributions::default();
+    if !root.is_dir() {
+        return out;
+    }
+    let layout = plugin_layout(root);
+    out.problems.extend(layout.problems.iter().cloned());
+    let home = ctx
+        .env
+        .get("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| ctx.grok_home.clone());
+    let plugin = asset_root(name, "user", root, &layout);
+    let input = crate::assets::DiscoverInput {
+        cwd: &ctx.cwd,
+        grok_home: &ctx.grok_home,
+        home: &home,
+        project_active: false,
+        claude_rules: false,
+        cursor_rules: false,
+        claude_agents: false,
+        claude_skills: false,
+        cursor_skills: false,
+        extra_rule_dirs: &[],
+        skill_paths: &[],
+        skill_ignore: &[],
+        skill_disabled: &[],
+        builtin_commands: &[],
+        plugins: &[],
+    };
+    let found = crate::assets::plugin_assets(&input, &plugin);
+    out.rules = found
+        .rules
+        .iter()
+        .map(|rule| {
+            rule.path
+                .strip_prefix(root)
+                .unwrap_or(&rule.path)
+                .display()
+                .to_string()
+        })
+        .collect();
+    out.skills = found
+        .skills
+        .iter()
+        .map(|skill| format!("/{}", skill.qualified))
+        .collect();
+    out.commands = found
+        .commands
+        .iter()
+        .map(|command| format!("/{}", command.qualified))
+        .collect();
+    out.agents = found
+        .agents
+        .iter()
+        .map(|agent| agent.name.clone())
+        .collect();
+    out.problems.extend(
+        found
+            .diagnostics
+            .iter()
+            .map(|item| format!("{}: {}", item.kind, item.detail)),
+    );
+    if let Some(value) = read_hooks_value(&layout, &mut out.problems) {
+        out.hooks = hook_labels(&value, &mut out.problems);
+    }
+    out.mcp = layout.mcp;
+    out
+}
+
+fn contribution_lines(contributions: &Contributions, indent: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (label, items) in [
+        ("rules", &contributions.rules),
+        ("skills", &contributions.skills),
+        ("commands", &contributions.commands),
+        ("agents", &contributions.agents),
+        ("hooks", &contributions.hooks),
+    ] {
+        if !items.is_empty() {
+            lines.push(format!("{indent}{label} {}", items.join(", ")));
+        }
+    }
+    if contributions.mcp {
+        lines.push(format!(
+            "{indent}mcp config present; plugin MCP servers are not started by this build"
+        ));
+    }
+    for problem in &contributions.problems {
+        lines.push(format!("{indent}problem {problem}"));
+    }
+    lines
+}
+
+/// The expanded `/plugins` row: state, location, and every contribution by
+/// the name a user types, in at most four lines.
+fn extension_view(plugin: &InstalledView) -> Vec<String> {
+    let c = &plugin.contributions;
+    let mut lines = vec![
+        format!("    {}: {}", plugin.status, plugin.status_detail),
+        format!(
+            "    path {} · source {}",
+            plugin.path.display(),
+            plugin.source
+        ),
+    ];
+    let names: Vec<&str> = c
+        .skills
+        .iter()
+        .chain(&c.commands)
+        .chain(&c.agents)
+        .chain(&c.hooks)
+        .chain(&c.rules)
+        .map(String::as_str)
+        .collect();
+    lines.push(if names.is_empty() {
+        format!("    provides {}", c.summary())
+    } else {
+        format!("    provides {}: {}", c.summary(), names.join(", "))
+    });
+    let mut notes: Vec<String> = c.problems.clone();
+    if c.mcp {
+        notes.insert(0, "plugin MCP servers are not started".into());
+    }
+    if !notes.is_empty() {
+        lines.push(format!("    note {}", notes.join("; ")));
+    }
+    lines
+}
+
+/// Active plugins: enabled, trusted, present, and not shadowed. This is the
+/// single gate both asset discovery and the hook runner use.
+fn active_plugins(ctx: &Context) -> Vec<(InstalledView, PluginLayout)> {
+    list_installed_views(ctx)
+        .into_iter()
+        .filter(|plugin| plugin.status == "active")
+        .map(|plugin| {
+            let layout = plugin_layout(&plugin.path);
+            (plugin, layout)
+        })
+        .collect()
+}
+
+fn read_context(grok_home: &Path, cwd: &Path, workspace_trusted: bool) -> Context {
+    Context {
+        grok_home: grok_home.to_path_buf(),
+        cwd: cwd.to_path_buf(),
+        env: std::env::vars().collect(),
+        workspace_trusted,
+    }
+}
+
+/// Asset roots for `assets::discover`, from active plugins only.
+pub fn active_roots(
+    grok_home: &Path,
+    cwd: &Path,
+    workspace_trusted: bool,
+) -> Vec<crate::assets::PluginRoot> {
+    let ctx = read_context(grok_home, cwd, workspace_trusted);
+    active_plugins(&ctx)
+        .iter()
+        .map(|(plugin, layout)| asset_root(&plugin.name, &plugin.scope, &plugin.path, layout))
+        .collect()
+}
+
+pub const PLUGIN_HOOKS_ENV: &str = "CODSH_PLUGIN_HOOKS";
+
+/// `CODSH_PLUGIN_HOOKS` for the dsh child: the hook files (or inline hook
+/// tables) of active plugins with their root and data directory. The hooks
+/// plugin loads them beside the user's own hooks, under the same contract.
+/// It is always set, so an inherited value never reaches dsh.
+pub fn hook_env(grok_home: &Path, cwd: &Path, workspace_trusted: bool) -> (String, String) {
+    let ctx = read_context(grok_home, cwd, workspace_trusted);
+    let entries: Vec<JsonValue> = active_plugins(&ctx)
+        .into_iter()
+        .filter(|(_, layout)| layout.hooks_file.is_some() || layout.hooks_inline.is_some())
+        .map(|(plugin, layout)| {
+            json!({
+                "plugin": plugin.name,
+                "scope": plugin.scope,
+                "version": plugin.version,
+                "root": plugin.path,
+                "data": ctx.data_dir().join(&plugin.name),
+                "file": layout.hooks_file,
+                "body": layout.hooks_inline.as_ref().map(JsonValue::to_string),
+            })
+        })
+        .collect();
+    (
+        PLUGIN_HOOKS_ENV.to_string(),
+        JsonValue::Array(entries).to_string(),
+    )
 }
 
 fn catalog_plugins(ctx: &Context, source: &MarketplaceSource) -> Vec<CatalogPlugin> {
@@ -4881,5 +5449,326 @@ mod tests {
         )
         .unwrap();
         assert!(installed.contains("Installed"), "{installed}");
+    }
+
+    fn write_content_plugin(path: &Path, name: &str, version: &str, marker: &str) {
+        fs::create_dir_all(path.join("rules")).unwrap();
+        fs::create_dir_all(path.join("skills/greet")).unwrap();
+        fs::create_dir_all(path.join("commands")).unwrap();
+        fs::create_dir_all(path.join("agents")).unwrap();
+        fs::create_dir_all(path.join("hooks")).unwrap();
+        fs::write(
+            path.join("plugin.json"),
+            format!(r#"{{"name":"{name}","version":"{version}","license":"MIT"}}"#),
+        )
+        .unwrap();
+        fs::write(path.join("rules/style.md"), format!("{marker} rule\n")).unwrap();
+        fs::write(
+            path.join("skills/greet/SKILL.md"),
+            format!("---\nname: hello\ndescription: greet\n---\n{marker} skill\n"),
+        )
+        .unwrap();
+        fs::write(
+            path.join("commands/deploy.md"),
+            format!("---\ndescription: deploy\n---\n{marker} command\n"),
+        )
+        .unwrap();
+        fs::write(
+            path.join("agents/reviewer.md"),
+            format!("---\ndescription: reviews\n---\n{marker} agent\n"),
+        )
+        .unwrap();
+        fs::write(
+            path.join("hooks/hooks.json"),
+            r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"${GROK_PLUGIN_ROOT}/guard.sh"},{"type":"http","url":"http://127.0.0.1/x"}]}]}}"#,
+        )
+        .unwrap();
+    }
+
+    fn install_local(env: &Context, source: &Path) {
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: source.display().to_string(),
+                trust: true,
+            },
+        )
+        .unwrap();
+    }
+
+    fn set_enabled(env: &Context, name: &str, enable: bool) -> String {
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &if enable {
+                PluginCommand::Enable { name: name.into() }
+            } else {
+                PluginCommand::Disable { name: name.into() }
+            },
+        )
+        .unwrap()
+    }
+
+    fn hook_entries(env: &Context, trusted: bool) -> Vec<JsonValue> {
+        let (key, value) = hook_env(&env.grok_home, &env.cwd, trusted);
+        assert_eq!(key, PLUGIN_HOOKS_ENV);
+        serde_json::from_str::<Vec<JsonValue>>(&value).unwrap()
+    }
+
+    #[test]
+    fn enable_disable_and_uninstall_move_contributions_in_and_out() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let source = dir.path().join("src-demo");
+        write_content_plugin(&source, "demo", "1.0.0", "V1");
+        install_local(&env, &source);
+        // Installed and trusted, but not enabled: nothing is active.
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
+        assert!(hook_entries(&env, true).is_empty());
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(row.status, "disabled");
+        assert_eq!(row.contributions.skills, vec!["/demo:greet".to_string()]);
+        assert_eq!(row.contributions.commands, vec!["/demo:deploy".to_string()]);
+        assert_eq!(row.contributions.agents, vec!["demo:reviewer".to_string()]);
+        assert_eq!(row.contributions.rules, vec!["rules/style.md".to_string()]);
+        assert_eq!(
+            row.contributions.hooks,
+            vec!["PreToolUse(Bash)".to_string()]
+        );
+        assert!(
+            row.contributions
+                .problems
+                .iter()
+                .any(|problem| problem.contains("http hook on PreToolUse does not run")),
+            "{:?}",
+            row.contributions.problems
+        );
+
+        let enabled = set_enabled(&env, "demo", true);
+        assert!(enabled.contains("[active]"), "{enabled}");
+        assert!(
+            enabled.contains("does not grant tool permissions"),
+            "{enabled}"
+        );
+        let roots = active_roots(&env.grok_home, &env.cwd, true);
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].name, "demo");
+        assert_eq!(roots[0].skill_dirs.len(), 1);
+        let hooks = hook_entries(&env, true);
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0]["plugin"], "demo");
+        assert!(
+            hooks[0]["file"]
+                .as_str()
+                .unwrap()
+                .ends_with("hooks/hooks.json")
+        );
+        assert!(
+            hooks[0]["data"]
+                .as_str()
+                .unwrap()
+                .ends_with("plugin-data/demo")
+        );
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(row.status, "active");
+        assert!(
+            !row.execution_granted,
+            "enabling never grants tool permissions"
+        );
+        let list: Vec<JsonValue> = serde_json::from_str(
+            &run(
+                &env.grok_home,
+                &env.cwd,
+                &env.env,
+                true,
+                &PluginCommand::List {
+                    json: true,
+                    available: false,
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(list[0]["status"], "installed");
+        assert_eq!(list[0]["state"], "active");
+        assert_eq!(list[0]["contributions"]["skills"][0], "/demo:greet");
+
+        set_enabled(&env, "demo", false);
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
+        assert!(hook_entries(&env, true).is_empty());
+
+        set_enabled(&env, "demo", true);
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Uninstall {
+                name: "demo".into(),
+                confirm: true,
+                keep_data: false,
+            },
+        )
+        .unwrap();
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
+        assert!(hook_entries(&env, true).is_empty());
+    }
+
+    #[test]
+    fn expanded_overlay_row_fits_the_notice_and_names_contributions() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        for name in ["alpha", "demo", "zeta"] {
+            let source = dir.path().join(format!("src-{name}"));
+            write_content_plugin(&source, name, "1.0.0", "X");
+            install_local(&env, &source);
+        }
+        set_enabled(&env, "demo", true);
+        let snapshot = inspect(&env.grok_home, &env.cwd, &env.env, true);
+        let mut overlay = new_overlay(PluginTab::Plugins);
+        let collapsed = overlay_text(&overlay, &snapshot, Some(&env.grok_home));
+        assert!(collapsed.contains("alpha") && collapsed.contains("zeta"));
+        assert!(collapsed.contains("[disabled]") && collapsed.contains("[active]"));
+        overlay.cursor = 1;
+        overlay.expanded = true;
+        let expanded = overlay_text(&overlay, &snapshot, Some(&env.grok_home));
+        assert!(expanded.lines().count() <= 6, "{expanded}");
+        assert!(
+            !expanded.contains("alpha") && !expanded.contains("zeta"),
+            "{expanded}"
+        );
+        assert!(expanded.contains("> demo"), "{expanded}");
+        assert!(
+            expanded.contains("active: contributions load"),
+            "{expanded}"
+        );
+        assert!(
+            expanded.contains(
+                "/demo:greet, /demo:deploy, demo:reviewer, PreToolUse(Bash), rules/style.md"
+            ),
+            "{expanded}"
+        );
+        assert!(expanded.contains("note http hook"), "{expanded}");
+    }
+
+    #[test]
+    fn untrusted_install_and_untrusted_project_stay_blocked() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let source = dir.path().join("src-demo");
+        write_content_plugin(&source, "demo", "1.0.0", "V1");
+        install_local(&env, &source);
+        set_enabled(&env, "demo", true);
+        // Trust revoked by hand: enabled is not enough.
+        fs::write(env.trust_path(), "trusted = []\n").unwrap();
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(row.status, "blocked");
+        assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
+        assert!(hook_entries(&env, true).is_empty());
+
+        let project = dir.path().join(".grok/plugins/proj");
+        write_content_plugin(&project, "proj", "0.1.0", "P");
+        set_enabled(&env, "proj", true);
+        let untrusted = inspect(&env.grok_home, &env.cwd, &env.env, false);
+        let row = untrusted
+            .installed
+            .iter()
+            .find(|row| row.name == "proj")
+            .unwrap();
+        assert_eq!(row.status, "blocked");
+        assert!(row.status_detail.contains("workspace is not trusted"));
+        assert!(active_roots(&env.grok_home, &env.cwd, false).is_empty());
+        assert!(hook_entries(&env, false).is_empty());
+        let roots = active_roots(&env.grok_home, &env.cwd, true);
+        assert_eq!(
+            roots
+                .iter()
+                .map(|root| root.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["proj"]
+        );
+        assert_eq!(roots[0].scope, "project");
+        assert_eq!(hook_entries(&env, true)[0]["scope"], "project");
+    }
+
+    #[test]
+    fn manifest_paths_stay_inside_and_a_bad_hooks_file_does_not_drop_the_rest() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let source = dir.path().join("src-odd");
+        write_content_plugin(&source, "odd", "1.0.0", "ODD");
+        fs::create_dir_all(source.join("extra-skills/solo")).unwrap();
+        fs::write(source.join("extra-skills/solo/SKILL.md"), "solo body\n").unwrap();
+        fs::write(
+            source.join("plugin.json"),
+            r#"{"name":"odd","version":"1.0.0","skills":["./extra-skills","../outside"],"commands":"missing-dir"}"#,
+        )
+        .unwrap();
+        fs::write(source.join("hooks/hooks.json"), "{ not json").unwrap();
+        install_local(&env, &source);
+        set_enabled(&env, "odd", true);
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(row.status, "active");
+        assert_eq!(row.contributions.skills, vec!["/odd:solo".to_string()]);
+        assert!(row.contributions.commands.is_empty());
+        assert_eq!(row.contributions.rules, vec!["rules/style.md".to_string()]);
+        assert!(row.contributions.hooks.is_empty());
+        let problems = row.contributions.problems.join("\n");
+        assert!(problems.contains("skills path ../outside"), "{problems}");
+        assert!(problems.contains("commands path"), "{problems}");
+        assert!(problems.contains("hooks file"), "{problems}");
+        // The file is still handed over; the hooks runner reports it as
+        // unreadable and keeps every other hook source.
+        assert_eq!(hook_entries(&env, true).len(), 1);
+    }
+
+    #[test]
+    fn inline_hooks_and_duplicate_names_are_reported() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let first = dir.path().join("a/dup");
+        write_content_plugin(&first, "dup", "1.0.0", "FIRST");
+        fs::remove_file(first.join("hooks/hooks.json")).unwrap();
+        fs::write(
+            first.join("plugin.json"),
+            r#"{"name":"dup","version":"1.0.0","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"true"}]}]}}"#,
+        )
+        .unwrap();
+        install_local(&env, &first);
+        let second = dir.path().join("b/dup");
+        write_content_plugin(&second, "dup", "2.0.0", "SECOND");
+        // A second repo with the same plugin name is refused or shadowed,
+        // never loaded twice.
+        let _ = run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Install {
+                source: second.display().to_string(),
+                trust: true,
+            },
+        );
+        set_enabled(&env, "dup", true);
+        let rows = inspect(&env.grok_home, &env.cwd, &env.env, true).installed;
+        assert_eq!(rows.iter().filter(|row| row.status == "active").count(), 1);
+        if rows.len() > 1 {
+            assert!(rows.iter().any(|row| row.status == "shadowed"));
+        }
+        let hooks = hook_entries(&env, true);
+        assert_eq!(hooks.len(), 1);
+        assert!(
+            hooks[0]["body"]
+                .as_str()
+                .unwrap()
+                .contains("UserPromptSubmit")
+        );
+        assert!(hooks[0]["file"].is_null());
+        assert_eq!(active_roots(&env.grok_home, &env.cwd, true).len(), 1);
     }
 }

@@ -1873,6 +1873,7 @@ impl Runtime {
         extra.extend(config::web_env(&effective));
         extra.extend(crate::worktree::dsh_env(&effective.grok_home));
         extra.extend(config::interaction_env(&effective));
+        extra.extend(config::plugin_hook_env(&effective));
         extra.retain(|(key, _)| key != "CODSH_PERMISSION_POLICY");
         extra.push((
             "CODSH_PERMISSION_POLICY".into(),

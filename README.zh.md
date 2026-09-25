@@ -346,7 +346,18 @@ gitignore 的项目说明（含 `*.local.md` 和被忽略的目录）会跳过�
 agent 定义。
 `codsh --rust plugin marketplace add|list|update|remove` 管理本地 git/路径目录。
 `plugin install|update|uninstall|list` 把插件文件复制到隔离 Home，并记录版本、
-来源和许可。安装需要 `--trust`，仍不会授予执行权限；启停由后续任务处理。
+来源和许可。安装需要 `--trust`，仍不会授予执行权限。`plugin enable|disable`
+（或在 `/plugins` 中按空格）会通过与你自己文件相同的发现和 Hook 执行器，加入或撤回
+已安装且已信任插件的贡献：`rules/*.md` 排在全局规则之后、项目规则之前；Skills 与
+命令以 `/插件名:名称` 调用（若没有原生、内置或其他插件占用，也可用裸 `/名称`）；
+`agents/*.md` 成为 `插件名:agent` 类型；`hooks/hooks.json`（或清单中的 `hooks`
+路径/表）里的命令 Hook 按常规 Hook 约定运行，并带有 `GROK_PLUGIN_ROOT` 与
+`GROK_PLUGIN_DATA`。`.grok/plugins/` 下的项目插件还需要工作区信任。启用插件从不
+授予工具权限：工具调用仍遵循权限模式与规则。运行中的会话会在下一次提示时生效
+（若 Hook 或 agent 变化，dsh 会在同一会话上重启）；更新、停用和卸载会撤回旧内容。
+`plugin list --json`、`inspect` 与 `/plugins` 展开行会显示每个插件的 `state`
+（`active`、`disabled`、`blocked`、`missing`、`shadowed`）、贡献与插件级问题；
+单个损坏文件不会影响其他插件。插件 MCP 服务器暂不启动。
 下载、校验、冲突、离线或取消失败不会留下成功安装。
 `GROK_MARKETPLACE_REQUIRE_SHA` / `[marketplace] require_sha` 也会拒绝未钉死
 的远程更新并保留原安装。官方 marketplace 默认不
