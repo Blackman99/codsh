@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, chmodSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { canonicalEvent, clip, decodeHook, discoverHooks, matcherHits } from '../packages/cli/bin/rust-acp-hooks.mjs'
+import { canonicalEvent, clip, decodeHook, discoverHooks, matcherHits, runCommand } from '../packages/cli/bin/rust-acp-hooks.mjs'
 
 function tempProject() {
   const root = mkdtempSync(join(tmpdir(), 'codsh-hooks-'))
@@ -101,5 +101,16 @@ describe('grok hook contract', () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('survives a hook that never reads its stdin and a hook of a cancelled turn', async () => {
+    const payload = { hookEventName: 'PostToolUse', sessionId: 's', workspaceRoot: tmpdir(), blob: 'x'.repeat(1 << 20) }
+    const quick = await runCommand({ name: 'quick', command: 'exit 0' }, payload, 'PostToolUse', undefined, tmpdir())
+    expect(quick).toMatchObject({ exitCode: 0, spawned: true })
+    const aborted = AbortSignal.abort()
+    const cancelled = await runCommand({ name: 'cancelled', command: 'cat >/dev/null' }, payload, 'PostToolUseFailure', aborted, tmpdir())
+    expect(cancelled).toMatchObject({ cancelled: true, stderr: 'cancelled' })
+    // An EPIPE from either write would surface as an unhandled error and fail this file.
+    await new Promise(resolve => setTimeout(resolve, 200))
   })
 })

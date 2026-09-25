@@ -320,10 +320,23 @@ workspace in `$GROK_PLUGIN_DATA/runs/`, answered `ask_user_question` results
 are encoded as legacy answer records (held until wayfinder writes the spec,
 then flushed after the snapshot is sealed), later tool calls recheck the
 frozen original, and any other prompt ends the run. Plan mode and subagent
-sessions are ignored. Specs past wayfinding are refused. Spec, snapshot, and
-answers files stay the source of truth and are the same files legacy `codsh`
-reads; there is no Goal (`Goal-Id` stays blank), Rhai, or automatic phase
-continuation. The browser graph (ticket 196) is the same Web panorama page
+sessions are ignored. Ticket 208 adds the rest of the flow in
+`ship-extension-runner.ts`, made at hook boundaries while dsh runs every
+agent: Stop continues the turn with the next phase contract
+(`shipContinuationFor`, capped by the hook runner's 8 continuations), a
+PreToolUse deny auto-Confirms gate 1/2 (sealing the Mission Contract) and
+gate 2/2, Stop claims the landing wave and asks for one worktree-isolated
+`subagent` per ticket, each PostToolUse result serial-merges the Ready-set
+(the conflict flow and validation are the legacy `ship-conflict` ones), a
+PostToolUseFailure or a cancel leaves the ticket claimed and unmerged, and
+after the separate verification turn the runner merges back. A later-phase
+spec resumes instead of being refused; a lost run state is re-inferred from
+the files, and a missing sealed contract stops the run. Spec, snapshot,
+answers, contract, and ticket files stay the source of truth and are the
+same files legacy `codsh` reads; there is no Goal (`Goal-Id` stays blank) or
+Rhai. The Rust client keeps the text of a Stop-continued model call in the
+running turn (`live_message_turn`), and the hook runner ignores EPIPE from a
+hook that exits early or is killed by a cancel. The browser graph (ticket 196) is the same Web panorama page
 (`ship-web-app.tsx`, built into the plugin's `web/`), served by
 `hooks/ship-web.mjs`, a detached loopback server per workspace owned by the
 dsh process that ran `/ship` (`CODSH_HOOK_HOST_PID`). It listens on

@@ -6574,7 +6574,11 @@ mod tests {
             vec![
                 "SessionStart".to_string(),
                 "UserPromptSubmit".to_string(),
-                "PostToolUse(^(ask_user_question|write|edit|multi_edit|bash)$)".to_string(),
+                "PreToolUse(^ask_user_question$)".to_string(),
+                "PostToolUse(^(ask_user_question|write|edit|multi_edit|bash|subagent)$)"
+                    .to_string(),
+                "PostToolUseFailure(^subagent$)".to_string(),
+                "Stop".to_string(),
                 "SessionEnd".to_string()
             ]
         );

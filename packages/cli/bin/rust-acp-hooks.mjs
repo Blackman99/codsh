@@ -447,7 +447,7 @@ function defaultTimeout(event) {
   return DEFAULT_TIMEOUT_SEC
 }
 
-function runCommand(hook, payload, event, signal, cwd) {
+export function runCommand(hook, payload, event, signal, cwd) {
   const timeoutSec = hook.timeout ?? defaultTimeout(event)
   const childEnv = { ...process.env, ...hook.env }
   for (const key of RESERVED_ENV) delete childEnv[key]
@@ -494,6 +494,11 @@ function runCommand(hook, payload, event, signal, cwd) {
     else signal?.addEventListener('abort', onAbort, { once: true })
     child.on('error', error => finish({ exitCode: undefined, stdout, stderr: error.message, timedOut: false, spawned: false }))
     child.on('close', code => finish({ exitCode: code, stdout, stderr, timedOut: false, spawned: true }))
+    // A hook that exits without reading stdin, or one killed by a cancelled
+    // turn, makes the write fail with EPIPE; unhandled, that error event
+    // would take the whole dsh process down.
+    child.stdin?.on('error', () => {})
+    if (settled) return
     try {
       child.stdin?.end(`${JSON.stringify(payload)}\n`)
     } catch {
@@ -620,9 +625,11 @@ async function runMatched(registry, event, subject, payload, signal, cwd) {
       const result = decodeHook(event, outcome)
       decoded.push({ hook, result })
       if (result.failure) notes.push(note(hook, event, `failed, ignored: ${clip(result.failure, STDERR_LINE)}`))
-      else if (blocks(result, event) || (event === 'PostToolUse' && result.decision === 'deny')) {
+      else if ((blocks(result, event) || (event === 'PostToolUse' && result.decision === 'deny')) && (result.reason || !result.systemMessage)) {
         notes.push(note(hook, event, result.reason || result.decision))
       } else if (result.systemMessage) {
+        // A Stop continuation that only sets additionalContext has no reason
+        // to show; its systemMessage is the line the user sees.
         // Claude Code's `systemMessage`: shown as-is, for every event, instead
         // of the raw JSON output line, labeled with the hook's source (for
         // example `plugin:ship`) rather than its whole command line.

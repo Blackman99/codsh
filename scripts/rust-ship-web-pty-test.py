@@ -413,7 +413,7 @@ def scenario(desktop, mobile, output, dsh):
         installed = cli('plugin', 'install', 'bundled:ship', '--trust')
         assert 'Installed 1 plugin(s) from bundled:ship: ship' in installed, installed
         enabled = cli('plugin', 'enable', 'ship')
-        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 4 hooks' in enabled, enabled
+        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 7 hooks' in enabled, enabled
 
         session = Session('ship', cwd, env, output)
         try:

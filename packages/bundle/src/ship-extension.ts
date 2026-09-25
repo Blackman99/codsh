@@ -1,7 +1,7 @@
 /**
- * The optional Ship extension for `codsh --rust` (ticket 195): the first
- * `/ship` phase (pre-flight + wayfinder) run through dsh, reusing this
- * package's contract, answer record, and snapshot code.
+ * The optional Ship extension for `codsh --rust` (tickets 195, 208): the
+ * whole `/ship` flow run through dsh, reusing this package's contract,
+ * answer record, snapshot, landing, conflict, and verify code.
  *
  * The extension is an ordinary plugin (`packages/cli/extensions/ship`) that
  * the user installs and enables explicitly. It contributes the `/ship`
@@ -12,16 +12,22 @@
  * - `UserPromptSubmit`: a `/ship` prompt starts a run for this workspace and
  *   session. It binds the one unfinished spec, if any, with the legacy
  *   checks (several unfinished specs, a typed idea that conflicts with the
- *   saved original, a corrupt snapshot or answer record) and blocks a spec
- *   whose Status is past wayfinding: later phases are not migrated to the
- *   Rust client yet, and legacy `codsh` still runs them from the same files.
- *   Any other prompt ends the run, as the legacy runner stops recording
- *   when `/ship` is not in flight.
+ *   saved original, a corrupt snapshot or answer record). A spec at a later
+ *   Status resumes there (legacy `codsh` still runs the same files). Any
+ *   other prompt ends the run, as the legacy runner stops recording when
+ *   `/ship` is not in flight.
  * - `PostToolUse`: while a run is active, a human `ask_user_question` answer
  *   is written to `<spec>.ship.answers.json` (held in the plugin data
  *   directory until the ledger exists); after a write, the first unfinished
  *   spec is bound and `<spec>.ship.json` is sealed, and a bound spec is
  *   checked against its snapshot. Child sessions and plan mode are ignored.
+ *   A `subagent` result drives the landing wave.
+ * - `PreToolUse` (gates), `Stop` (the phase loop), and `PostToolUseFailure`
+ *   (a failed or cancelled landing child) are the runner in
+ *   `ship-extension-runner.ts`.
+ *
+ * Hooks of one run can overlap (parallel landing children finish at the
+ * same time), so each call holds a lock on the run state.
  *
  * Nothing here touches a goal or Rhai. The graph cache, the browser graph,
  * and the terminal summary line are layered on top in `ship-extension-web.ts`
@@ -30,7 +36,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { expandTemplate } from './custom-commands.ts'
 import { parseShipStatus, type ShipStatus } from './plan.ts'
@@ -58,6 +64,15 @@ import {
   type ShipSnapshot,
 } from './ship-snapshot.ts'
 import { shipPromptFor } from './ship.ts'
+import {
+  noteShipAnswers,
+  onShipGate,
+  onShipPrompt,
+  onShipStop,
+  onShipSubagent,
+  onShipSubagentFailure,
+  type ShipRunnerState,
+} from './ship-extension-runner.ts'
 
 /**
  * The host appends `Arguments: <typed text>` to the first line of a custom
@@ -67,9 +82,6 @@ export const SHIP_EXTENSION_IDEA = '(the Arguments on the first line of this mes
 
 /** First words of the contract; identifies an expanded `/ship` prompt. */
 export const SHIP_CONTRACT_OPENING = 'Throughout /ship, preserve the original requirement'
-
-/** Status values this extension may run: none yet, or wayfinding. */
-const MIGRATED: ReadonlySet<ShipStatus | undefined> = new Set([undefined, 'wayfinding'])
 
 /** Legacy runner messages, kept verbatim where they apply. */
 export const SHIP_AMBIGUOUS_SPECS = 'Multiple unfinished specs found. Choose one on a TTY; a pipe cannot pick arbitrarily. Stopped.'
@@ -81,17 +93,12 @@ export function shipExtensionCommand(): string {
   const contract = expandTemplate(shipPromptFor(undefined), SHIP_EXTENSION_IDEA)
   return [
     '---',
-    'description: Run the /ship workflow (optional Ship extension; pre-flight and wayfinder)',
+    'description: Run the /ship workflow (optional Ship extension)',
     'argument-hint: <one-sentence requirement>',
     '---',
     contract,
     '',
   ].join('\n')
-}
-
-/** Why a later phase is refused, naming where it still runs. */
-export function laterPhaseMessage(specPath: string, status: ShipStatus): string {
-  return `Ship in codsh --rust runs pre-flight and wayfinder only; ${specPath} is at Status: ${status}. Continue it with legacy codsh (/ship): the spec, ${basename(specPath).replace(/\.md$/iu, '')}.ship.json and .ship.answers.json are the same files. Stopped.`
 }
 
 /** One `/ship` run for a workspace, kept in the plugin data directory. */
@@ -108,6 +115,8 @@ export interface ShipRunState {
   /** Answers given before the ledger existed. */
   pending: ShipUserAnswer[]
   startedAt: string
+  /** The runner's memory for the phases after wayfinder (ticket 208). */
+  runner?: ShipRunnerState
 }
 
 /** What a hook invocation receives. */
@@ -193,7 +202,8 @@ export function unfinishedSpecs(cwd: string): string[] {
   return out
 }
 
-function display(cwd: string, path: string): string {
+/** A workspace-relative path for messages, else the path as given. */
+export function display(cwd: string, path: string): string {
   const root = resolve(cwd)
   return path.startsWith(`${root}${sep}`) ? path.slice(root.length + 1).split(sep).join('/') : path
 }
@@ -202,7 +212,7 @@ function display(cwd: string, path: string): string {
  * Bind a spec with the legacy adoption checks and write its snapshot.
  * @returns an error message, or undefined when the spec is bound.
  */
-function adopt(cwd: string, path: string, idea: string, state: ShipRunState): string | undefined {
+export function adoptSpec(cwd: string, path: string, idea: string, state: ShipRunState): string | undefined {
   let markdown: string
   try {
     markdown = readFileSync(path, 'utf8')
@@ -269,7 +279,7 @@ function flushPending(cwd: string, state: ShipRunState): string | undefined {
 }
 
 /** Re-check a bound spec after a write: freeze, then seal what appeared. */
-function recheck(cwd: string, state: ShipRunState): string | undefined {
+export function recheckSpec(cwd: string, state: ShipRunState): string | undefined {
   const path = state.specPath
   if (path === undefined) return undefined
   let markdown: string
@@ -287,7 +297,8 @@ function recheck(cwd: string, state: ShipRunState): string | undefined {
   return persistSnapshot(cwd, path, markdown, loaded, loaded)
 }
 
-function statusOf(path: string | undefined): ShipStatus | undefined {
+/** The Status of a spec file, if readable. */
+export function statusOf(path: string | undefined): ShipStatus | undefined {
   if (path === undefined) return undefined
   try {
     return parseShipStatus(readFileSync(path, 'utf8'))
@@ -366,21 +377,20 @@ function onPrompt(input: ShipHookInput, sessionId: string): ShipHookOutput {
     writeRunState(input.dataDir, { ...state, active: false })
     return block(`${SHIP_AMBIGUOUS_SPECS} (${unfinished.map(path => display(input.cwd, path)).join(', ')})`)
   }
-  const only = unfinished[0]
+  // A shipped spec whose Merge-back did not finish is resumed, not forgotten.
+  const undelivered = prior?.specPath !== undefined && prior.runner !== undefined && prior.runner.complete !== true
+    && statusOf(prior.specPath) === 'shipped' && resolve(prior.cwd) === resolve(input.cwd) ? prior.specPath : undefined
+  const only = unfinished[0] ?? undelivered
   if (only !== undefined) {
-    const status = statusOf(only)
-    if (!MIGRATED.has(status)) {
-      writeRunState(input.dataDir, { ...state, active: false })
-      return block(laterPhaseMessage(display(input.cwd, only), status as ShipStatus))
-    }
-    const error = adopt(input.cwd, only, invocation.idea, state)
+    const error = adoptSpec(input.cwd, only, invocation.idea, state)
     if (error !== undefined) {
       writeRunState(input.dataDir, { ...state, active: false })
       return block(error)
     }
   }
+  const notice = onShipPrompt(state, prior)
   writeRunState(input.dataDir, state)
-  return OK
+  return notice === undefined ? OK : { stdout: `${JSON.stringify({ systemMessage: `Ship · ${notice}` })}\n`, exitCode: 0 }
 }
 
 function onTool(input: ShipHookInput, sessionId: string): ShipHookOutput {
@@ -395,25 +405,82 @@ function onTool(input: ShipHookInput, sessionId: string): ShipHookOutput {
       const records = encodeAskUserAnswers(askQuestions(input.payload.tool_input ?? input.payload.toolInput), answers, phaseFromShipStatus(statusOf(state.specPath)))
       if (state.specPath === undefined) state.pending = mergeShipAnswers(state.pending, records)
       else error = persistAnswers(input.cwd, state.specPath, records)
+      noteShipAnswers(state, answers)
     }
   }
   if (error === undefined && state.specPath === undefined) {
     const unfinished = unfinishedSpecs(input.cwd)
     if (unfinished.length > 1) error = `${SHIP_AMBIGUOUS_SPECS} (${unfinished.map(path => display(input.cwd, path)).join(', ')})`
-    else if (unfinished[0] !== undefined) error = adopt(input.cwd, unfinished[0], state.idea, state)
+    else if (unfinished[0] !== undefined) error = adoptSpec(input.cwd, unfinished[0], state.idea, state)
   } else if (error === undefined && tool !== 'ask_user_question') {
-    error = recheck(input.cwd, state)
+    error = recheckSpec(input.cwd, state)
   }
   if (error !== undefined) state.active = false
   writeRunState(input.dataDir, state)
-  return error === undefined ? OK : block(error)
+  if (error !== undefined) return block(error)
+  return tool === 'subagent' ? onShipSubagent(input, state) : OK
+}
+
+function onGate(input: ShipHookInput, sessionId: string): ShipHookOutput {
+  return onShipGate(input, readRunState(input.dataDir, input.cwd), sessionId)
+}
+
+function onStop(input: ShipHookInput, sessionId: string): ShipHookOutput {
+  return onShipStop(input, readRunState(input.dataDir, input.cwd), sessionId)
+}
+
+function onToolFailure(input: ShipHookInput, sessionId: string): ShipHookOutput {
+  const state = readRunState(input.dataDir, input.cwd)
+  if (state === undefined || !state.active || state.sessionId !== sessionId) return OK
+  if (text(input.payload.permissionMode) === 'plan') return OK
+  const tool = text(input.payload.tool_name) || text(input.payload.toolName)
+  return tool === 'subagent' ? onShipSubagentFailure(input, state) : OK
+}
+
+/** A lock older than this was left by a killed hook. */
+const STALE_LOCK_MS = 10 * 60 * 1000
+
+/**
+ * Run `body` holding `<run state>.lock` (a directory, so creation is atomic).
+ * Hook timeouts bound the wait; a stale lock is taken over.
+ */
+function withRunLock<T>(dataDir: string, cwd: string, body: () => T): T {
+  const lock = `${runStatePath(dataDir, cwd)}.lock`
+  // No run directory yet: no run to race on, and nothing is written for a
+  // workspace that never ran /ship.
+  if (dataDir === '' || !existsSync(dirname(lock))) return body()
+  const sleeper = new Int32Array(new SharedArrayBuffer(4))
+  for (let tries = 0; ; tries += 1) {
+    try {
+      mkdirSync(lock)
+      break
+    } catch {
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > STALE_LOCK_MS) rmSync(lock, { recursive: true, force: true })
+      } catch {
+        // Released between the two calls: try again.
+      }
+      if (tries > 20 * 60 * 5) return body()
+      Atomics.wait(sleeper, 0, 0, 50)
+    }
+  }
+  try {
+    return body()
+  } finally {
+    rmSync(lock, { recursive: true, force: true })
+  }
 }
 
 /** One hook call. Unknown events and non-Ship prompts do nothing. */
 export function handleShipHook(input: ShipHookInput): ShipHookOutput {
   const sessionId = text(input.payload.sessionId) || text(input.payload.session_id)
   const event = input.event || text(input.payload.hook_event_name)
-  if (event === 'UserPromptSubmit' || event === 'user_prompt_submit') return onPrompt(input, sessionId)
-  if (event === 'PostToolUse' || event === 'post_tool_use') return onTool(input, sessionId)
+  const run = (body: (input: ShipHookInput, sessionId: string) => ShipHookOutput): ShipHookOutput =>
+    withRunLock(input.dataDir, input.cwd, () => body(input, sessionId))
+  if (event === 'UserPromptSubmit' || event === 'user_prompt_submit') return run(onPrompt)
+  if (event === 'PostToolUse' || event === 'post_tool_use') return run(onTool)
+  if (event === 'PreToolUse' || event === 'pre_tool_use') return run(onGate)
+  if (event === 'Stop' || event === 'stop') return run(onStop)
+  if (event === 'PostToolUseFailure' || event === 'post_tool_use_failure') return run(onToolFailure)
   return OK
 }

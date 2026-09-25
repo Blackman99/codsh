@@ -59,6 +59,7 @@ import {
   type ShipRunState,
 } from './ship-extension.ts'
 import { WEB_PANORAMA_CSP, webPanoramaHtml } from './ship-web.ts'
+import { setShipGraphCacheHook } from './ship-extension-runner.ts'
 
 export const SHIP_WEB_HOST = '127.0.0.1'
 const EMPTY_GRAPH: ShipGraph = { version: SHIP_GRAPH_VERSION, specPath: '', nodes: [], edges: [] }
@@ -201,6 +202,11 @@ export function rebuildShipGraphCache(state: ShipRunState): ShipGraph | { error:
   }
   return graph
 }
+
+// Every runner commit carries a current cache (the browser and a resume read it).
+setShipGraphCacheHook(state => {
+  rebuildShipGraphCache(state)
+})
 
 /**
  * One line with what the page shows: the ledger Status (never inferred),
@@ -534,6 +540,17 @@ function liveUrl(input: ShipHookInput): string | undefined {
  * SessionStart reopens the same URL for a resumed session; SessionEnd stops
  * the server.
  */
+/** The systemMessage of a non-blocking prompt result, if that is all it is. */
+function promptNotice(out: ShipHookOutput): string | undefined {
+  if (out.stdout === '') return undefined
+  try {
+    const value = JSON.parse(out.stdout) as { decision?: unknown; systemMessage?: unknown }
+    return value.decision === undefined && typeof value.systemMessage === 'string' ? value.systemMessage : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export async function handleShipHookWithWeb(input: ShipHookInput, web: ShipWebHookOptions): Promise<ShipHookOutput> {
   const sessionId = field(input.payload, 'sessionId', 'session_id')
   const event = input.event || field(input.payload, 'hook_event_name')
@@ -552,11 +569,22 @@ export async function handleShipHookWithWeb(input: ShipHookInput, web: ShipWebHo
     return note(line)
   }
   const out = handleShipHook(input)
-  if (out.stdout !== '') return out
   const prompt = event === 'UserPromptSubmit' || event === 'user_prompt_submit'
   const tool = event === 'PostToolUse' || event === 'post_tool_use'
-  if (!prompt && !tool) return out
   if (field(input.payload, 'permissionMode') === 'plan') return out
+  // A /ship notice (a rolled-back conflict resolution) still gets the graph line.
+  const notice = prompt ? promptNotice(out) : undefined
+  if ((out.stdout !== '' && notice === undefined) || (!prompt && !tool)) {
+    // The runner spoke (a note, a gate, a Stop continuation) or this is a
+    // runner-only event: refresh the cache the browser and a resume read,
+    // and never add a line. A Stop note without a continuation would make
+    // the host take another model step.
+    const after = readRunState(input.dataDir, input.cwd)
+    if (after !== undefined && after.sessionId === sessionId && after.specPath !== undefined) {
+      try { rebuildShipGraphCache(after) } catch { /* the cache is disposable */ }
+    }
+    return out
+  }
   const state = readRunState(input.dataDir, input.cwd)
   // handleShipHook ends the run on any other prompt, so an active run here
   // for this session means this prompt was /ship.
@@ -570,7 +598,7 @@ export async function handleShipHookWithWeb(input: ShipHookInput, web: ShipWebHo
     const url = await serve(input, sessionId, web)
     const line = shipGraphLine(graph, url)
     remember(input, line)
-    return note(line)
+    return note(notice === undefined ? line : `${notice}\n${line}`)
   }
   const line = shipGraphLine(graph, liveUrl(input))
   return remember(input, line) ? note(line) : out

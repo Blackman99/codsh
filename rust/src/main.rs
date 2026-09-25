@@ -4636,14 +4636,30 @@ fn render_transcript(status: &str, turns: &[Turn], show_timestamps: bool) -> Str
 /// The turn a message chunk belongs to. A steer claimed mid-turn opens a new
 /// transcript turn, so an id already seen routes back to its own turn; a new
 /// id goes to the last turn only while that turn has no message yet.
+#[cfg(test)]
 fn message_turn<'a>(turns: &'a mut [Turn], message_id: &str) -> Option<&'a mut Turn> {
-    if let Some(index) = turns
+    live_message_turn(turns, message_id, false)
+}
+
+/// The turn a streamed message belongs to. Beyond `message_turn`: while the
+/// prompt is still running, a message with a new id is the running turn's
+/// too. A Stop hook that continues the turn steers the host into a further
+/// model call with its own message id and no steer row of its own; its text
+/// would otherwise never be shown.
+fn live_message_turn<'a>(
+    turns: &'a mut [Turn],
+    message_id: &str,
+    live: bool,
+) -> Option<&'a mut Turn> {
+    let known = turns
         .iter()
-        .rposition(|turn| turn.message_id.as_deref() == Some(message_id))
-    {
+        .rposition(|turn| turn.message_id.as_deref() == Some(message_id));
+    if let Some(index) = known {
         return turns.get_mut(index);
     }
-    turns.last_mut().filter(|turn| turn.message_id.is_none())
+    turns
+        .last_mut()
+        .filter(|turn| turn.message_id.is_none() || (live && !turn.done))
 }
 
 /// The turn that owns a tool call: the one that already lists it, else the last.
@@ -4669,7 +4685,7 @@ fn apply_events(
             AcpEvent::Thought {
                 message_id, text, ..
             } => {
-                if let Some(turn) = message_turn(turns, &message_id) {
+                if let Some(turn) = live_message_turn(turns, &message_id, *inflight) {
                     turn.message_id = Some(message_id);
                     turn.thought.push_str(&text);
                 }
@@ -4680,7 +4696,7 @@ fn apply_events(
                 hook,
                 ..
             } => {
-                if let Some(turn) = message_turn(turns, &message_id) {
+                if let Some(turn) = live_message_turn(turns, &message_id, *inflight) {
                     turn.message_id = Some(message_id);
                     // Hook output stays in the transcript, labeled, and is not
                     // the model answer.
@@ -13643,6 +13659,71 @@ mod tests {
         assert!(message_turn(&mut turns, "m1").is_some_and(|turn| turn.user == "first"));
         assert!(message_turn(&mut turns, "m2").is_some_and(|turn| turn.user == "go left"));
         let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn a_stop_hook_continuation_answer_stays_in_the_running_turn() {
+        let turn = |user: &str| Turn {
+            user: user.into(),
+            thought: String::new(),
+            answer: String::new(),
+            error: None,
+            message_id: None,
+            tools: Vec::new(),
+            permission: None,
+            done: false,
+            cancelling: false,
+            cancelled: false,
+            interrupted: false,
+            compacted: false,
+            compaction: None,
+            timestamp: None,
+            quiet_cancel: false,
+        };
+        let answer = |id: &str, text: &str| AcpEvent::Answer {
+            session_id: "s".into(),
+            message_id: id.into(),
+            text: text.into(),
+            hook: false,
+        };
+        let mut meter = Meter {
+            used: None,
+            size: None,
+            cost: None,
+        };
+        let mut inspect = false;
+        let mut turns = vec![turn("/ship")];
+        let mut inflight = true;
+        apply_events(
+            &mut turns,
+            &mut inflight,
+            &mut meter,
+            vec![answer("m1", "READY ")],
+            false,
+            &mut inspect,
+        );
+        // The Stop hook steered a further model call: a new message id, same prompt.
+        apply_events(
+            &mut turns,
+            &mut inflight,
+            &mut meter,
+            vec![answer("m2", "CONTINUED")],
+            false,
+            &mut inspect,
+        );
+        assert_eq!(turns[0].answer, "READY CONTINUED");
+        // Once the prompt is over, an unknown message does not reopen the turn.
+        inflight = false;
+        turns[0].done = true;
+        apply_events(
+            &mut turns,
+            &mut inflight,
+            &mut meter,
+            vec![answer("m3", "LATE")],
+            false,
+            &mut inspect,
+        );
+        assert_eq!(turns[0].answer, "READY CONTINUED");
     }
 
     #[test]

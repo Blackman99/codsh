@@ -6,11 +6,26 @@
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }] }
     ],
-    "PostToolUse": [
+    "PreToolUse": [
       {
-        "matcher": "^(ask_user_question|write|edit|multi_edit|bash)$",
+        "matcher": "^ask_user_question$",
         "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 30 }]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(ask_user_question|write|edit|multi_edit|bash|subagent)$",
+        "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 60 }]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "^subagent$",
+        "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 60 }]
+      }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 120 }] }
     ],
     "SessionEnd": [
       { "hooks": [{ "type": "command", "command": "\"${CODSH_NODE:-node}\" \"${GROK_PLUGIN_ROOT}/hooks/ship-hook.mjs\"", "timeout": 5 }] }

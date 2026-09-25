@@ -77,8 +77,10 @@ describe('Ship extension build', () => {
     expect(readFileSync(join(out, 'commands', 'ship.md'), 'utf8')).toBe(shipExtensionCommand())
 
     const hooks = JSON.parse(readFileSync(join(out, 'hooks', 'hooks.json'), 'utf8')).hooks
-    expect(Object.keys(hooks).sort()).toEqual(['PostToolUse', 'SessionEnd', 'SessionStart', 'UserPromptSubmit'])
-    expect(hooks.PostToolUse[0].matcher).toBe('^(ask_user_question|write|edit|multi_edit|bash)$')
+    expect(Object.keys(hooks).sort()).toEqual(['PostToolUse', 'PostToolUseFailure', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'UserPromptSubmit'])
+    expect(hooks.PostToolUse[0].matcher).toBe('^(ask_user_question|write|edit|multi_edit|bash|subagent)$')
+    expect(hooks.PreToolUse[0].matcher).toBe('^ask_user_question$')
+    expect(hooks.PostToolUseFailure[0].matcher).toBe('^subagent$')
 
     for (const name of ['ship-hook.mjs', 'ship-web.mjs']) {
       const script = readFileSync(join(out, 'hooks', name), 'utf8')

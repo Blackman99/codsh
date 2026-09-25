@@ -185,6 +185,27 @@ export function shipPromptFor(status: ShipStatus | undefined, opts: ShipPromptOp
   return [...context, SHARED, prompt].join('\n\n')
 }
 
+/**
+ * Opening of a later-phase continuation. The shared rules were already
+ * injected by the `/ship` prompt that started this run; a hook-driven host
+ * (the optional Ship extension for `codsh --rust`, ticket 208) sends only
+ * the phase so the whole continuation fits one hook message.
+ */
+export const SHIP_CONTINUATION_OPENING = 'Ship runner: the next /ship phase. The shared /ship rules from the prompt that started this run still apply.'
+
+/**
+ * {@link shipPromptFor} without the shared rules, for a continuation inside
+ * one `/ship` run. The phase contract, context, and wording are the same.
+ * @param status - the spec's Status line.
+ * @param opts - the same runner-owned context as {@link shipPromptFor}.
+ */
+export function shipContinuationFor(status: ShipStatus | undefined, opts: ShipPromptOpts = {}): string {
+  const full = shipPromptFor(status, opts)
+  const at = full.indexOf(SHARED)
+  const without = at < 0 ? full : `${full.slice(0, at)}${full.slice(at + SHARED.length)}`.replace(/\n{3,}/gu, '\n\n').trim()
+  return `${SHIP_CONTINUATION_OPENING}\n\n${without}`
+}
+
 /** Which injection bucket a Status line maps onto. */
 export function shipPhaseKind(status: ShipStatus | undefined): ShipPhaseKind {
   switch (status) {

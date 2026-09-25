@@ -10,6 +10,7 @@
  * bash-git-cat,
  * bash-git, shell-echo, shell-count (ticket 190), shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
  * steer-probe (three read steps, then reports the latest user text it saw),
+ * ship-wayfinder (tickets 195, 196), ship-full (ticket 208: the whole /ship flow; see shipFullTurn),
  * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
  * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt),
  * background (ticket 175 background commands; see backgroundTurn), scheduler
@@ -20,7 +21,7 @@
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
  * before activity.
  */
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
@@ -1395,6 +1396,206 @@ async function * stepsTurn(options, stepsText) {
   yield* mockText(`PARENT_STEPS ${done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 700)}`).join(' ')}`)
 }
 
+/**
+ * Ticket 208: `ship-full`. The whole /ship flow through the Ship extension
+ * runner. The parent acts on the latest contract (the /ship prompt or a
+ * `stop hook:` continuation) and on hook notes that carry SHIP_DISPATCH
+ * lines; landing children (prompts starting `Ticket N:`) and conflict
+ * resolvers (`Conflict-resolution for`) are recognized by their prompt.
+ * Tickets 1 and 2 change the same line of src/greet.ts (hello / hi), so the
+ * second merge conflicts; the resolver's first attempt leaves the markers,
+ * the second writes "hello and hi". While `.git/codsh-ship-slow` exists in
+ * the workspace, Ticket 1's child first sleeps so a test can cancel the wave.
+ */
+const STOP_MARK = '\u241ehook\u241estop hook:'
+const SHIP_SPEC = 'docs/specs/greeting.md'
+const SHIP_TRACK = ['', '## Main Track', '', 'Greet people in two ways.', '', '1. Track-1: src/greet.ts says hello and hi', '2. Track-2: a notes file per greeting', '', '## Out of Scope', '', '- Anything else.', '']
+const SHIP_ACCEPTANCE = ['', '## Acceptance Criteria', '', '1. ACC greeting works: `node -e "process.exit(0)"` exits 0', '']
+const SHIP_PLAN = ['', '## Plan', '', '- [ ] Ticket 1: Hello — Delivers hello (Blocked by: none) (Track: 1)', '- [ ] Ticket 2: Hi — Delivers hi (Blocked by: none) (Track: 1)', '- [ ] Ticket 3: Notes — Delivers notes (Blocked by: 2) (Track: 2)', '']
+
+function messageText(message) {
+  return message.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+}
+
+function shipLedger(status, idea, ...sections) {
+  return [`# Greeting`, '', `Status: ${status}`, 'Branch: ship/greeting', 'Original-Branch: main', '', '## Original Requirement', '', idea, '', ...sections.flat()].join('\n')
+}
+
+function shipDiskSpec() {
+  try {
+    return readFileSync(join(process.cwd(), SHIP_SPEC), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function * mockToolCalls(calls) {
+  let index = 0
+  for (const call of calls) {
+    const id = ToolCallId(call.id)
+    const encoded = JSON.stringify(call.args)
+    yield { type: 'block-start', index, blockType: 'tool-call' }
+    yield { type: 'tool-call-delta', index, id, name: call.name, argumentsDelta: encoded }
+    yield { type: 'block-end', index, block: { type: 'tool-call', id, name: call.name, arguments: encoded } }
+    index += 1
+  }
+  yield { type: 'usage', usage: { inputTokens: 2, outputTokens: 2 } }
+  yield { type: 'finish', reason: { kind: 'tool-calls' } }
+}
+
+const SHIP_CHILD = /^(?:<system-reminder>[\s\S]*?<\/system-reminder>\s*)?(?:Ticket (\d+): |Conflict-resolution for [^\n]*?attempt (\d+) of)/
+
+/** One step of a landing child or a conflict resolver. */
+function * shipChildTurn(options, match) {
+  const done = toolResults(options)
+  const stamp = Date.now().toString(36)
+  const [, ticket, attempt] = match
+  const steps = []
+  if (ticket !== undefined) {
+    if (ticket === '1' && existsSync(join(process.cwd(), '.git', 'codsh-ship-slow'))) steps.push(['bash', { command: 'sleep 30', description: 'slow ticket probe' }])
+    if (ticket === '1' || ticket === '2') {
+      const word = ticket === '1' ? 'hello' : 'hi'
+      steps.push(['read', { file_path: 'src/greet.ts' }])
+      steps.push(['write', { file_path: 'src/greet.ts', content: `export const greeting = "${word}"\n` }])
+      steps.push(['write', { file_path: `src/${word}.md`, content: `${word}\n` }])
+    } else {
+      steps.push(['write', { file_path: 'NOTES.md', content: 'Greetings: hello, hi.\n' }])
+    }
+  } else {
+    steps.push(['read', { file_path: 'src/greet.ts' }])
+    if (Number(attempt) >= 2) steps.push(['write', { file_path: 'src/greet.ts', content: 'export const greeting = "hello and hi"\n' }])
+  }
+  if (done.length < steps.length) {
+    const [name, args] = steps[done.length]
+    yield* mockToolCall(`ship-child-${ticket ?? `r${attempt}`}-${done.length}-${stamp}`, name, args)
+    return
+  }
+  const errors = done.filter(result => result.isError).length
+  yield* mockText(ticket !== undefined ? `TICKET_${ticket}_DONE errors=${errors}` : `RESOLVER_ATTEMPT_${attempt} errors=${errors}`)
+}
+
+/** A ship-full text reply, also appended to CODSH_REVIEW_TRACE (a turn's last reply is in no later request). */
+function * shipSay(text) {
+  const trace = process.env.CODSH_REVIEW_TRACE
+  if (trace) appendFileSync(trace, `${JSON.stringify({ purpose: 'ship-reply', user: [], assistant: [text], results: [] })}\n`)
+  yield* mockText(text)
+}
+
+async function * shipFullTurn(options) {
+  const raw = rawUserTexts(options)
+  const first = raw.find(text => SHIP_CHILD.test(text))
+  const child = first === undefined ? null : SHIP_CHILD.exec(first)
+  if (child !== null && !raw.some(text => text.includes('Throughout /ship'))) {
+    yield* shipChildTurn(options, child)
+    return
+  }
+  const at = options.messages.findLastIndex(message => message.role === 'user'
+    && message.content.some(block => block.type === 'text' && (block.text.includes('Throughout /ship') || block.text.startsWith(STOP_MARK))))
+  if (at < 0) {
+    yield* shipSay('SHIP_FULL_NO_CONTRACT')
+    return
+  }
+  const contract = messageText(options.messages[at])
+  const after = options.messages.slice(at + 1)
+  const done = toolResults({ messages: after })
+  const last = done.at(-1)
+  const answer = last === undefined ? '' : resultText(last)
+  const stamp = Date.now().toString(36)
+  const idea = (/Arguments:([\s\S]*?)\n\nThroughout \/ship/.exec(contract)?.[1] ?? '').trim()
+  const step = (name, args) => mockToolCall(`ship-full-${name}-${done.length}-${stamp}`, name, args)
+  if (contract.startsWith(STOP_MARK) && contract.includes('Ship runner stopped /ship:')) {
+    yield* shipSay(`SHIP_STOPPED_ACK ${oneLine(contract.split('Ship runner stopped /ship:\n')[1] ?? '').slice(0, 160)}`)
+    return
+  }
+  if (contract.startsWith(STOP_MARK) && contract.includes('Ship runner: /ship is complete.')) {
+    yield* shipSay('SHIP_COMPLETE_ACK')
+    return
+  }
+  const dispatchText = [contract, ...after.filter(message => message.role === 'user').map(messageText)].join('\n')
+  const wanted = [...dispatchText.matchAll(/SHIP_DISPATCH (\{.*?\})(?=\s|$)/g)].map(match => JSON.parse(match[1]))
+  if (wanted.length > 0) {
+    const sent = new Set(after.filter(message => message.role === 'assistant').flatMap(message => message.content)
+      .filter(block => block.type === 'tool-call' && block.name === 'subagent')
+      .map(block => JSON.parse(typeof block.arguments === 'string' ? block.arguments : JSON.stringify(block.arguments ?? {})).prompt))
+    const pending = wanted.filter((call, index) => !sent.has(call.prompt) && wanted.findIndex(other => other.prompt === call.prompt) === index)
+    if (pending.length > 0) {
+      yield* mockToolCalls(pending.map((args, index) => ({ id: `ship-full-dispatch-${done.length}-${index}-${stamp}`, name: 'subagent', args })))
+      return
+    }
+    yield* shipSay(`LANDING_WAITING results=${done.length}`)
+    return
+  }
+  if (contract.includes('This turn is wayfinder only')) {
+    if (idea === '') {
+      if (done.length === 0) {
+        yield* step('ask_user_question', { questions: [{ id: 'resume', header: 'ship · resume', question: `Resume ${SHIP_SPEC}?`, options: [{ label: 'Continue', description: 'Recommended.' }, { label: 'Stop' }] }] })
+        return
+      }
+      yield* shipSay(`SHIP_RESUME ${last?.isError ? 'error' : answer.includes('Continue') ? 'continue' : 'stop'}`)
+      return
+    }
+    if (done.length === 0) {
+      yield* step('bash', { command: 'git checkout -q -b ship/greeting', description: 'isolate the feature branch' })
+      return
+    }
+    if (done.length === 1) {
+      yield* step('ask_user_question', { questions: [{ id: 'route', header: 'ship · wayfinder', question: 'Is the route clear?', options: [{ label: 'Continue', description: 'Recommended.' }, { label: 'Stop' }] }] })
+      return
+    }
+    if (done.length === 2) {
+      if (last?.isError === true || !answer.includes('Continue')) {
+        yield* shipSay('WAYFINDER_STOPPED')
+        return
+      }
+      yield* step('write', { file_path: SHIP_SPEC, content: shipLedger('grilling', idea, ['## Wayfinder', '', 'Small route confirmed.', '']) })
+      return
+    }
+    yield* shipSay('WAYFINDER_DONE')
+    return
+  }
+  const original = /## Original Requirement\n\n([^\n]+)/.exec(shipDiskSpec())?.[1] ?? 'unknown'
+  if (contract.includes('This turn is grill only')) {
+    if (done.length === 0) return yield* step('read', { file_path: SHIP_SPEC })
+    if (done.length === 1) return yield* step('write', { file_path: SHIP_SPEC, content: shipLedger('interviewing', original, SHIP_TRACK) })
+    yield* shipSay('GRILL_DONE')
+    return
+  }
+  if (contract.includes('This turn is to-spec (gate 1) only')) {
+    if (done.length === 0) return yield* step('read', { file_path: SHIP_SPEC })
+    if (done.length === 1) return yield* step('write', { file_path: SHIP_SPEC, content: shipLedger('interviewing', original, SHIP_TRACK, SHIP_ACCEPTANCE) })
+    if (done.length === 2) {
+      return yield* step('ask_user_question', { questions: [{ id: 'gate1', header: 'ship · gate 1/2', question: `Confirm ${SHIP_SPEC}?`, detail: 'Greeting spec.', options: [{ label: 'Confirm', description: 'Recommended.' }, { label: 'Edit' }, { label: 'Abort' }] }] })
+    }
+    yield* shipSay(`SPEC_DONE gate=${last?.isError ? 'auto' : 'asked'}`)
+    return
+  }
+  if (contract.includes('This turn is tickets and baseline (gate 2) only')) {
+    const issues = [['01-hello.md', 'Ticket 1: Hello'], ['02-hi.md', 'Ticket 2: Hi'], ['03-notes.md', 'Ticket 3: Notes']]
+    if (done.length === 0) return yield* step('read', { file_path: SHIP_SPEC })
+    if (done.length === 1) return yield* step('write', { file_path: SHIP_SPEC, content: `${shipDiskSpec().trimEnd()}\n${SHIP_PLAN.join('\n')}` })
+    if (done.length < 2 + issues.length) {
+      const [name, title] = issues[done.length - 2]
+      return yield* step('write', { file_path: `.scratch/greeting/issues/${name}`, content: `# ${title}\n\n- [ ] done\n` })
+    }
+    if (done.length === 2 + issues.length) {
+      return yield* step('ask_user_question', { questions: [{ id: 'gate2', header: 'ship · gate 2/2', question: 'Confirm the tickets?', detail: issues.map(([, title]) => title).join('\n'), options: [{ label: 'Confirm', description: 'Recommended.' }, { label: 'Edit' }, { label: 'Abort' }] }] })
+    }
+    yield* shipSay(`TICKETS_DONE gate=${last?.isError ? 'auto' : 'asked'}`)
+    return
+  }
+  if (contract.includes('This turn is final verification only')) {
+    if (done.length === 0) return yield* step('bash', { command: 'node -e "process.exit(0)"', description: 'run ACC-001' })
+    if (done.length === 1) return yield* step('read', { file_path: SHIP_SPEC })
+    if (done.length === 2) {
+      const shipped = shipDiskSpec().replace(/^Status:\s*\S+/m, 'Status: shipped').trimEnd()
+      return yield* step('write', { file_path: SHIP_SPEC, content: `${shipped}\n\n## Verification\n\n- ACC-001: \`node -e "process.exit(0)"\` exit 0\n` })
+    }
+    yield* shipSay('VERIFIED')
+    return
+  }
+  yield* shipSay(`SHIP_FULL_UNKNOWN ${oneLine(contract).slice(0, 160)}`)
+}
+
 async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
   const stepsText = [...texts].reverse().find(text => text.startsWith('STEPS '))
@@ -1850,12 +2051,26 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_MCP_DONE ${summary || '(no calls)'}`)
       return
     }
+    if (MODE === 'ship-full') {
+      yield* shipFullTurn(options)
+      return
+    }
     if (MODE === 'ship-wayfinder') {
       // The legacy ship-wayfinder scenario (e2e/fixtures/mock-llm.src.ts)
       // driven by the Ship extension's /ship contract (ticket 195). The model
       // follows the injected text: a typed idea asks the route question and
       // writes the ledger; a bare /ship reads the unfinished spec and asks
       // before resuming, as the BOOT contract says.
+      // Ticket 208: the runner continues the turn with the next phase (a
+      // `stop hook:` steer); this scenario only acknowledges it.
+      const replied = options.messages.findLastIndex(message => message.role === 'assistant')
+      const steer = options.messages.slice(replied + 1).filter(message => message.role === 'user').map(messageText)
+        .find(text => text.startsWith('\u241ehook\u241estop hook:')) ?? ''
+      if (steer !== '') {
+        const phase = /This turn is (?!only\b)(\S+)/.exec(steer)?.[1] ?? (steer.includes('Ship runner stopped') ? 'stopped' : 'other')
+        yield* mockText(`SHIP_CONTINUED ${phase}`)
+        return
+      }
       const isShip = message => message.role === 'user'
         && message.content.some(block => block.type === 'text' && block.text.includes('Throughout /ship'))
       const at = options.messages.findLastIndex(isShip)

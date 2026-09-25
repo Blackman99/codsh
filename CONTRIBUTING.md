@@ -494,9 +494,21 @@ checks that a fresh Home has no `/ship` and no Ship state, installs
 `bundled:ship --trust` (still disabled), enables it, answers the wayfinder
 question card and checks the sealed snapshot and answer records, cancels a
 card (nothing recorded), resumes with a bare `/ship`, refuses a conflicting
-idea and a spec past wayfinding in fresh sessions, checks Stop writes nothing,
-and checks `plugin disable ship` removes `/ship`. `pnpm exec vitest run
-scripts/rust-ship-extension.spec.mjs packages/bundle/tests/ship-extension.spec.ts`
+idea, resumes a spec past wayfinding at grill (the Stop hook continues the
+turn), checks Stop writes nothing, and checks `plugin disable ship` removes
+`/ship`. `python3 scripts/rust-ship-full-pty-test.py` (same prerequisites plus
+agent-browser, below) runs the whole flow with the `ship-full` mock in a real
+git repository: gates, a parallel landing wave in worktrees with a merge
+conflict whose first resolution fails validation, final verification, and
+fast-forward Merge-back; then Ctrl+C during the wave (nothing merged or
+ticked), a removed sealed Mission Contract (the run stops), and a deleted run
+state (the files resume it). It compares the terminal, the git history, the
+records, and the browser graph at 1440x900 and 390x844, reading what the
+model saw from the mock's request trace. `CODSH_SHIP_FULL_ONLY=full|recover`
+runs one scenario, `CODSH_SHIP_FULL_KEEP=1` keeps the temp home, and
+`CODSH_SHIP_FULL_TMP_PREFIX` sets the temp prefix. `pnpm exec vitest run
+scripts/rust-ship-extension.spec.mjs packages/bundle/tests/ship-extension.spec.ts
+packages/bundle/tests/ship-extension-runner.spec.ts`
 covers the generated plugin and the hook logic; the legacy `e2e/pty-ship*.e2e.ts`
 suites stay the reference for the full legacy flow. The plugin's browser graph
 is checked with `python3 scripts/rust-ship-web-pty-test.py`, which drives real

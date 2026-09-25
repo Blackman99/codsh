@@ -463,13 +463,19 @@ Ship 是 `codsh --rust` 的可选一方插件，不属于默认界面。
 只读取启动器自带的 `extensions/` 目录）；安装后仍是停用状态，`plugin enable ship`
 才会启用；`plugin disable ship` 或 `uninstall ship` 会再次移除 `/ship`。未安装或未启用时
 没有 `/ship` 命令、没有 Ship Hook，也不会产生任何 Ship 状态。启用后，`/ship <想法>`
-（或 `/ship:ship`）经 dsh 发送旧版首轮约定，原样执行预检与 wayfinder；裸 `/ship`
-会恢复 `docs/specs` 中唯一未完成的 spec。它的 Hook 沿用旧版记录（`<spec>.ship.json`
-保存封存的原始需求，`<spec>.ship.answers.json` 保存每张已回答的问题卡）和旧版保护
-（想法冲突、原始需求被改、多个未完成 spec、答案文件损坏）。被关闭或取消的问题卡
-不会留下记录，之后的 `/ship` 可以继续。已越过 wayfinding 的 spec 会被拒绝，并提示用
-旧版 `codsh`（`/ship`）继续，两者读取同一批文件：grill、规划、执行和阶段自动续跑
-尚未迁移。`/ship` 会打印一行，例如 `Ship graph · docs/specs/x.md · Status: wayfinding ·
+（或 `/ship:ship`）经 dsh 发送旧版首轮约定，并由 dsh 执行全部 agent 跑完旧版完整流程：
+预检、wayfinder、grill、to-spec 与 tickets（两道闸门自动确认；闸门 1 封存 Mission
+Contract）、在隔离 worktree 中并行落地并串行 `merge --no-ff`、按旧版校验处理合并冲突
+（最多三次，之后记录 `## Blocker`）、独立的最终验证轮，以及合并回 `Original-Branch`。
+Stop Hook 会用下一阶段续跑当前轮（连续最多 8 次）；裸 `/ship` 会从任意阶段恢复
+`docs/specs` 中唯一未完成的 spec。它的 Hook 沿用旧版记录（`<spec>.ship.json` 保存封存的
+原始需求，`<spec>.ship.answers.json` 保存每张已回答的问题卡，以及 Mission Contract 与
+`.scratch/<slug>/issues`）和旧版保护（想法冲突、原始需求被改、多个未完成 spec、答案
+文件损坏、封存的合约缺失或损坏）。被关闭或取消的问题卡不会留下记录；失败或被取消的
+子 agent 从不被合并或勾选：其 worktree 会保留，下一次 `/ship` 会带提示重新派发该
+ticket。运行状态丢失时会从文件重建。Alignment Gate 与漂移扫描尚未移植，详见
+`packages/cli/extensions/ship/README.md`。
+`/ship` 会打印一行，例如 `Ship graph · docs/specs/x.md · Status: wayfinding ·
 待认领 1 · 已认领 1 · 已关闭 2 · 2 of 4 decision answers recorded ·
 http://127.0.0.1:<端口>/<令牌>/`，之后只在内容变化时再打印；该 URL 打开的是与旧版
 `/ship` 相同的实时 Web 全景图，每次轮询都从同一批文件重新汇总，因此浏览器与终端显示

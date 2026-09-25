@@ -1,6 +1,6 @@
 {
   "name": "ship",
   "version": "0.1.0",
-  "description": "Optional Ship extension for codsh --rust: /ship pre-flight and wayfinder through dsh, with the legacy spec ledger, snapshot, and answer record.",
+  "description": "Optional Ship extension for codsh --rust: the whole /ship flow through dsh (phases, gates, worktree landing, verification, Merge-back), with the legacy spec ledger, snapshot, answer record, and Mission Contract.",
   "license": "MIT"
 }

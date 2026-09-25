@@ -1,4 +1,4 @@
-/** Ticket 195: the optional Ship extension's first phase for codsh --rust. */
+/** Tickets 195 and 208: the optional Ship extension for codsh --rust. */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,6 @@ import {
   SHIP_EXTENSION_IDEA,
   SHIP_IDEA_CONFLICT,
   handleShipHook,
-  laterPhaseMessage,
   parseShipInvocation,
   readRunState,
   shipExtensionCommand,
@@ -61,7 +60,7 @@ afterEach(() => {
 describe('ship extension command', () => {
   it('is the legacy first-turn contract with the idea read from the host Arguments line', () => {
     const command = shipExtensionCommand()
-    expect(command.startsWith('---\ndescription: Run the /ship workflow (optional Ship extension; pre-flight and wayfinder)\nargument-hint: <one-sentence requirement>\n---\n')).toBe(true)
+    expect(command.startsWith('---\ndescription: Run the /ship workflow (optional Ship extension)\nargument-hint: <one-sentence requirement>\n---\n')).toBe(true)
     const body = command.replace(/^---[\s\S]*?---\n/u, '').trimEnd()
     expect(body).toBe(expandTemplate(shipPromptFor(undefined), SHIP_EXTENSION_IDEA).trimEnd())
     expect(body).toContain('This turn is wayfinder only.')
@@ -139,13 +138,11 @@ describe('ship extension hooks', () => {
     expect(existsSync(join(cwd, 'docs', 'specs', 'wayfinder-e2e.ship.answers.json'))).toBe(false)
   })
 
-  it('refuses a later phase, several unfinished specs, and a conflicting idea with the legacy wording', () => {
+  it('resumes a later phase, and refuses several unfinished specs and a conflicting idea with the legacy wording', () => {
     mkdirSync(join(cwd, 'docs', 'specs'), { recursive: true })
     writeFileSync(spec(), ledger('SMALL_WAYFINDER', 'grilling'))
-    const later = JSON.parse(prompt(invocation('')).stdout)
-    expect(later).toEqual({ decision: 'block', reason: `Ship: ${laterPhaseMessage('docs/specs/wayfinder-e2e.md', 'grilling')}` })
-    expect(later.reason).toContain('legacy codsh')
-    expect(readRunState(data, cwd)?.active).toBe(false)
+    expect(prompt(invocation(''))).toEqual({ stdout: '', exitCode: 0 })
+    expect(readRunState(data, cwd)).toMatchObject({ active: true, specPath: spec(), runner: { phase: 'grill', injected: false } })
 
     writeFileSync(spec(), ledger('SMALL_WAYFINDER'))
     const conflict = JSON.parse(prompt(invocation('SOMETHING ELSE')).stdout)

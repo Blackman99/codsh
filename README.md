@@ -800,15 +800,24 @@ directory), install leaves it disabled, and `plugin enable ship` turns it on;
 `plugin disable ship` or `uninstall ship` removes `/ship` again. Without it
 there is no `/ship` command, no Ship hook, and no Ship state. When enabled,
 `/ship <idea>` (or `/ship:ship`) sends the legacy first-turn contract through
-dsh and runs pre-flight and wayfinder unchanged; a bare `/ship` resumes the one
-unfinished spec in `docs/specs`. Its hooks keep the legacy records
-(`<spec>.ship.json` with the sealed original requirement and
-`<spec>.ship.answers.json` with each answered question card) and the legacy
-guards (a conflicting idea, a changed original, several unfinished specs,
-corrupt answers). A dismissed or cancelled card records nothing, so a later
-`/ship` resumes. A spec past wayfinding is refused with a pointer to legacy
-`codsh` (`/ship`), which reads the same files: grill, planning, execution, and
-automatic phase continuation are not migrated yet. `/ship` prints one line such
+dsh and runs the whole legacy flow while dsh executes every agent: pre-flight,
+wayfinder, grill, to-spec and tickets (both gates auto-Confirmed; gate 1 seals
+the Mission Contract), parallel landing in isolated worktrees with serial
+`merge --no-ff`, conflict resolution with the legacy validation (three
+attempts, then a `## Blocker`), a separate final verification turn, and
+Merge-back into `Original-Branch`. The Stop hook continues the turn with each
+next phase (at most 8 continuations in a row); a bare `/ship` resumes the one
+unfinished spec in `docs/specs`, at any phase. Its hooks keep the legacy
+records (`<spec>.ship.json` with the sealed original requirement,
+`<spec>.ship.answers.json` with each answered question card, the Mission
+Contract, and `.scratch/<slug>/issues`) and the legacy guards (a conflicting
+idea, a changed original, several unfinished specs, corrupt answers, a missing
+or corrupt sealed contract). A dismissed or cancelled card records nothing,
+and a failed or cancelled child is never merged or ticked: its worktree is
+kept, and the next `/ship` dispatches the ticket again with a notice. A lost
+run state is rebuilt from the files. The Alignment Gate and drift scan are
+not ported; see `packages/cli/extensions/ship/README.md`.
+`/ship` prints one line such
 as `Ship graph · docs/specs/x.md · Status: wayfinding · 待认领 1 · 已认领 1 ·
 已关闭 2 · 2 of 4 decision answers recorded · http://127.0.0.1:<port>/<token>/`
 and prints it again only when it changes; the URL opens the same live Web

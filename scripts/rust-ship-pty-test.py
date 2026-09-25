@@ -6,10 +6,11 @@ state. `plugin install bundled:ship --trust` then `plugin enable ship` adds
 /ship; the rust-acp mock replays the legacy ship-wayfinder scenario through
 real dsh: the question card answer lands in <spec>.ship.answers.json, the
 ledger write seals <spec>.ship.json, a turn cancelled at the card records
-nothing and a bare /ship resumes, a conflicting idea and a spec past
-wayfinder are refused, and disabling the plugin removes /ship again. Uses the
-repo launcher and the native binary plus extension from
-`pnpm run build:rust`; runs on Linux and macOS. All homes are temp dirs.
+nothing and a bare /ship resumes, a conflicting idea is refused, a spec past
+wayfinder resumes with the next phase (ticket 208), and disabling the plugin
+removes /ship again. Uses the repo launcher and the native binary plus
+extension from `pnpm run build:rust`; runs on Linux and macOS. All homes are
+temp dirs.
 """
 import base64
 import fcntl
@@ -108,6 +109,21 @@ class Session:
                 break
         raise AssertionError(f'{self.name}: missing {text!r}\n{self.screen()}')
 
+    def wait_drawn(self, text, seconds=60):
+        """Wait for text drawn anywhere in the output stream: a late transcript
+        line can land outside the viewport the screen shows."""
+        needle = re.sub(r'\s+', '', text)
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.pump(0.3)
+            drawn = re.sub(r'\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][0-9A-Za-z]|\x1b[=>78]', '', bytes(self.data).decode('utf-8', 'replace'))
+            if needle in re.sub(r'\s+', '', drawn):
+                return
+            if self.process.poll() is not None:
+                break
+        (self.output / f'{self.name}.raw').write_bytes(bytes(self.data))
+        raise AssertionError(f'{self.name}: {text!r} was never drawn\n{self.screen()}')
+
     def type(self, text):
         os.write(self.master, text.encode())
         self.pump(0.3)
@@ -162,6 +178,8 @@ def main():
             'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
             'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',
             'DSH_CODE_CLI_MOCK_TOOL': 'ship-wayfinder',
+            # Every model request, for debugging a failed run.
+            'CODSH_REVIEW_TRACE': str(output / 'requests.trace.jsonl'),
         }
         rust_home = home / '.codsh-rust'
         plugin_data = rust_home / '.grok' / 'plugin-data' / 'ship'
@@ -193,7 +211,7 @@ def main():
         listed = cli('plugin', 'list')
         assert 'status=disabled' in listed, listed
         enabled = cli('plugin', 'enable', 'ship')
-        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 4 hooks' in enabled, enabled
+        assert 'Enabled plugin: ship [active]' in enabled and 'Provides 1 command · 7 hooks' in enabled, enabled
         results['install_enable'] = True
 
         spec = main_cwd / 'docs/specs/wayfinder-e2e.md'
@@ -247,7 +265,10 @@ def main():
         assert answers_of(spec) == ['wayfinder:route=Continue', 'wayfinder:resume=Continue']
         results['conflict_refused'] = True
 
-        # 6. Wayfinder hands off to grill; the next /ship is refused, not faked.
+        # 6. Wayfinder hands off to grill: the Stop hook continues the turn
+        # with the grill phase (ticket 208), and a later bare /ship resumes the
+        # spec at grill instead of refusing it. Nothing is faked: the mock
+        # only acknowledges, so the spec stays at grilling.
         grill_cwd = workspace(work, 'grill')
         grill_spec = grill_cwd / 'docs/specs/wayfinder-e2e.md'
         grill = Session('handoff', grill_cwd, env, output)
@@ -257,6 +278,8 @@ def main():
             grill.wait('Is the route clear?')
             grill.type('1')
             grill.wait('WAYFINDER_READY original=SMALL_WAYFINDER')
+            grill.wait_drawn('Ship · continuing: grill (Status: grilling)')
+            grill.wait_drawn('SHIP_CONTINUED grill')
             assert 'Status: grilling' in grill_spec.read_text()
         finally:
             assert grill.close() == 0
@@ -264,13 +287,16 @@ def main():
         try:
             later.wait('Connected to dsh ACP')
             later.type('/ship\r')
-            later.wait_flat('Ship in codsh --rust runs pre-flight and wayfinder only; '
-                            'docs/specs/wayfinder-e2e.md is at Status: grilling. '
-                            'Continue it with legacy codsh (/ship)')
-            assert 'WAYFINDER_' not in later.screen()
+            later.wait('Resume the pending research?')
+            later.type('1')
+            later.wait_drawn('WAYFINDER_RESUMED original=SMALL_WAYFINDER')
+            later.wait_drawn('Ship · continuing: grill (Status: grilling)')
+            later.wait_drawn('SHIP_CONTINUED grill')
+            assert 'Ship in codsh --rust runs pre-flight and wayfinder only' not in later.screen()
         finally:
             assert later.close() == 0
-        results['later_phase_refused'] = True
+        assert 'Status: grilling' in grill_spec.read_text()
+        results['later_phase_resumes'] = True
 
         # 7. Stop at the route question: no ledger, no records.
         stop_cwd = workspace(work, 'stop')
