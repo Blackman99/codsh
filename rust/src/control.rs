@@ -1,5 +1,6 @@
 //! Private control channel to the dsh child: steering queued follow-ups into a
-//! running turn and side questions (`/btw`). The dsh half is
+//! running turn, side questions (`/btw`), and (ticket 179) the question card,
+//! plan review, plan-mode state, and todos. The dsh half is
 //! `packages/cli/bin/rust-acp-control.mjs`.
 //!
 //! The client listens on a Unix socket inside a fresh 0700 directory and
@@ -34,8 +35,44 @@ pub enum ControlEvent {
         id: String,
         message: String,
     },
+    /// dsh asks the user (`ask_user_question`, or `exit_plan_mode` when
+    /// `review` is set). Only the question card answers it.
+    Question {
+        id: String,
+        session_id: String,
+        questions: Value,
+        review: Option<Review>,
+    },
+    /// dsh closed a question (timeout, aborted turn) or refused a late answer.
+    QuestionClosed {
+        id: String,
+        reason: String,
+    },
+    PlanState {
+        session_id: String,
+        active: bool,
+        pending: Option<bool>,
+        plan_file: String,
+    },
+    PlanResult {
+        id: String,
+        outcome: String,
+        message: String,
+    },
+    /// The `todos` projection: `None` before the first write of a turn.
+    Todos {
+        session_id: String,
+        todos: Option<Value>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
+}
+
+/// The plan under review. `plan` is empty when none was written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Review {
+    pub plan: String,
+    pub plan_file: String,
 }
 
 pub fn parse_event(line: &str) -> Option<ControlEvent> {
@@ -62,6 +99,45 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
             id: id()?,
             message: text("message"),
         },
+        "question" => ControlEvent::Question {
+            id: id()?,
+            session_id: text("sessionId"),
+            questions: value.get("questions").cloned().unwrap_or(Value::Null),
+            review: value
+                .get("review")
+                .filter(|v| v.is_object())
+                .map(|review| Review {
+                    plan: review
+                        .get("plan")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    plan_file: review
+                        .get("planFile")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                }),
+        },
+        "question_closed" => ControlEvent::QuestionClosed {
+            id: id()?,
+            reason: text("reason"),
+        },
+        "plan_state" => ControlEvent::PlanState {
+            session_id: text("sessionId"),
+            active: value.get("active").and_then(Value::as_bool)?,
+            pending: value.get("pending").and_then(Value::as_bool),
+            plan_file: text("planFile"),
+        },
+        "plan_result" => ControlEvent::PlanResult {
+            id: id()?,
+            outcome: text("outcome"),
+            message: text("message"),
+        },
+        "todos" => ControlEvent::Todos {
+            session_id: text("sessionId"),
+            todos: value.get("todos").filter(|v| v.is_array()).cloned(),
+        },
         _ => return None,
     })
 }
@@ -87,6 +163,29 @@ pub fn btw_message(id: &str, session_id: &str, question: &str) -> Value {
 
 pub fn btw_cancel_message(id: &str) -> Value {
     json!({ "type": "btw_cancel", "id": id })
+}
+
+/// Answer the question card. `comments` rides along with a plan approval.
+pub fn question_answer_message(id: &str, answers: Vec<Value>, comments: Option<&str>) -> Value {
+    let mut value = json!({ "type": "question_answer", "id": id, "answers": answers });
+    if let Some(comments) = comments {
+        value["comments"] = json!(comments);
+    }
+    value
+}
+
+/// Shift+X: the agent continues without an answer.
+pub fn question_dismiss_message(id: &str) -> Value {
+    json!({ "type": "question_dismiss", "id": id })
+}
+
+/// `q` in the plan review: abandon the plan and turn plan mode off.
+pub fn plan_quit_message(id: &str) -> Value {
+    json!({ "type": "plan_quit", "id": id })
+}
+
+pub fn plan_set_message(id: &str, session_id: &str, active: bool) -> Value {
+    json!({ "type": "plan_set", "id": id, "sessionId": session_id, "active": active })
 }
 
 pub struct ControlChannel {
@@ -398,6 +497,49 @@ mod tests {
                 id: "b1".into(),
                 message: "x".into()
             })
+        );
+        assert_eq!(
+            parse_event(
+                r##"{"type":"question","id":"q9","sessionId":"s","questions":[{"id":"a"}],"review":{"plan":"# P","planFile":"/p.md"}}"##
+            ),
+            Some(ControlEvent::Question {
+                id: "q9".into(),
+                session_id: "s".into(),
+                questions: json!([{ "id": "a" }]),
+                review: Some(Review {
+                    plan: "# P".into(),
+                    plan_file: "/p.md".into()
+                }),
+            })
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"plan_state","sessionId":"s","active":true,"pending":false,"planFile":"/p"}"#
+            ),
+            Some(ControlEvent::PlanState {
+                session_id: "s".into(),
+                active: true,
+                pending: Some(false),
+                plan_file: "/p".into()
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"todos","sessionId":"s","todos":null}"#),
+            Some(ControlEvent::Todos {
+                session_id: "s".into(),
+                todos: None
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"question_closed","id":"q9","reason":"timeout"}"#),
+            Some(ControlEvent::QuestionClosed {
+                id: "q9".into(),
+                reason: "timeout".into()
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"plan_state","sessionId":"s"}"#),
+            None
         );
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);

@@ -162,6 +162,15 @@ then `vi` without submitting. `[ui] simple_mode=false` is prompt Vim;
 so Tab and Right do not accept it. Suggestion rows stay blocked. `chips=false`
 is not an attachment refusal.
 
+Plan mode, `ask_user_question`, and todos are dsh's. `/plan [task|off]` and
+Shift+Tab switch plan mode; while it is on, only the session plan file
+(`$GROK_HOME/sessions/<encoded cwd>/<session id>/plan.md`) can be edited, in
+every permission mode. `exit_plan_mode` opens a review (`a` approve, `s` request
+changes, `c` comment, `y` copy, `q` abandon), questions open a card, and
+`/view-plan` shows the saved plan. `--no-plan`, `--no-ask-user`, and
+`[toolset.ask_user_question]` timeouts apply; plain prompts and editor sessions
+get the reference's no-operator answer.
+
 Maintainers run `pnpm run build:rust` before locally packing this package. The
 candidate carries its native binary, dependency/license records, and digest;
 users of that package need no Rust compiler. Missing/platform-mismatched or

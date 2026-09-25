@@ -9,6 +9,7 @@ export const name = 'rust-acp-file-approval'
 
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { planActive, planFilePath, planGate } from './rust-acp-plan.mjs'
 import { recordForPath } from './rust-worktree.mjs'
 
 function wait(ms, signal) {
@@ -94,6 +95,11 @@ export function accessFromTool(name, args = {}) {
     return { kind: 'websearch', query }
   }
   if (name === 'todo_write' || name === 'skill' || name === 'lsp') return { kind: 'read', path: '' }
+  // Plan and question tools change no file. enter_plan_mode asks the user
+  // itself; exit_plan_mode and ask_user_question are answered on the card.
+  if (name === 'enter_plan_mode' || name === 'exit_plan_mode' || name === 'ask_user_question') {
+    return { kind: 'read', path: '' }
+  }
   // search_tool reads the catalog; use_tool re-enters this gate as the
   // named MCP tool, so rules and grants apply to the real tool once.
   if (name === 'search_tool' || name === 'use_tool') return { kind: 'read', path: '' }
@@ -1495,10 +1501,19 @@ function agentCwdOf(exec) {
   return typeof cwd === 'string' ? cwd : undefined
 }
 
+/** An edit of this session's plan file while plan mode is on: auto-approved. */
+function planFileEdit(ctx, exec) {
+  const agent = exec.agent
+  const sessionId = agent?.session?.id ?? agent?.session?.header?.id
+  if (sessionId === undefined) return false
+  return planGate(planActive(ctx.get?.('planMode'), agent), exec.name, exec.arguments, planFilePath(sessionId))?.kind === 'plan-file'
+}
+
 export function apply(ctx) {
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!process.env.CODSH_PERMISSION_POLICY) {
       if (exec.name !== 'write' && exec.name !== 'edit') return next()
+      if (planFileEdit(ctx, exec)) return next()
       const path = typeof exec.arguments?.file_path === 'string' ? exec.arguments.file_path : ''
       return {
         kind: 'ask',
@@ -1510,6 +1525,14 @@ export function apply(ctx) {
     const hookDeny = process.env.CODSH_HOOK_DENY
     if (policy.loadError && mutatingAccess(access)) {
       return { kind: 'deny', reason: policy.loadError }
+    }
+    // The plan file is auto-approved in every permission mode while plan
+    // mode is on. Hooks and deny rules still win.
+    if (planFileEdit(ctx, exec)) {
+      if (hookDeny) return { kind: 'deny', reason: `Denied by hook: ${hookDeny}` }
+      const rules = evaluateRules(policy, access)
+      if (rules?.kind === 'deny') return { kind: 'deny', reason: rules.reason }
+      return next()
     }
     const decision = evaluateForAgent(policy, access, hookDeny, agentCwdOf(exec))
     if (decision.kind === 'deny') return { kind: 'deny', reason: decision.reason }

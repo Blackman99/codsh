@@ -40,6 +40,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "model",
         "multiline",
         "onboarding",
+        "plan",
         "queue",
         "rewind",
         "tasks",
@@ -48,6 +49,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "tour",
         "tutorial",
         "vim-mode",
+        "view-plan",
         "reload-assets",
         "worktree",
     ]
@@ -107,6 +109,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("model", &["m"], "Select a model", false),
     SlashCommand::new("multiline", &["ml"], "Toggle multiline input", true),
     SlashCommand::new("new", &[], "Start a new dsh session", true),
+    SlashCommand::new(
+        "plan",
+        &[],
+        "Enter plan mode (/plan off leaves; /plan <task> plans it)",
+        true,
+    ),
     SlashCommand::new("queue", &[], "List queued follow-ups (read-only)", true),
     SlashCommand::new("rename", &["title"], "Rename the current session", false),
     SlashCommand::new("resume", &[], "Resume a previous session", true),
@@ -118,6 +126,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     ),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("tasks", &[], "Show subagent tasks", true),
+    SlashCommand::new(
+        "view-plan",
+        &["show-plan", "plan-view"],
+        "Show this session's saved plan",
+        true,
+    ),
     SlashCommand::new(
         "worktree",
         &[],
@@ -1978,6 +1992,7 @@ impl PromptComposer {
                 return Action::Slash("/voice".into());
             }
             if item == "/compact"
+                || item == "/plan"
                 || item == "/login"
                 || item == "/logout"
                 || item == "/feedback"

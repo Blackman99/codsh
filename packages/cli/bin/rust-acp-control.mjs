@@ -10,12 +10,16 @@
  *   copy of the session history. Nothing is appended to the session, so the
  *   main history never sees the question or the answer.
  *
+ * - questions, plan review, plan state, and todos (ticket 179): see
+ *   rust-acp-interaction.mjs.
+ *
  * The client passes a Unix socket path and a one-time token in the
  * environment. Both are removed from `process.env` before anything else runs,
  * so tool children never inherit them. Without them the plugin is inert.
  */
 import { createConnection } from 'node:net'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createInteraction } from './rust-acp-interaction.mjs'
 
 export const name = 'rust-acp-control'
 export const inject = ['llm']
@@ -96,10 +100,17 @@ export async function collectText(stream) {
  * @param {object} ctx - cordis context with `llm` and `logger`.
  * @param {(message: object) => void} send - writes one message to the client.
  */
-export function createControl(ctx, send) {
+export function createControl(ctx, send, options = {}) {
   const agents = new Map()
   const steers = new Map()
   const btws = new Map()
+  const interaction = createInteraction(ctx, send, {
+    interactive: options.interactive === true,
+    timeoutSecs: options.timeoutSecs ?? 0,
+    connected: options.connected,
+    agents,
+    env: options.env,
+  })
 
   const returnSteer = (messageId) => {
     const entry = steers.get(messageId)
@@ -184,14 +195,17 @@ export function createControl(ctx, send) {
   return {
     agents,
     steers,
+    interaction,
     onCreated(agent) {
-      // Only the top-level agent of a session takes steers and side
-      // questions; a subagent child never stands in for it.
+      // Only the top-level agent of a session takes steers, side questions,
+      // and the question card; a subagent child never stands in for it.
       if (isChildAgent(agent)) return
       agents.set(agent.session.id, agent)
+      interaction.onCreated(agent)
     },
     onDisposed(agent) {
       reclaim(agent)
+      interaction.onDisposed(agent)
       if (agents.get(agent.session.id) === agent) agents.delete(agent.session.id)
     },
     onClaimed(agent, message) {
@@ -216,12 +230,14 @@ export function createControl(ctx, send) {
         return
       }
       if (request === null || typeof request !== 'object' || typeof request.id !== 'string') return
+      if (interaction.handle(request)) return
       if (request.type === 'steer') steer(request)
       else if (request.type === 'btw') void btw(request)
       else if (request.type === 'btw_cancel') btws.get(request.id)?.abort()
     },
     close() {
       for (const controller of btws.values()) controller.abort()
+      interaction.close()
     },
   }
 }
@@ -229,18 +245,45 @@ export function createControl(ctx, send) {
 export function apply(ctx) {
   const path = process.env.CODSH_CONTROL_SOCKET
   const token = process.env.CODSH_CONTROL_TOKEN
+  // Only the terminal UI draws a question card (the Rust client sets this).
+  const tui = process.env.CODSH_INTERACTION === 'tui'
   // Tool children are built from this environment. The token must not reach them.
   delete process.env.CODSH_CONTROL_SOCKET
   delete process.env.CODSH_CONTROL_TOKEN
-  if (!path || !token) return
-  const socket = createConnection(path)
-  socket.setEncoding('utf8')
-  const send = (message) => {
-    if (!socket.destroyed && socket.writable) socket.write(`${JSON.stringify(message)}\n`)
+  delete process.env.CODSH_INTERACTION
+  let socket
+  let connected = false
+  const write = (message) => {
+    if (socket !== undefined && !socket.destroyed && socket.writable) socket.write(`${JSON.stringify(message)}\n`)
   }
-  const control = createControl(ctx, send)
+  // Nothing but the hello may go out before the handshake line.
+  const send = (message) => {
+    if (connected) write(message)
+  }
+  const control = createControl(ctx, send, {
+    interactive: tui && Boolean(path && token),
+    timeoutSecs: Number(process.env.CODSH_ASK_USER_TIMEOUT_SECS ?? '0'),
+    connected: () => connected,
+  })
+  // The answerer is registered even without a terminal, so a plain prompt
+  // gets the no-operator answer instead of "no answerer".
+  ctx.on('user-questions/request', (request, next) => control.interaction.ask(request, next))
+  ctx.on('agent/created', ({ agent }) => control.onCreated(agent))
+  ctx.on('agent/disposed', ({ agent }) => control.onDisposed(agent))
+  ctx.on('session/event', (session, event) => control.interaction.onSessionEvent(session, event))
+  ctx.on('dispose', () => {
+    control.close()
+    socket?.destroy()
+  })
+  if (!path || !token) return
+  socket = createConnection(path)
+  socket.setEncoding('utf8')
   let buffer = ''
-  socket.on('connect', () => send({ type: 'hello', token }))
+  socket.on('connect', () => {
+    write({ type: 'hello', token })
+    connected = true
+    for (const agent of control.agents.values()) control.interaction.onCreated(agent)
+  })
   socket.on('data', (chunk) => {
     buffer += chunk
     if (buffer.length > MAX_LINE) {
@@ -255,16 +298,13 @@ export function apply(ctx) {
     }
   })
   socket.on('error', (error) => ctx.logger?.warn?.(`rust-acp-control: ${String(error?.message ?? error)}`))
-  socket.on('close', () => control.close())
+  socket.on('close', () => {
+    connected = false
+    control.close()
+  })
   // The socket must not keep dsh alive after stdin closes.
   socket.unref()
-  ctx.on('agent/created', ({ agent }) => control.onCreated(agent))
-  ctx.on('agent/disposed', ({ agent }) => control.onDisposed(agent))
   ctx.on('agent/inbox/claimed', ({ agent, message }) => control.onClaimed(agent, message))
   ctx.on('agent/inbox/discarded', ({ agent, message }) => control.onDiscarded(agent, message))
   ctx.on('agent/status', ({ agent, status }) => control.onStatus(agent, status))
-  ctx.on('dispose', () => {
-    control.close()
-    socket.destroy()
-  })
 }

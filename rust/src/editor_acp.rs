@@ -1844,6 +1844,7 @@ impl Runtime {
             cli_sandbox: None,
             cli_disable_web_search: false,
             cli_subagents: Default::default(),
+            cli_interaction: Default::default(),
         };
         if input.dsh_home.as_os_str().is_empty() {
             return Err("missing isolated DSH_HOME; use codsh --rust agent stdio".into());
@@ -1871,6 +1872,7 @@ impl Runtime {
         extra.extend(config::compact_env(&effective));
         extra.extend(config::web_env(&effective));
         extra.extend(crate::worktree::dsh_env(&effective.grok_home));
+        extra.extend(config::interaction_env(&effective));
         extra.retain(|(key, _)| key != "CODSH_PERMISSION_POLICY");
         extra.push((
             "CODSH_PERMISSION_POLICY".into(),

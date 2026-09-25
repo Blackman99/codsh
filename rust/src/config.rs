@@ -139,6 +139,10 @@ pub struct EffectiveConfig {
     pub subagent_cli: crate::subagents::CliSubagents,
     /// Environment the client passed to config (for the subagent knobs).
     pub subagent_env: BTreeMap<String, String>,
+    /// `features.ask_user_question` and `[toolset.ask_user_question]`.
+    pub ask: crate::interaction::AskSettings,
+    /// `--no-plan`, `--no-ask-user`, `--todo-gate` for this process.
+    pub interaction_cli: crate::interaction::CliInteraction,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -165,6 +169,8 @@ pub struct LoadInput {
     pub cli_disable_web_search: bool,
     /// `--no-subagents` and `--disallowed-tools Agent(type)`.
     pub cli_subagents: crate::subagents::CliSubagents,
+    /// `--no-plan`, `--no-ask-user`, `--todo-gate`.
+    pub cli_interaction: crate::interaction::CliInteraction,
 }
 
 impl EffectiveConfig {
@@ -371,6 +377,7 @@ pub fn load() -> EffectiveConfig {
         cli_sandbox: None,
         cli_disable_web_search: false,
         cli_subagents: Default::default(),
+        cli_interaction: Default::default(),
     })
 }
 
@@ -1902,6 +1909,37 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     for (key, value, source) in crate::web::inspect_rows(&web) {
         push_setting(&mut settings, key, &value, &source);
     }
+    let ask = crate::interaction::load_ask_settings(
+        user.as_ref()
+            .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
+        &input.env,
+        requirements.as_ref(),
+        managed.as_ref(),
+    );
+    for reason in &ask.errors {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: reason.clone(),
+        });
+    }
+    push_setting(
+        &mut settings,
+        "features.ask_user_question",
+        if ask.enabled { "true" } else { "false" },
+        &ask.enabled_source,
+    );
+    push_setting(
+        &mut settings,
+        "toolset.ask_user_question.timeout_enabled",
+        if ask.timeout_enabled { "true" } else { "false" },
+        &ask.timeout_enabled_source,
+    );
+    push_setting(
+        &mut settings,
+        "toolset.ask_user_question.timeout_secs",
+        &ask.timeout_secs.to_string(),
+        &ask.timeout_secs_source,
+    );
 
     EffectiveConfig {
         grok_home,
@@ -1966,7 +2004,18 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             })
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),
+        ask,
+        interaction_cli: input.cli_interaction,
     }
+}
+
+/// Plan, question, and todo knobs for the dsh plugins (ticket 179).
+pub fn interaction_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    crate::interaction::dsh_env(
+        &config.interaction_cli,
+        &config.ask,
+        &crate::interaction::plan_root(&config.grok_home, &config.cwd),
+    )
 }
 
 /// The subagent policy for the next dsh spawn.
@@ -3702,6 +3751,7 @@ mod tests {
             cli_sandbox: None,
             cli_disable_web_search: false,
             cli_subagents: Default::default(),
+            cli_interaction: Default::default(),
         }
     }
 

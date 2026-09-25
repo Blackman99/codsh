@@ -274,7 +274,23 @@ subagent `isolation: "worktree"`: a plain `git worktree` per id under
 beside it. The source checkout is only read; apply is explicit and merges per
 file against the worktree base; an isolated child sees a parent whose session
 header cwd is the worktree, and the permission listener checks its calls under
-both the worktree and the mapped checkout path. Deny and hook blocks have
+both the worktree and the mapped checkout path.
+Plan mode, questions, and todos (ticket 179) stay dsh state: `ctx.planMode`
+logs the plan projection, `exit_plan_mode` asks through `ctx.userQuestions`, and
+`todo/write` feeds the `todos` projection. `rust-acp-plan.mjs` adds
+`enter_plan_mode` (the ordinary approval prompt), the plan file under
+`$GROK_HOME/sessions/<encoded cwd>/<session id>/plan.md`, a prepended pre-execute
+deny plus a monotonic guard that refuse every edit but the plan file while plan
+mode is on (bash and subagents are not covered), `--no-plan` / `--no-ask-user`
+tool removal, and the `--todo-gate` reminder (at most two per prompt).
+`rust-acp-interaction.mjs` is the `user-questions/request` answerer: with
+`CODSH_INTERACTION=tui` it sends the question over the control socket and
+waits for the card (answer, dismissal, plan quit, timeout, or cancel; a late
+answer is stale); without a terminal a question gets the no-operator text and a
+plan review is approved. `plan_state` and `todos` follow session events. The
+Rust client only renders the card, review, status flag, and todos pane and sends
+`plan_set` for `/plan` and Shift+Tab.
+Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

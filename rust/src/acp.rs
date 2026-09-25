@@ -696,6 +696,20 @@ impl AcpClient {
         let _ = self.control_send(&crate::control::btw_cancel_message(id));
     }
 
+    /// Send one ticket-179 control message (answers, dismissals, plan quit).
+    pub fn send_control(&self, message: &Value) -> Result<(), String> {
+        self.control_send(message)
+    }
+
+    /// Ask dsh to enter or leave plan mode for this session.
+    pub fn send_plan_set(&self, id: &str, active: bool) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::plan_set_message(id, session, active))
+    }
+
     pub fn mcp_plan_path(&self) -> Option<&Path> {
         self.mcp_plan.as_deref()
     }

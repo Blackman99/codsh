@@ -196,7 +196,7 @@ describe('rust-acp-control transport', () => {
       expect(process.env.CODSH_CONTROL_TOKEN).toBeUndefined()
       for (let i = 0; i < 100 && lines.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
       expect(JSON.parse(lines[0])).toEqual({ type: 'hello', token: 'secret-token' })
-      expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'agent/inbox/claimed', 'agent/inbox/discarded', 'agent/status', 'dispose'])
+      expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'agent/inbox/claimed', 'agent/inbox/discarded', 'agent/status', 'dispose', 'session/event', 'user-questions/request'])
     } finally {
       handlers.dispose?.()
       await new Promise(resolve => server.close(resolve))
@@ -204,11 +204,19 @@ describe('rust-acp-control transport', () => {
     }
   })
 
-  it('is inert without the environment', () => {
+  it('opens no socket without the environment but still answers questions as no operator', async () => {
     delete process.env.CODSH_CONTROL_SOCKET
     delete process.env.CODSH_CONTROL_TOKEN
+    process.env.CODSH_INTERACTION = 'tui'
     const handlers = {}
-    apply({ llm: {}, logger: { warn() {} }, on: (name, fn) => { handlers[name] = fn } })
-    expect(handlers).toEqual({})
+    apply({ llm: {}, logger: { warn() {} }, get: () => undefined, on: (name, fn) => { handlers[name] = fn } })
+    // No socket: steer and inbox listeners are not registered.
+    expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'dispose', 'session/event', 'user-questions/request'])
+    expect(process.env.CODSH_INTERACTION).toBeUndefined()
+    const agent = fakeAgent('s-plain')
+    handlers['agent/created']({ agent })
+    await expect(handlers['user-questions/request']({ agent, questions: [{ id: 'q', question: 'x?' }] }, () => 'next'))
+      .rejects.toMatchObject({ code: 'NO_OPERATOR' })
+    handlers.dispose()
   })
 })

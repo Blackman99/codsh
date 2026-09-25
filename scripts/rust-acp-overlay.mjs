@@ -35,11 +35,15 @@ export function rustAcpControlUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-control.mjs', import.meta.url)))).href
 }
 
+export function rustAcpPlanUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-plan.mjs', import.meta.url)))).href
+}
+
 export function rustAcpMcpUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-mcp.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl(), mcpUrl = rustAcpMcpUrl()) {
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl(), mcpUrl = rustAcpMcpUrl(), planUrl = rustAcpPlanUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -78,6 +82,10 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
   const lspInsert = existsSync(lsp) && existsSync(toolLsp)
     ? ['    - id: lsp', `      name: '${pathToFileURL(lsp).href}'`, '    - id: tool-lsp', `      name: '${pathToFileURL(toolLsp).href}'`]
     : []
+  // ask_user_question: dsh's model-facing tool for its user-questions seam.
+  // The acp profile does not load it; the bundle ships the package.
+  const askUser = fileURLToPath(new URL('../node_modules/@deepseek-ai/dsh-tool-ask-user/lib/index.js', import.meta.url))
+  const askInsert = existsSync(askUser) ? ['    - id: tool-ask-user', `      name: '${pathToFileURL(askUser).href}'`] : []
   if (threshold) {
     const ratio = Number(threshold)
     if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -101,6 +109,7 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
   lines.push(
     '- insert:',
     ...lspInsert,
+    ...askInsert,
     '    - id: rust-acp-mock-llm',
     `      name: '${mockUrl}'`,
     '    - id: rust-acp-plain',
@@ -115,6 +124,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${compactUrl}'`,
     '    - id: rust-acp-web',
     `      name: '${webUrl}'`,
+    '    - id: rust-acp-plan',
+    `      name: '${planUrl}'`,
     '    - id: rust-acp-control',
     `      name: '${controlUrl}'`,
     '    - id: rust-acp-mcp',

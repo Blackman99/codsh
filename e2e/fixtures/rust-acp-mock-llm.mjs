@@ -9,7 +9,9 @@
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
  * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
- * steer-probe (three read steps, then reports the latest user text it saw). A side question
+ * steer-probe (three read steps, then reports the latest user text it saw),
+ * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
+ * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt). A side question
  * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
  * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
@@ -643,6 +645,57 @@ async function * subagentsTurn(options) {
   yield* mockText(`PARENT_DONE ${report}`)
 }
 
+
+/** Ticket 179 scenarios. Every reply names plan=on|off from the system prompt. */
+const INTERACTION_KEYS = ['ASK_ONE', 'ASK_MULTI', 'PLAN_ENTER', 'PLAN_EXIT', 'PLAN_EMPTY', 'PLAN_EDIT_OTHER', 'PLAN_EDIT_FILE', 'TODOS', 'STATUS']
+
+function* interactionTurn(options) {
+  // dsh sends the system prompt as system-role messages.
+  const system = [
+    String(options.system ?? ''),
+    ...options.messages.filter(message => message.role === 'system')
+      .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text)),
+  ].join('\n')
+  const plan = system.includes('You are in plan mode') ? 'on' : 'off'
+  const planFile = /Plan file for this session: (\S+?)\. /.exec(system)?.[1] ?? ''
+  const texts = rawUserTexts(options)
+  const gateFires = texts.filter(text => text.startsWith('You have outstanding todos')).length
+  let start = -1
+  let prompt = ''
+  options.messages.forEach((message, index) => {
+    if (message.role !== 'user') return
+    const text = message.content.find(block => block.type === 'text' && INTERACTION_KEYS.some(key => block.text.includes(key)))
+    if (text) {
+      start = index
+      prompt = text.text
+    }
+  })
+  const done = options.messages.slice(start + 1).flatMap(message => message.content.filter(block => block.type === 'tool-result'))
+  const key = INTERACTION_KEYS.find(name => prompt.includes(name)) ?? 'STATUS'
+  const offered = (Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : [])
+  const tools = ['ask_user_question', 'enter_plan_mode', 'exit_plan_mode'].map(name => `${name}=${offered.includes(name) ? 'yes' : 'no'}`).join(' ')
+  const report = done.map((result, index) => `[${index}:${result.isError ? 'error' : 'ok'}] ${resultText(result).replaceAll('\n', ' ').slice(0, 300)}`).join(' ')
+  const id = (suffix) => `rust-acp-${key.toLowerCase()}-${suffix}-${start}`
+  const call = {
+    ASK_ONE: ['ask_user_question', { questions: [{ id: 'color', header: 'Color', question: 'Which color?', options: [{ label: 'Red', description: 'warm' }, { label: 'Blue', description: 'cool' }] }] }],
+    ASK_MULTI: ['ask_user_question', { questions: [
+      { id: 'langs', question: 'Which languages?', options: [{ label: 'Rust' }, { label: 'Go' }, { label: 'TS' }], multi_select: true },
+      { id: 'name', question: 'Project name?' },
+    ] }],
+    PLAN_ENTER: ['enter_plan_mode', {}],
+    PLAN_EXIT: ['exit_plan_mode', { plan: '# Mock plan\n\n1. first step\n2. second step\n3. verify' }],
+    PLAN_EMPTY: ['exit_plan_mode', { plan: '' }],
+    PLAN_EDIT_OTHER: ['write', { file_path: 'other.txt', content: 'SHOULD_NOT_EXIST\n' }],
+    PLAN_EDIT_FILE: ['write', { file_path: planFile || 'missing-plan-path.md', content: '# Disk plan\n\n1. from disk\n' }],
+    TODOS: ['todo_write', { todos: [{ content: 'TODO_A', status: 'in_progress' }, { content: 'TODO_B', status: 'pending' }] }],
+  }[key]
+  if (call !== undefined && done.length === 0) {
+    yield* mockToolCall(id('1'), call[0], call[1])
+    return
+  }
+  yield* mockText(`RUST_INTERACTION ${key} plan=${plan} gate=${gateFires} ${tools} planFile=${planFile || '-'} ${report}`.trim())
+}
+
 class RustAcpMockAdapter extends LlmAdapter {
   listModels(provider) {
     if (provider === 'narrow') {
@@ -755,6 +808,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'subagents') {
       yield* subagentsTurn(options)
+      return
+    }
+    if (MODE === 'interaction') {
+      yield* interactionTurn(options)
       return
     }
     if (MODE === 'steer-probe') {
