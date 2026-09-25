@@ -36,6 +36,12 @@
  *   with no change is removed when the child ends; one with changes is kept,
  *   whatever the outcome (completed, failed, cancelled).
  *
+ * - Scheduled prompts (ticket 177, rust-acp-scheduler.mjs) fire as
+ *   background children of this plugin, so each fire gets the same type,
+ *   admission, permission listener, board line and dsh job as a
+ *   run_in_background call. The scheduler exists only in the interactive
+ *   client (CODSH_SCHEDULER=1) and only while subagents are enabled.
+ *
  * Lifecycle lines go to stderr as `\u241esubagent\u241e{json}` so the Rust
  * client can keep one board. CODSH_SUBAGENT_CONTROL names a private directory
  * where the client drops `<n>.json` files ({"action":"cancel","id":callId}).
@@ -49,6 +55,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
 import { DEFAULT_MAX_CONCURRENT_AGENTS, DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
+import { registerScheduler } from './rust-acp-scheduler.mjs'
 
 export const MARK = '\u241esubagent\u241e'
 export const DEFAULT_MAX_CONCURRENT = 32
@@ -897,4 +904,78 @@ export function apply(ctx) {
       return { status: settled.status, text: settled.text, childId: settled.record.childId, session: settled.session }
     },
   })
+
+  // Scheduled prompts (ticket 177): each fire is a background child owned
+  // by the session that created the task. Its completion reaches that
+  // session through dsh's tool-jobs notice, like any background subagent.
+  if (process.env.CODSH_SCHEDULER === '1') {
+    registerScheduler(ctx, {
+      isChildAgent: agent => isChildAgent(agent),
+      refusal: error ? `subagent policy refused: ${error}` : null,
+      startFire: async ({ owner, task, prompt, label, shape, live }) => {
+        const jobs = ctx.get('jobs')
+        if (!jobs) throw new Error('scheduled fires need the dsh jobs service')
+        const id = `loop-${task.id.slice(-12)}-${task.fire}`
+        const plan = await planChild({ parent: owner, id, prompt, label, background: true, signal: new AbortController().signal })
+        plan.base.id = id
+        plan.base.schedule = task.id
+        if (live && !live()) throw new Error('the task was deleted before this fire started')
+        const root = rootSessionOf(ctx, owner)
+        if (policy.limitBehavior === 'fail' && admission.count(root) >= admission.limit) {
+          emit({ ...plan.base, event: 'refused', detail: LIMIT_MESSAGE(admission.limit) })
+          throw new Error(LIMIT_MESSAGE(admission.limit))
+        }
+        const { record, controller, run, finish } = childRun(plan, sessionAdmit(root))
+        let settle = () => {}
+        const done = new Promise(resolve => {
+          settle = resolve
+        })
+        const failed = detail => {
+          settle({ status: 'failed', text: detail })
+          return { status: 'failed', detail }
+        }
+        let jobId
+        try {
+          jobId = jobs.start({
+            kind: 'subagent',
+            label: plan.request.label,
+            owner,
+            run: () => ({
+              cancel: reason => {
+                record.cancelRequested = true
+                controller.abort(new Error(String(reason ?? 'scheduled fire killed')))
+              },
+              done: run(controller.signal).then(({ result, startedAt }) => {
+                const status = finish(result, startedAt)
+                if (status === 'completed') {
+                  const text = outputText(result.output)
+                  settle({ status, text })
+                  const shaped = shape({ status, text })
+                  return { status: 'completed', output: shaped.output, detail: shaped.detail }
+                }
+                if (status === 'cancelled') {
+                  settle({ status: 'cancelled', text: '' })
+                  return { status: 'killed' }
+                }
+                return failed([stopReasonError(result.stopReason), result.diagnostic].filter(Boolean).join('\nDiagnostic: '))
+              }, failure => {
+                const status = finish(undefined, undefined, failure)
+                if (status === 'cancelled') {
+                  settle({ status: 'cancelled', text: '' })
+                  return { status: 'killed' }
+                }
+                return failed(String(failure instanceof Error ? failure.message : failure))
+              }),
+            }),
+          })
+        } catch (cause) {
+          records.delete(id)
+          throw cause
+        }
+        record.jobId = jobId
+        emit({ ...plan.base, event: 'job', job: jobId })
+        return { jobId, subagent: id, done }
+      },
+    })
+  }
 }

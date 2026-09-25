@@ -350,7 +350,7 @@ impl HeadlessOutput {
             }
             // Lifecycle lines of background commands; a plain turn prints
             // only what dsh answered.
-            AcpEvent::Job { .. } => {}
+            AcpEvent::Job { .. } | AcpEvent::Schedule { .. } => {}
             AcpEvent::Subagent { event } => {
                 // A settled or refused child is a diagnostic line on stderr;
                 // the answer stays the parent's.

@@ -76,6 +76,13 @@ pub enum ControlEvent {
         job: String,
         outcome: Result<String, String>,
     },
+    /// The tasks pane's delete of a scheduled prompt: the scheduler's answer
+    /// (found or not), or why the request failed.
+    ScheduleDeleteResult {
+        id: String,
+        task: String,
+        outcome: Result<(bool, String), String>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -162,6 +169,20 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
                 None => Ok(text("outcome")),
             },
         },
+        "schedule_delete_result" => ControlEvent::ScheduleDeleteResult {
+            id: id()?,
+            task: text("taskId"),
+            outcome: match value.get("error").and_then(Value::as_str) {
+                Some(error) => Err(error.to_string()),
+                None => Ok((
+                    value
+                        .get("success")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false),
+                    text("message"),
+                )),
+            },
+        },
         _ => return None,
     })
 }
@@ -219,6 +240,10 @@ pub fn background_message(id: &str, session_id: &str, reason: &str) -> Value {
 
 pub fn job_kill_message(id: &str, session_id: &str, job_id: &str) -> Value {
     json!({ "type": "job_kill", "id": id, "sessionId": session_id, "jobId": job_id })
+}
+
+pub fn schedule_delete_message(id: &str, session_id: &str, task_id: &str) -> Value {
+    json!({ "type": "schedule_delete", "id": id, "sessionId": session_id, "taskId": task_id })
 }
 
 pub struct ControlChannel {
@@ -606,6 +631,30 @@ mod tests {
         assert_eq!(
             job_kill_message("k1", "s1", "j1"),
             serde_json::json!({"type":"job_kill","id":"k1","sessionId":"s1","jobId":"j1"})
+        );
+        assert_eq!(
+            schedule_delete_message("d1", "s1", "t1"),
+            serde_json::json!({"type":"schedule_delete","id":"d1","sessionId":"s1","taskId":"t1"})
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"schedule_delete_result","id":"d1","taskId":"t1","success":true,"message":"Scheduled task t1 cancelled."}"#
+            ),
+            Some(ControlEvent::ScheduleDeleteResult {
+                id: "d1".into(),
+                task: "t1".into(),
+                outcome: Ok((true, "Scheduled task t1 cancelled.".into())),
+            })
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"schedule_delete_result","id":"d2","taskId":"t1","error":"gone"}"#
+            ),
+            Some(ControlEvent::ScheduleDeleteResult {
+                id: "d2".into(),
+                task: "t1".into(),
+                outcome: Err("gone".into()),
+            })
         );
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);

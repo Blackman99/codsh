@@ -12,7 +12,8 @@
  * steer-probe (three read steps, then reports the latest user text it saw),
  * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
  * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt),
- * background (ticket 175 background commands; see backgroundTurn). A side question
+ * background (ticket 175 background commands; see backgroundTurn), scheduler
+ * (ticket 177 scheduled prompts; see schedulerTurn). A side question
  * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
  * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
@@ -658,6 +659,94 @@ function * backgroundTurn(options) {
 
 const HOLD = { live: 0, peak: 0 }
 
+// Scheduled prompts (ticket 177).
+//   The /loop instruction (`# /loop -- schedule a recurring prompt`) is turned
+//   into scheduler_create: the first input token is the interval, the rest
+//   the prompt, fire_immediately: true. Then LOOP_SCHEDULED <result>.
+//   SCHED_CALL <json> calls scheduler_create with that input once.
+//   SCHED_LIST calls scheduler_list; SCHED_DELETE <id|first> deletes one.
+//   A fire's child (a `Scheduled task <id>` reminder) answers
+//   LOOP_STATUS n=<k> prior=<previous status or none> sched=<yes|no>; a
+//   LOOP_SLOW prompt waits 60s first (abortable). A completion notice is read
+//   with job_output and answered LOOP_WOKE job=<id> out=<one line>.
+let loopChildRuns = 0
+
+async function * schedulerTurn(options) {
+  const texts = rawUserTexts(options)
+  const fireText = texts.find(text => /^<system-reminder>\nScheduled task \S+ \(/.test(text))
+  if (fireText) {
+    const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : []
+    const prior = /Your previous iteration ended with:\n([^\n]*)/.exec(fireText)?.[1]
+    const body = fireText.slice(fireText.indexOf('</system-reminder>\n\n') + '</system-reminder>\n\n'.length)
+    if (body.includes('LOOP_SLOW')) {
+      try {
+        await sleep(60000, options.signal)
+      } catch {
+        return
+      }
+    }
+    loopChildRuns += 1
+    yield* mockText(`LOOP_STATUS n=${loopChildRuns} prompt=${oneLine(body).slice(0, 40)} prior=${prior ? prior.slice(0, 80) : 'none'} sched=${tools.some(name => name.startsWith('scheduler_')) ? 'yes' : 'no'}`)
+    return
+  }
+  const latest = latestUserText(options)
+  const since = resultsSinceUser(options)
+  const notice = /^background job (\S+) /.exec(latest)
+  if (notice) {
+    if (since.length === 0) {
+      yield* mockToolCall(`rust-loop-read-${notice[1]}-${Date.now().toString(36)}`, 'job_output', { job_id: notice[1] })
+      return
+    }
+    yield* mockText(`LOOP_WOKE job=${notice[1]} out=${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  const loopText = [...texts].reverse().find(text => text.includes('# /loop -- schedule a recurring prompt'))
+  const step = [...texts].reverse().find(text => /SCHED_(CALL|LIST|DELETE)/.test(text) || text.includes('# /loop -- schedule a recurring prompt'))
+  if (loopText && step === loopText) {
+    if (since.length === 0) {
+      const input = loopText.slice(loopText.lastIndexOf('## Input\n') + '## Input\n'.length).trim()
+      const [interval, ...rest] = input.split(/\s+/)
+      yield* mockToolCall(`rust-loop-create-${Date.now().toString(36)}`, 'scheduler_create', { interval, prompt: rest.join(' '), fire_immediately: true })
+      return
+    }
+    yield* mockText(`LOOP_SCHEDULED ${since.at(-1).isError ? 'error' : 'ok'} ${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  if (step?.includes('SCHED_CALL ')) {
+    if (since.length === 0) {
+      const input = JSON.parse(step.slice(step.indexOf('SCHED_CALL ') + 'SCHED_CALL '.length))
+      yield* mockToolCall(`rust-sched-call-${Date.now().toString(36)}`, 'scheduler_create', input)
+      return
+    }
+    yield* mockText(`SCHED_RESULT ${since.at(-1).isError ? 'error' : 'ok'} ${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  if (step?.includes('SCHED_LIST')) {
+    if (since.length === 0) {
+      yield* mockToolCall(`rust-sched-list-${Date.now().toString(36)}`, 'scheduler_list', {})
+      return
+    }
+    yield* mockText(`SCHED_LISTED ${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  if (step?.includes('SCHED_DELETE')) {
+    const wanted = /SCHED_DELETE (\S+)/.exec(step)?.[1] ?? 'first'
+    if (wanted === 'first' && since.length === 0) {
+      yield* mockToolCall(`rust-sched-list-${Date.now().toString(36)}`, 'scheduler_list', {})
+      return
+    }
+    const listed = wanted === 'first' ? 1 : 0
+    if (since.length === listed) {
+      const id = wanted === 'first' ? (JSON.parse(resultText(since[0])).tasks[0]?.id ?? 'none') : wanted
+      yield* mockToolCall(`rust-sched-delete-${Date.now().toString(36)}`, 'scheduler_delete', { id })
+      return
+    }
+    yield* mockText(`SCHED_DELETED ${oneLine(resultText(since.at(-1)))}`)
+    return
+  }
+  yield* mockText(`SCHED_REPLY ${oneLine(latest)}`)
+}
+
 async function * subagentChildTurn(options, kind, signal) {
   const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name).sort().join(',') : ''
   const done = toolResults(options)
@@ -981,6 +1070,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'background') {
       yield* backgroundTurn(options)
+      return
+    }
+    if (MODE === 'scheduler') {
+      yield* schedulerTurn(options)
       return
     }
     if (MODE === 'steer-probe') {

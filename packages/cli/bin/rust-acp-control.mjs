@@ -14,6 +14,9 @@
  *   foreground command to the background, so the message is not stuck
  *   behind it.
  *
+ * - schedule_delete: the tasks pane's delete for a scheduled prompt, handed
+ *   to rust-acp-scheduler (ticket 177).
+ *
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
  *
@@ -42,6 +45,9 @@ const BACKGROUND = Symbol.for('codsh.rust.background')
 function backgroundPlugin() {
   return globalThis[BACKGROUND]
 }
+
+/** rust-acp-scheduler registers itself here when the scheduler is enabled. */
+const SCHEDULER = Symbol.for('codsh.rust.scheduler')
 
 /**
  * Keep only complete tool exchanges. A tool call without its result (the turn
@@ -186,6 +192,20 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  const scheduleDelete = (request) => {
+    const scheduler = globalThis[SCHEDULER]
+    const agent = agents.get(request.sessionId)
+    const taskId = typeof request.taskId === 'string' ? request.taskId : ''
+    try {
+      if (scheduler === undefined) throw new Error('scheduled prompts are unavailable in this dsh')
+      if (agent === undefined) throw new Error('no live dsh session for this task')
+      const result = scheduler.delete(agent, taskId)
+      send({ type: 'schedule_delete_result', id: request.id, taskId, success: result.success, message: result.message })
+    } catch (error) {
+      send({ type: 'schedule_delete_result', id: request.id, taskId, error: String(error?.message ?? error) })
+    }
+  }
+
   const btw = async (request) => {
     const id = request.id
     const agent = agents.get(request.sessionId)
@@ -271,6 +291,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'btw_cancel') btws.get(request.id)?.abort()
       else if (request.type === 'background') background(request)
       else if (request.type === 'job_kill') jobKill(request)
+      else if (request.type === 'schedule_delete') scheduleDelete(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()

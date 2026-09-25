@@ -36,6 +36,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "jump",
         "login",
         "logout",
+        "loop",
         "minimal",
         "model",
         "multiline",
@@ -97,6 +98,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         &[],
         "Sign out and clear cached identity credentials",
         true,
+    ),
+    SlashCommand::new(
+        "loop",
+        &[],
+        "Run a prompt on a recurring interval (/loop 30m <prompt>)",
+        false,
     ),
     SlashCommand::new(
         "mcps",

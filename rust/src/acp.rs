@@ -87,6 +87,10 @@ pub enum AcpEvent {
     Job {
         event: Value,
     },
+    /// A scheduled-prompt lifecycle line from rust-acp-scheduler (ticket 177).
+    Schedule {
+        event: Value,
+    },
     Usage {
         used: Option<u64>,
         size: Option<u64>,
@@ -451,6 +455,7 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_RUST_BIN",
     "CODSH_SHELL_MARKER",
     "CODSH_SHELL_WORKDIR",
+    "CODSH_TEST_SCHEDULER_TIME_SCALE",
     "GROK_HOME",
 ];
 
@@ -459,6 +464,9 @@ pub const INHERITED_ENV: &[&str] = &[
 fn stderr_event(text: String) -> AcpEvent {
     if let Some(event) = crate::subagents::parse_line(&text) {
         return AcpEvent::Subagent { event };
+    }
+    if let Some(event) = crate::scheduler::parse_line(&text) {
+        return AcpEvent::Schedule { event };
     }
     match crate::background::parse_line(&text) {
         Some(event) => AcpEvent::Job { event },
@@ -823,6 +831,17 @@ impl AcpClient {
             .as_deref()
             .ok_or_else(|| "ACP session is not ready".to_string())?;
         self.control_send(&crate::control::job_kill_message(id, session, job_id))
+    }
+
+    /// Delete one scheduled prompt of this session (the tasks pane).
+    pub fn send_schedule_delete(&self, id: &str, task_id: &str) -> Result<(), String> {
+        let session = self
+            .session_id
+            .as_deref()
+            .ok_or_else(|| "ACP session is not ready".to_string())?;
+        self.control_send(&crate::control::schedule_delete_message(
+            id, session, task_id,
+        ))
     }
 
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {

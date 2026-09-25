@@ -354,7 +354,25 @@ the Rust client feeds the status line, the tasks pane (`x` stops a command
 through the control channel), and wake turns started by dsh's tool-jobs
 completion notice. Closing a dsh session disposes its owner and stops its
 commands; the client waits briefly for that before it kills the process group.
-A restored history never shows a command as running. Deny and hook blocks have
+A restored history never shows a command as running.
+Scheduled prompts stay dsh subagents (`rust-acp-scheduler.mjs`, registered by
+the subagent plugin only when the interactive client sets `CODSH_SCHEDULER=1`):
+dsh offers the parent the reference `scheduler_create`, `scheduler_delete`, and
+`scheduler_list` tools (60-second minimum, 50 tasks per session, 7-day expiry,
+overlap skip) and never offers them to a child. `/loop [interval] <prompt>` sends
+the reference `/loop` instruction as the turn; each fire is a background
+subagent of the default type started through the subagent planner, so type,
+capability, approvals, and the live cap apply, and its status returns once as a
+job completion that wakes an idle session. A fire does not resume the previous
+child's transcript; it starts fresh with the previous fire's final status. Tasks
+are session-only: closing the dsh session, a dsh restart, or quitting ends them,
+and `durable: true` is refused with `scheduler_durability_unavailable` (#178).
+The plugin reports `event: "schedule"` lines on stderr; the Rust client keeps
+the loop rows for the status line and the tasks pane, whose `x` sends
+`schedule_delete` through the control channel. Plain `-p`, editor ACP (the
+`x.ai/scheduled_task_*` and `x.ai/scheduler/delete` extensions are listed as
+unsupported), the shared server, and subagent-less sessions have no scheduler.
+Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

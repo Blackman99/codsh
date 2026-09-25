@@ -81,6 +81,30 @@ pub fn extension_inventory() -> Vec<ExtensionEntry> {
             "the leader version is in initialize _meta codsh/server; a mismatch is a stderr warning",
         ),
         (
+            "x.ai/scheduled_task_created",
+            "scheduled prompts run only in the interactive Rust client; editor ACP offers no scheduler tools",
+        ),
+        (
+            "x.ai/scheduled_task_fired",
+            "scheduled prompts run only in the interactive Rust client; editor ACP offers no scheduler tools",
+        ),
+        (
+            "x.ai/scheduled_task_deleted",
+            "scheduled prompts run only in the interactive Rust client; editor ACP offers no scheduler tools",
+        ),
+        (
+            "x.ai/scheduler/delete",
+            "scheduled prompts run only in the interactive Rust client; its tasks pane deletes them",
+        ),
+        (
+            "x.ai/schedulerGeneration",
+            "no scheduler state is published over editor ACP",
+        ),
+        (
+            "x.ai/schedulerRevision",
+            "no scheduler state is published over editor ACP",
+        ),
+        (
             "session/delete",
             "dsh ACP does not advertise sessionCapabilities.delete",
         ),
@@ -2111,6 +2135,10 @@ mod tests {
             "x.ai/session/updates/chunk",
             "x.ai/billing",
             "x.ai/review/comment",
+            "x.ai/scheduled_task_created",
+            "x.ai/scheduled_task_fired",
+            "x.ai/scheduled_task_deleted",
+            "x.ai/scheduler/delete",
             "session/delete",
             "session/fork",
             "session/set_mode",

@@ -680,6 +680,8 @@ pub struct Board {
     pub workflows: Vec<WorkflowRun>,
     /// Background commands (ticket 175) share the status line and the pane.
     pub jobs: crate::background::Jobs,
+    /// Scheduled prompts (ticket 177) share them too.
+    pub schedules: crate::scheduler::Schedules,
     /// The live session, so the wait hint names only this session's model.
     pub session: Option<String>,
 }
@@ -881,17 +883,23 @@ impl Board {
             .count()
     }
 
-    /// `◎ 1 subagent still running`, `◎ 1 command · 1 subagent still
-    /// running`, or empty. While the model is blocked waiting on a command,
-    /// a message interrupts the wait, and the line says so.
+    /// `◎ 1 subagent still running`, `◎ 1 command · 1 loop · 1 subagent
+    /// still running`, or empty. While the model is blocked waiting on a
+    /// command, a message interrupts the wait, and the line says so.
     pub fn status_text(&self) -> String {
         let commands = self.jobs.running();
+        let loops = self.loops().len();
         let children = self.running();
         let mut parts = Vec::new();
         match commands {
             0 => {}
             1 => parts.push("1 command".to_string()),
             count => parts.push(format!("{count} commands")),
+        }
+        match loops {
+            0 => {}
+            1 => parts.push("1 loop".to_string()),
+            count => parts.push(format!("{count} loops")),
         }
         match children {
             0 => {}
@@ -923,6 +931,11 @@ impl Board {
     /// Commands the tasks pane lists after the subagents.
     pub fn visible_jobs(&self) -> Vec<&crate::background::Job> {
         self.jobs.visible(self.hide_completed)
+    }
+
+    /// The live session's scheduled prompts, listed after the commands.
+    pub fn loops(&self) -> Vec<&crate::scheduler::Task> {
+        self.schedules.active(self.session.as_deref())
     }
 }
 
@@ -961,8 +974,16 @@ impl TasksModal {
             .and_then(|index| board.visible_jobs().get(index).copied())
     }
 
+    /// The selected scheduled prompt; it follows the commands.
+    pub fn selected_loop<'a>(&self, board: &'a Board) -> Option<&'a crate::scheduler::Task> {
+        let before = board.visible().len() + board.visible_jobs().len();
+        self.cursor
+            .checked_sub(before)
+            .and_then(|index| board.loops().get(index).copied())
+    }
+
     pub fn clamp(&mut self, board: &Board) {
-        let count = board.visible().len() + board.visible_jobs().len();
+        let count = board.visible().len() + board.visible_jobs().len() + board.loops().len();
         if count == 0 {
             self.cursor = 0;
         } else if self.cursor >= count {
@@ -984,8 +1005,12 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             ""
         }
     )];
-    // With only commands on the board, the subagent line has nothing to say.
-    if visible.is_empty() && !(board.entries.is_empty() && !board.jobs.entries.is_empty()) {
+    let loops = board.loops();
+    // With only commands or loops on the board, the subagent line has
+    // nothing to say.
+    if visible.is_empty()
+        && !(board.entries.is_empty() && (!board.jobs.entries.is_empty() || !loops.is_empty()))
+    {
         lines.push(if board.entries.is_empty() {
             "No subagents in this session yet.".into()
         } else {
@@ -1051,9 +1076,32 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
             }
         }
     }
+    if !loops.is_empty() {
+        lines.push(format!("Scheduled ({} active this session)", loops.len()));
+    }
+    let now = crate::scheduler::now_ms();
+    for (offset, task) in loops.iter().enumerate() {
+        let index = visible.len() + jobs.len() + offset;
+        let selected = index == modal.cursor;
+        lines.push(format!(
+            "{} {}",
+            if selected { ">" } else { " " },
+            task.row_at(now)
+        ));
+        if selected {
+            lines.push(format!("    id {}", task.id));
+            if !task.last.is_empty() {
+                lines.push(format!(
+                    "    last: {}",
+                    task.last.lines().next().unwrap_or("")
+                ));
+            }
+        }
+    }
     lines.push(String::new());
     lines.push(
-        "↑/↓ select · Enter/Ctrl+F inspect · x cancel/stop · h hide completed · Esc/q close".into(),
+        "↑/↓ select · Enter/Ctrl+F inspect · x cancel/stop/delete · h hide completed · Esc/q close"
+            .into(),
     );
     if !modal.notice.is_empty() {
         lines.push(modal.notice.clone());
@@ -1117,6 +1165,8 @@ pub fn render_modal(frame: &mut Frame, board: &Board, modal: &mut TasksModal, th
     let style = Style::default().fg(theme.text_primary).bg(theme.bg_base);
     match modal.view.as_mut() {
         None => {
+            // A deleted loop or a settled row can leave the cursor past the end.
+            modal.clamp(board);
             let block = Block::bordered().title(" Tasks ").style(style);
             let inner = block.inner(area);
             frame.render_widget(block, area);
@@ -1673,5 +1723,70 @@ mod tests {
             board.status_text(),
             "◎ 1 subagent still running · Ctrl+G or /tasks"
         );
+    }
+
+    #[test]
+    fn scheduled_loops_share_the_status_line_and_the_tasks_pane() {
+        let mut board = Board {
+            session: Some("s1".into()),
+            ..Board::default()
+        };
+        board.schedules.apply(&json!({"event":"created","id":"t1","session":"s1","prompt":"check deploy","human":"every 5 minutes","wakeAtMs":i64::MAX / 2}));
+        // Another session's loop is not this session's.
+        board.schedules.apply(&json!({"event":"created","id":"t2","session":"s0","prompt":"old","human":"every 1 minute"}));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 loop still running · Ctrl+G or /tasks"
+        );
+        board.jobs.apply(&json!({"event":"start","id":"j1","session":"s1","label":"sleep 30","reason":"user","output":""}));
+        board
+            .apply(&json!({"event":"start","id":"c1","type":"general-purpose","label":"loop: check deploy (every 5 minutes)","model":"m","background":true}));
+        assert_eq!(
+            board.status_text(),
+            "◎ 1 command · 1 loop · 1 subagent still running · Ctrl+G or /tasks"
+        );
+        let mut modal = TasksModal {
+            cursor: 9,
+            ..TasksModal::default()
+        };
+        modal.clamp(&board);
+        assert_eq!(modal.cursor, 2);
+        assert!(modal.selected(&board).is_none());
+        assert!(modal.selected_job(&board).is_none());
+        assert_eq!(
+            modal.selected_loop(&board).map(|task| task.id.as_str()),
+            Some("t1")
+        );
+        board.schedules.apply(&json!({"event":"result","id":"t1","session":"s1","fire":1,"status":"completed","summary":"all green"}));
+        let lines = list_lines(&board, &modal);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Scheduled (1 active this session)")
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("> [every 5 minutes] check deploy · next in "))
+        );
+        assert!(lines.iter().any(|line| line == "    id t1"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "    last: completed: all green")
+        );
+        assert!(!lines.iter().any(|line| line.contains("old")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("x cancel/stop/delete"))
+        );
+        board
+            .schedules
+            .apply(&json!({"event":"removed","id":"t1","session":"s1","reason":"deleted"}));
+        modal.clamp(&board);
+        assert_eq!(modal.cursor, 1);
+        assert!(modal.selected_loop(&board).is_none());
+        assert!(!board.status_text().contains("loop"));
     }
 }
