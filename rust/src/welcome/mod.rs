@@ -123,7 +123,9 @@ pub fn session_chrome_height(nav: &NavState) -> u16 {
 }
 
 pub fn session_notice_height(notice: &str) -> u16 {
-    notice.lines().count().clamp(1, 6) as u16
+    // Eight rows fit the /session-info card with its usage line (ticket 65)
+    // under the status row; longer notices keep their tail.
+    notice.lines().count().clamp(1, 8) as u16
 }
 
 pub fn session_input_height(draft: &TextArea, width: u16) -> u16 {

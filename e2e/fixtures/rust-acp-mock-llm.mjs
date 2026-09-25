@@ -1569,7 +1569,39 @@ class RustAcpMockAdapter extends LlmAdapter {
     })
   }
 
+  // DSH_CODE_CLI_MOCK_USAGE (ticket 65) rewrites the usage chunk of every
+  // reply so usage accounting sees controlled provider reports:
+  //   rich         every call reports input, cache read/write, output, and
+  //                reasoning tokens (the narrow route reports less)
+  //   none         no call reports usage
+  //   child-none   subagent children report none, the parent reports rich
+  //   parent-none  the parent reports none, subagent children report rich
+  // A child is a request whose user text names CHILD_<KIND>.
   async * stream(options) {
+    const usageMode = process.env.DSH_CODE_CLI_MOCK_USAGE ?? ''
+    if (usageMode === '') {
+      yield* this.replyStream(options)
+      return
+    }
+    const child = options.messages.some(message => message.role === 'user' && message.content
+      .some(block => block.type === 'text' && /CHILD_[A-Z]+/.test(block.text)))
+    const silent = usageMode === 'none' || (usageMode === 'child-none' && child) || (usageMode === 'parent-none' && !child)
+    for await (const chunk of this.replyStream(options)) {
+      if (chunk?.type !== 'usage') {
+        yield chunk
+        continue
+      }
+      if (silent) continue
+      yield {
+        type: 'usage',
+        usage: options.provider === 'narrow' || (options.model?.id ?? options.model) === 'narrow'
+          ? { inputTokens: 500, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 600 }
+          : { inputTokens: 1000, outputTokens: 200, cacheReadTokens: 300, cacheWriteTokens: 40, reasoningTokens: 50, totalTokens: 1540 },
+      }
+    }
+  }
+
+  async * replyStream(options) {
     const trace = process.env.CODSH_REVIEW_TRACE
     if (trace && options.purpose !== 'compaction') {
       const names = Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : []

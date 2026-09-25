@@ -21,6 +21,7 @@ _codsh_rust() {
     'share:Share a session with the configured service'
     'du:Show isolated-home disk usage'
     'disk-usage:Show isolated-home disk usage'
+    'usage:Show a session token usage ledger'
     'memory:Manage local memory notes'
     'worktree:Manage git worktrees'
   )

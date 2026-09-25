@@ -187,7 +187,13 @@ several models. A reused provider with different credentials or a different
 backend is refused, not written as a second YAML key. `/model` and `/effort` change only advertised catalog options; unknown
 backends and efforts are refused, never treated as equivalent or silently
 swapped. Usage and context stay unknown unless the provider or config actually
-supplies them. `/context` and `/compact` are dsh-backed: occupancy is a dsh
+supplies them. Session usage is one ledger folded from the dsh session log (whole log, so a
+resume never double-counts; a fork keeps inherited history as in the
+reference; subagent children fold into the spawning turn; auxiliary title,
+compaction, `/btw`, and memory calls are excluded), shared by `/usage`,
+`/session-info`, the status line payload, headless output, and
+`codsh --rust usage`. A call with no reported usage marks it incomplete, never
+zero. Cost is unknown: dsh reports none and no price table is used. `/context` and `/compact` are dsh-backed: occupancy is a dsh
 estimate, advertised limits follow the selected model's `context_window`, and
 compaction mutates the dsh session log rather than a second history. Optional
 `/compact` instructions travel only on the summarizer call (`purpose=compaction`)

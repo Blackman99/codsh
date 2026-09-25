@@ -109,6 +109,11 @@ pub enum ControlEvent {
         id: String,
         outcome: Result<crate::memory_capture::ModelReply, crate::memory_capture::ModelFailure>,
     },
+    /// The session usage ledger (ticket 65), or why dsh could not fold it.
+    Usage {
+        id: String,
+        outcome: Result<Box<crate::usage::Ledger>, String>,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -143,6 +148,18 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
         "memory_model_error" => ControlEvent::MemoryModel {
             id: id()?,
             outcome: Err(crate::memory_capture::parse_failure(&value)),
+        },
+        "usage_result" => ControlEvent::Usage {
+            id: id()?,
+            outcome: value
+                .get("ledger")
+                .and_then(crate::usage::Ledger::parse)
+                .map(Box::new)
+                .ok_or_else(|| "dsh sent an unreadable usage ledger".to_string()),
+        },
+        "usage_error" => ControlEvent::Usage {
+            id: id()?,
+            outcome: Err(text("message")),
         },
         "btw_answer" => ControlEvent::BtwAnswer {
             id: id()?,
@@ -657,6 +674,37 @@ mod tests {
         };
         assert!(failure.cancelled);
         assert_eq!(failure.route.messages, None);
+        let Some(ControlEvent::Usage {
+            id,
+            outcome: Ok(ledger),
+        }) = parse_event(
+            r#"{"type":"usage_result","id":"usage-1","sessionId":"s1","ledger":{"sessionId":"s1","session":{"inputTokens":5,"outputTokens":2,"totalTokens":7,"modelCalls":1,"costUsdTicks":null,"costReason":"not reported by the provider"}}}"#,
+        )
+        else {
+            panic!("usage ledger");
+        };
+        assert_eq!(id, "usage-1");
+        assert_eq!(ledger.session.buckets.total, 7);
+        assert_eq!(
+            ledger.session.cost,
+            crate::usage::Cost::Unknown("not reported by the provider".into())
+        );
+        assert_eq!(
+            parse_event(
+                r#"{"type":"usage_error","id":"usage-2","message":"no live dsh session for usage"}"#
+            ),
+            Some(ControlEvent::Usage {
+                id: "usage-2".into(),
+                outcome: Err("no live dsh session for usage".into())
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"usage_result","id":"usage-3","ledger":{}}"#),
+            Some(ControlEvent::Usage {
+                id: "usage-3".into(),
+                outcome: Err("dsh sent an unreadable usage ledger".into())
+            })
+        );
         assert_eq!(
             parse_event(r#"{"type":"btw_error","id":"b1","message":"x"}"#),
             Some(ControlEvent::BtwError {

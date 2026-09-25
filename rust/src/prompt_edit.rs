@@ -52,6 +52,8 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "timeline",
         "tour",
         "tutorial",
+        "usage",
+        "cost",
         "vim-mode",
         "view-plan",
         "reload-assets",
@@ -187,6 +189,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     ),
     SlashCommand::new("session-info", &["info"], "Show the current session", true),
     SlashCommand::new("tasks", &[], "Show subagent tasks", true),
+    SlashCommand::new(
+        "usage",
+        &["cost"],
+        "Show session token usage and cost",
+        true,
+    ),
     SlashCommand::new(
         "view-plan",
         &["show-plan", "plan-view"],

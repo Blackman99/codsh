@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { composeLedger } from './rust-usage.mjs'
 
 export function readLineage(home, sessionId) {
   try {
@@ -769,7 +770,61 @@ async function listCatalog(home, dshBin) {
   process.stdout.write(`${JSON.stringify({ ok: true, sessions, warnings })}\n`)
 }
 
+function isNotFound(error) {
+  const name = error?.name ?? ''
+  return name === 'SessionPersistenceNotFoundError' || /not found/i.test(error?.message ?? String(error))
+}
+
+/**
+ * `--usage` (ticket 65): the usage ledger of one session and its subagent
+ * children, folded from the durable logs by rust-usage.mjs. Read-only.
+ */
+async function usageLedger(home, dshBin, sessionId) {
+  const requireFromDsh = createRequire(dshBin)
+  const Context = (await import(pathToFileURL(requireFromDsh.resolve('@deepseek-ai/cordis')).href)).Context
+  const JsonlSessionPersistence = (await import(pathToFileURL(requireFromDsh.resolve('@deepseek-ai/dsh-session-persistence-jsonl')).href)).default
+  const ctx = new Context()
+  await ctx.plugin(JsonlSessionPersistence, { root: join(home, 'sessions') })
+  const persistence = ctx.sessionPersistence
+  if (persistence === undefined) fail(1, 'dsh session persistence is not mounted')
+  const load = async (id) => {
+    let handle
+    try {
+      handle = await persistence.open(id, 'read')
+    } catch (error) {
+      if (isNotFound(error)) return undefined
+      throw error
+    }
+    try {
+      const { events } = await handle.read()
+      const lineage = readLineage(home, id)
+      return { events, inheritedEventCount: handle.inheritedEventCount ?? lineage?.inheritedEventCount ?? 0 }
+    } finally {
+      await handle.close().catch(() => undefined)
+    }
+  }
+  try {
+    const ledger = await composeLedger(sessionId, load)
+    process.stdout.write(`${JSON.stringify({ ok: true, ledger })}\n`)
+  } catch (error) {
+    const message = error?.message ?? String(error)
+    fail(/^Session '.*' not found\.$/.test(message) ? 3 : 1, message)
+  } finally {
+    await ctx.fiber?.dispose?.().catch(() => undefined)
+  }
+}
+
 async function main() {
+  if (process.argv.includes('--usage')) {
+    const home = process.env.DSH_HOME
+    const dshBin = process.env.DSH_BIN
+    const sessionId = argValue('--session-id')
+    if (typeof sessionId !== 'string' || sessionId === '') fail(1, 'missing --session-id')
+    if (typeof home !== 'string' || home === '') fail(1, 'missing DSH_HOME')
+    if (typeof dshBin !== 'string' || dshBin === '') fail(1, 'missing DSH_BIN')
+    await usageLedger(home, dshBin, sessionId)
+    return
+  }
   if (process.argv.includes('--list')) {
     const home = process.env.DSH_HOME
     const dshBin = process.env.DSH_BIN

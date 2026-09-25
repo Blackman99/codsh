@@ -2,9 +2,12 @@
 //!
 //! `plain` prints the answer. `json` prints one object. `streaming-json` and
 //! `streaming-messages-json` print one JSON object per line. Tool arguments,
-//! tool results, and reasoning are copied from the ACP update. Usage and cost
-//! are copied only from a prompt `_meta.usage` object dsh actually sent.
-//! A missing ledger is `usage_absent`, never a zeroed bill.
+//! tool results, and reasoning are copied from the ACP update. Usage comes
+//! from the session usage ledger (ticket 65, `usage.rs`) for the turns this
+//! prompt started, subagent children included; a prompt `_meta.usage` object
+//! is copied only when no ledger was read. A missing ledger is
+//! `usage_absent`, never a zeroed bill, and cost appears only when a provider
+//! reported one (dsh reports none, so `cost_status` is `unknown`).
 
 use crate::acp::AcpEvent;
 use serde_json::{Map, Value, json};
@@ -61,6 +64,8 @@ pub struct HeadlessOutput {
     stop_reason: Option<String>,
     /// Prompt `_meta.usage` when dsh sent that object. Never synthesized.
     usage: Option<Value>,
+    /// The ledger slice for this prompt's turns, read before shutdown.
+    ledger: Option<crate::usage::Summary>,
     structured_output: Option<Value>,
     structured_error: Option<String>,
     tools: Vec<String>,
@@ -113,6 +118,7 @@ impl HeadlessOutput {
             request_id: None,
             stop_reason: None,
             usage: None,
+            ledger: None,
             structured_output: None,
             structured_error: None,
             tools: Vec::new(),
@@ -130,6 +136,11 @@ impl HeadlessOutput {
             partial_seq: 0,
             capture: None,
         }
+    }
+
+    /// The usage ledger slice for this prompt (ticket 65).
+    pub fn set_ledger(&mut self, summary: crate::usage::Summary) {
+        self.ledger = Some(summary);
     }
 
     pub fn text(&self) -> &str {
@@ -707,7 +718,7 @@ impl HeadlessOutput {
                 // error object even when dsh still said end_turn.
                 if self.failed_turn(failed) {
                     let mut err = json!({"type": "error", "message": message});
-                    self.attach_usage(&mut err);
+                    self.attach_usage(&mut err, true);
                     self.emit(&err);
                 } else {
                     let mut body = json!({
@@ -719,7 +730,7 @@ impl HeadlessOutput {
                     if !self.thought.is_empty() {
                         body["thought"] = json!(self.thought);
                     }
-                    self.attach_usage(&mut body);
+                    self.attach_usage(&mut body, failed || self.rejected);
                     self.attach_structured(&mut body);
                     let rendered =
                         serde_json::to_string_pretty(&body).unwrap_or_else(|_| body.to_string());
@@ -729,7 +740,7 @@ impl HeadlessOutput {
             OutputFormat::StreamingJson => {
                 if self.failed_turn(failed) {
                     let mut err = json!({"type": "error", "message": message});
-                    self.attach_usage(&mut err);
+                    self.attach_usage(&mut err, true);
                     self.emit(&err);
                 } else {
                     let mut end = json!({
@@ -738,7 +749,7 @@ impl HeadlessOutput {
                         "sessionId": self.session_id,
                         "requestId": self.request_id.map(|id| id.to_string()).unwrap_or_default(),
                     });
-                    self.attach_usage(&mut end);
+                    self.attach_usage(&mut end, failed || self.rejected);
                     self.attach_structured(&mut end);
                     self.emit(&end);
                 }
@@ -779,7 +790,7 @@ impl HeadlessOutput {
                 if failed && !message.is_empty() {
                     result["errors"] = json!([message]);
                 }
-                self.attach_usage(&mut result);
+                self.attach_usage(&mut result, failed || self.rejected || self.max_turns);
                 self.attach_structured(&mut result);
                 self.emit(&result);
                 let _ = io::stdout().flush();
@@ -802,11 +813,19 @@ impl HeadlessOutput {
         (failed || self.rejected) && !self.model_stop()
     }
 
-    /// Spend from dsh, or an explicit absence. Never a zero bill.
-    fn attach_usage(&self, target: &mut Value) {
+    /// Spend from the session ledger (or a prompt `_meta.usage`), or an
+    /// explicit absence. Never a zero bill. A failed or interrupted turn is
+    /// marked incomplete.
+    fn attach_usage(&self, target: &mut Value, failed: bool) {
         let Some(object) = target.as_object_mut() else {
             return;
         };
+        if let Some(summary) = &self.ledger {
+            for (key, value) in crate::usage::headless_fields(summary, failed) {
+                object.insert(key, value);
+            }
+            return;
+        }
         match &self.usage {
             Some(usage) => {
                 object.insert("usage".into(), usage.clone());
@@ -872,7 +891,7 @@ mod tests {
             result: json!({"stopReason": "end_turn"}),
         });
         let mut body = json!({});
-        output.attach_usage(&mut body);
+        output.attach_usage(&mut body, false);
         assert_eq!(body["usage_absent"], json!(true));
         assert!(body.get("usage").is_none());
         assert!(body.get("total_cost_usd").is_none());
@@ -888,10 +907,65 @@ mod tests {
             result: json!({"stopReason": "end_turn", "_meta": {"usage": usage}}),
         });
         let mut body = json!({});
-        output.attach_usage(&mut body);
+        output.attach_usage(&mut body, false);
         assert_eq!(body["usage"]["input_tokens"], json!(3));
         assert!(body.get("usage_absent").is_none());
         assert!(body.get("total_cost_usd").is_none());
+    }
+
+    fn ledger_slice(num_turns: u64) -> crate::usage::Summary {
+        crate::usage::Summary::parse(&json!({
+            "inputTokens": 2680, "uncachedInputTokens": 2000, "cachedReadTokens": 600,
+            "cacheCreationTokens": 80, "outputTokens": 400, "reasoningTokens": 100,
+            "totalTokens": 3080, "modelCalls": 2, "numTurns": num_turns,
+            "costUsdTicks": null, "costReason": "not reported by the provider",
+            "usageIsIncomplete": false, "incompleteReasons": [],
+            "modelUsage": {"cli-mock/cli-mock": {"inputTokens": 2680, "uncachedInputTokens": 2000,
+                "cachedReadTokens": 600, "cacheCreationTokens": 80, "outputTokens": 400, "modelCalls": 2}},
+            "subagents": {"sessions": 1, "modelCalls": 1, "totalTokens": 1540},
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn ledger_slice_replaces_absence_and_keeps_cost_unknown() {
+        let mut output = sample();
+        let sink = capture(&mut output);
+        output.on_event(&AcpEvent::PromptFinished {
+            request_id: 4,
+            stop_reason: "end_turn".into(),
+            result: json!({"stopReason": "end_turn"}),
+        });
+        output.text = "done".into();
+        output.set_ledger(ledger_slice(1));
+        output.finish(false, "");
+        let bytes = sink.lock().unwrap().clone();
+        let body: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body.get("usage_absent").is_none(), "{body}");
+        assert_eq!(body["usage"]["input_tokens"], json!(2000));
+        assert_eq!(body["usage"]["cache_read_input_tokens"], json!(600));
+        assert_eq!(
+            body["modelUsage"]["cli-mock/cli-mock"]["modelCalls"],
+            json!(2)
+        );
+        assert_eq!(body["cost_status"], json!("unknown"));
+        assert!(body.get("total_cost_usd").is_none());
+        assert!(body.get("usage_is_incomplete").is_none());
+    }
+
+    #[test]
+    fn messages_result_counts_main_loop_calls_and_marks_failures_incomplete() {
+        let mut output = messages(false);
+        let sink = capture(&mut output);
+        output.set_ledger(ledger_slice(1));
+        output.finish(true, "provider failed");
+        let lines = parsed_lines(&sink);
+        let result = lines.last().unwrap();
+        assert_eq!(result["type"], json!("result"));
+        assert_eq!(result["num_turns"], json!(1));
+        assert_eq!(result["usage"]["output_tokens"], json!(400));
+        assert_eq!(result["usage_is_incomplete"], json!(true));
+        assert!(result.get("total_cost_usd").is_none());
     }
 
     fn messages(rejected: bool) -> HeadlessOutput {

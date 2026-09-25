@@ -21,6 +21,10 @@
  *   restores the saved ones (ticket 178). The socket closing means the
  *   owning client is gone: every loop stops firing and saving at once.
  *
+ * - usage (ticket 65): the session usage ledger of rust-usage.mjs, folded
+ *   from the live session and its subagent children (persisted children of
+ *   an earlier process are read from the session store). Cost is unknown:
+ *   dsh reports tokens only.
  * - questions, plan review, plan state, and todos (ticket 179): see
  *   rust-acp-interaction.mjs.
  * - workflow: `/workflow [runs | pause | resume | stop | save] [name]` and
@@ -43,6 +47,7 @@
 import { createConnection } from 'node:net'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { createInteraction } from './rust-acp-interaction.mjs'
+import { composeLedger } from './rust-usage.mjs'
 
 export const name = 'rust-acp-control'
 export const inject = ['llm']
@@ -199,6 +204,9 @@ export function createControl(ctx, send, options = {}) {
   const steers = new Map()
   const btws = new Map()
   const memoryJobs = new Map()
+  // Every session that emitted an event here (top-level and subagent
+  // children), so the usage ledger folds live logs.
+  const sessions = new Map()
   const interaction = createInteraction(ctx, send, {
     interactive: options.interactive === true,
     timeoutSecs: options.timeoutSecs ?? 0,
@@ -413,10 +421,56 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  const loadSession = async (sessionId) => {
+    const live = sessions.get(sessionId) ?? agents.get(sessionId)?.session
+    if (live !== undefined && typeof live.snapshotEvents === 'function') {
+      return { events: live.snapshotEvents(), inheritedEventCount: live.inheritedEventCount ?? 0 }
+    }
+    const persistence = options.persistence?.()
+    if (persistence === undefined || typeof persistence.open !== 'function') {
+      throw new Error('the dsh session store is not available')
+    }
+    let handle
+    try {
+      handle = await persistence.open(sessionId, 'read')
+    } catch (error) {
+      if (error?.name === 'SessionPersistenceNotFoundError' || /not found/i.test(String(error?.message ?? error))) return undefined
+      throw error
+    }
+    try {
+      const { events } = await handle.read()
+      return { events, inheritedEventCount: handle.inheritedEventCount ?? 0 }
+    } finally {
+      await handle.close?.().catch?.(() => undefined)
+    }
+  }
+
+  const usageLedger = async (request) => {
+    const id = request.id
+    const sessionId = typeof request.sessionId === 'string' ? request.sessionId : ''
+    if (sessionId === '' || (!agents.has(sessionId) && !sessions.has(sessionId))) {
+      send({ type: 'usage_error', id, message: 'no live dsh session for usage' })
+      return
+    }
+    const sinceTime = Number(request.sinceTime)
+    try {
+      const ledger = await composeLedger(sessionId, loadSession, Number.isFinite(sinceTime) && sinceTime > 0 ? { sinceTime } : {})
+      // Live surfaces need the totals only; the per-turn rows stay out of the line.
+      if (request.turns === false) delete ledger.turns
+      send({ type: 'usage_result', id, sessionId, ledger })
+    } catch (error) {
+      send({ type: 'usage_error', id, message: String(error?.message ?? error) })
+    }
+  }
+
   return {
     agents,
     steers,
+    sessions,
     interaction,
+    trackSession(session) {
+      if (session && typeof session.id === 'string' && !sessions.has(session.id)) sessions.set(session.id, session)
+    },
     onCreated(agent) {
       // Only the top-level agent of a session takes steers, side questions,
       // and the question card; a subagent child never stands in for it.
@@ -463,6 +517,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'schedule_owner') scheduleOwner(request)
       else if (request.type === 'memory_model') void memoryModel(request)
       else if (request.type === 'memory_model_cancel') memoryJobs.get(request.id)?.abort()
+      else if (request.type === 'usage') void usageLedger(request)
     },
     close() {
       for (const controller of btws.values()) controller.abort()
@@ -494,13 +549,23 @@ export function apply(ctx) {
     interactive: tui && Boolean(path && token),
     timeoutSecs: Number(process.env.CODSH_ASK_USER_TIMEOUT_SECS ?? '0'),
     connected: () => connected,
+    persistence: () => {
+      try {
+        return ctx.get?.('sessionPersistence') ?? undefined
+      } catch {
+        return undefined
+      }
+    },
   })
   // The answerer is registered even without a terminal, so a plain prompt
   // gets the no-operator answer instead of "no answerer".
   ctx.on('user-questions/request', (request, next) => control.interaction.ask(request, next))
   ctx.on('agent/created', ({ agent }) => control.onCreated(agent))
   ctx.on('agent/disposed', ({ agent }) => control.onDisposed(agent))
-  ctx.on('session/event', (session, event) => control.interaction.onSessionEvent(session, event))
+  ctx.on('session/event', (session, event) => {
+    control.trackSession(session)
+    control.interaction.onSessionEvent(session, event)
+  })
   ctx.on('dispose', () => {
     control.close()
     socket?.destroy()

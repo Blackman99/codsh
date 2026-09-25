@@ -2,7 +2,7 @@
 Register-ArgumentCompleter -CommandName codsh -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $shells = @('bash', 'elvish', 'fish', 'powershell', 'zsh')
-  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'web', 'sessions', 'dashboard', 'export', 'share', 'du', 'disk-usage', 'memory', 'worktree')
+  $commands = @('help', 'completions', 'inspect', 'import', 'feedback', 'plugin', 'login', 'logout', 'setup', 'voice', 'web', 'sessions', 'dashboard', 'export', 'share', 'du', 'disk-usage', 'usage', 'memory', 'worktree')
   $flags = @(
     '--help', '-h', '--version', '-V', '-v', '--continue', '-c', '--resume', '-r', '--fork-session',
     '--session-id', '-s', '--model', '-m', '--effort', '--reasoning-effort', '--cwd',

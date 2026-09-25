@@ -312,8 +312,9 @@ def main():
         formatted = json.loads(later.stdout)
         assert 'FORMAT_TOKEN' in formatted['text']
         assert formatted['stopReason'] == 'end_turn'
-        assert formatted.get('usage_absent') is True
-        assert 'usage' not in formatted and 'total_cost_usd' not in formatted
+        # Usage is the dsh session-log ledger (ticket 65); dsh reports no cost.
+        assert 'usage_absent' not in formatted and formatted['usage']['total_tokens'] > 0, formatted
+        assert formatted['cost_status'] == 'unknown' and 'total_cost_usd' not in formatted, formatted
         verbatim = plain(launcher, project, env('echo'), ['-p', 'VERBATIM_TOKEN', '--verbatim'])
         assert verbatim.returncode == 0, verbatim.stderr
         assert 'VERBATIM_TOKEN' in verbatim.stdout

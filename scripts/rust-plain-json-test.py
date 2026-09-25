@@ -17,11 +17,12 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = subprocess.check_output(['node', '-p', 'process.execPath'], text=True).strip()
-# num_turns on streaming-messages-json is the assistant-frame count, the
-# documented fallback when dsh sent no usage ledger. It is not a bill.
+# Token usage comes from the dsh session log (ticket 65): the mock reports
+# per-call usage, so usage/modelUsage/num_turns appear with
+# cost_status "unknown". dsh reports no cost, so a cost key is always an
+# invented bill.
 SPEND_KEYS = (
-    'usage', 'modelUsage', 'total_cost_usd', 'total_cost_usd_ticks',
-    'cost_is_partial', 'usage_is_incomplete', 'costUSD', 'total_cost',
+    'total_cost_usd', 'total_cost_usd_ticks', 'cost_is_partial', 'costUSD', 'total_cost',
 )
 
 
@@ -88,6 +89,18 @@ def assert_no_log_on_stdout(stdout, label):
     lowered = stdout.lower()
     for marker in ('connecting to dsh', 'rust startup', 'acp connection', 'warning:'):
         assert marker not in lowered, f'{label} mixed a log into stdout: {stdout[:400]!r}'
+
+
+def assert_reported_usage(body, label):
+    usage = body.get('usage')
+    assert isinstance(usage, dict), f'{label} lost the dsh-reported usage: {body}'
+    assert usage['total_tokens'] == usage['input_tokens'] + usage['cache_read_input_tokens'] + usage['output_tokens'], body
+    assert usage['total_tokens'] > 0, body
+    assert body['cost_status'] == 'unknown', body
+    assert 'usage_absent' not in body and 'usage_is_incomplete' not in body, body
+    assert body['num_turns'] >= 1, body
+    for row in body['modelUsage'].values():
+        assert 'costUSD' not in row, body
 
 
 def assert_spend_absent(value, label):
@@ -189,7 +202,7 @@ def main():
             assert body['requestId']
             assert 'thought' not in body
             assert_spend_absent(body, 'json echo')
-            assert 'usage_absent' in body and body['usage_absent'] is True
+            assert_reported_usage(body, 'json echo')
             assert 'Connecting' not in result.stdout
             # Diagnostics, if any, stay off the JSON object.
             assert result.stderr == '' or 'JSON_TOKEN' not in result.stderr
@@ -202,6 +215,7 @@ def main():
             assert 'RUST_ACP_ANSWER' in body['text']
             assert body.get('thought') and 'RUST_ACP_THOUGHT' in body['thought']
             assert_spend_absent(body, 'json reasoning')
+            assert_reported_usage(body, 'json reasoning')
             tool_dir = work / 'json-tool'
             tool_dir.mkdir()
             (tool_dir / 'note.txt').write_text('alpha\n')
@@ -241,6 +255,7 @@ def main():
             assert end['stopReason'] == 'end_turn'
             assert end['sessionId'] and end['requestId']
             assert_spend_absent(events, 'streaming-json')
+            assert_reported_usage(end, 'streaming-json')
             assert kinds.index('tool_call') < kinds.index('tool_call_update') < kinds.index('text') < len(kinds) - 1
             assert (stream_dir / 'note.txt').read_text() == 'ALPHA\n'
 
@@ -276,8 +291,9 @@ def main():
             ]
             assert thinking and 'RUST_ACP_THOUGHT' in thinking[0]['thinking']
             assert_spend_absent(events, 'streaming-messages-json')
-            assert events[-1]['num_turns'] == len(assistant)
-            assert 'usage_absent' in events[-1]
+            # num_turns is the ledger's main-loop call count; one call here.
+            assert events[-1]['num_turns'] == 1 == len(assistant), events[-1]
+            assert_reported_usage(events[-1], 'streaming-messages-json')
             # Partials are off: no stream_event framing.
             assert not any(event['type'] == 'stream_event' for event in events)
 
@@ -330,13 +346,16 @@ def main():
             assert 'ignored' in warned.stderr
 
         def case_missing_usage_not_rewritten():
-            result = plain(launcher, project, env('echo'),
+            result = plain(launcher, project, env('echo', DSH_CODE_CLI_MOCK_USAGE='none'),
                            ['-p', 'NO_USAGE', '--output-format', 'streaming-json'])
             assert result.returncode == 0, result.stderr
             events = parse_ndjson(result.stdout, 'no usage')
             assert not any(event['type'] == 'usage' for event in events)
             assert_spend_absent(events, 'no usage stream')
             assert events[-1]['type'] == 'end'
+            # The provider reported nothing: no zeroed usage, marked incomplete.
+            assert 'usage' not in events[-1] and 'modelUsage' not in events[-1], events[-1]
+            assert events[-1]['usage_is_incomplete'] is True, events[-1]
 
         def case_interrupt_truncation_error_approval():
             hanging = start_plain(

@@ -38,6 +38,8 @@ pub struct StatusSnapshot {
     pub cost_usd: Option<f64>,
     pub turn_started: Option<Instant>,
     pub version: String,
+    /// Session usage ledger figures (ticket 65), refreshed when a turn settles.
+    pub usage: Option<crate::usage::StatusUsage>,
 }
 
 impl StatusSnapshot {
@@ -81,7 +83,18 @@ impl StatusSnapshot {
             cost_usd: cost.and_then(parse_cost),
             turn_started,
             version: env!("CARGO_PKG_VERSION").into(),
+            usage: None,
         }
+    }
+
+    /// Attach the session usage figures. A provider-reported session cost
+    /// fills `cost_usd` when ACP sent none; an unknown cost stays absent.
+    pub fn with_usage(mut self, usage: Option<crate::usage::StatusUsage>) -> Self {
+        if self.cost_usd.is_none() {
+            self.cost_usd = usage.as_ref().and_then(|usage| usage.cost_usd);
+        }
+        self.usage = usage;
+        self
     }
 
     pub fn payload(&self, trigger: &str, cols: u16, lines: u16) -> JsonValue {
@@ -123,11 +136,32 @@ impl StatusSnapshot {
         if let Some(threshold) = self.auto_compact_threshold_percent {
             window["auto_compact_threshold_percent"] = json!(threshold);
         }
+        if let Some(usage) = self.usage.as_ref().filter(|usage| usage.tokens_reported) {
+            window["session_input_tokens"] = json!(usage.session_input_tokens);
+            window["session_output_tokens"] = json!(usage.session_output_tokens);
+        }
         if window.as_object().is_some_and(|map| !map.is_empty()) {
             body["context_window"] = window;
         }
+        // The reference `cost` object: the total only when a provider reported
+        // one (never a zero for unknown), plus the model time.
+        let mut cost = json!({});
         if let Some(usd) = self.cost_usd {
-            body["cost"] = json!({ "total_cost_usd": usd });
+            cost["total_cost_usd"] = json!(usd);
+        }
+        if let Some(usage) = &self.usage {
+            cost["total_api_duration_ms"] = json!(usage.api_duration_ms);
+            if usage.tokens_reported {
+                body["session_usage"] = json!({
+                    "input_tokens": usage.uncached_input_tokens,
+                    "output_tokens": usage.session_output_tokens,
+                    "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+                    "cache_read_input_tokens": usage.cache_read_input_tokens,
+                });
+            }
+        }
+        if cost.as_object().is_some_and(|map| !map.is_empty()) {
+            body["cost"] = cost;
         }
         let _ = (cols, lines);
         body
@@ -740,6 +774,7 @@ mod tests {
             cost_usd: Some(0.02),
             turn_started: None,
             version: "0.1.0".into(),
+            usage: None,
         }
     }
 
@@ -793,6 +828,43 @@ mod tests {
         assert!(payload.get("cost").is_none());
         assert!(payload.get("context_window").is_none());
         assert_eq!(payload["trigger"], "state");
+    }
+
+    #[test]
+    fn payload_carries_session_usage_and_never_a_zero_cost() {
+        let usage = crate::usage::StatusUsage {
+            session_input_tokens: 1340,
+            session_output_tokens: 200,
+            uncached_input_tokens: 1000,
+            cache_read_input_tokens: 300,
+            cache_creation_input_tokens: 40,
+            model_calls: 1,
+            api_duration_ms: 1200,
+            cost_usd: None,
+            incomplete: false,
+            tokens_reported: true,
+        };
+        let mut base = snap();
+        base.cost_usd = None;
+        let with = base.clone().with_usage(Some(usage.clone()));
+        let payload = with.payload("state", 80, 1);
+        assert_eq!(payload["context_window"]["session_input_tokens"], 1340);
+        assert_eq!(payload["context_window"]["session_output_tokens"], 200);
+        assert_eq!(payload["session_usage"]["input_tokens"], 1000);
+        assert_eq!(payload["session_usage"]["cache_read_input_tokens"], 300);
+        assert_eq!(payload["session_usage"]["cache_creation_input_tokens"], 40);
+        assert_eq!(payload["cost"]["total_api_duration_ms"], 1200);
+        assert!(payload["cost"].get("total_cost_usd").is_none(), "{payload}");
+        let config = StatusLineConfig::default();
+        assert!(!compose_builtin(&config, &with).text.contains('$'));
+        let reported = base.with_usage(Some(crate::usage::StatusUsage {
+            cost_usd: Some(0.25),
+            ..usage
+        }));
+        assert_eq!(
+            reported.payload("state", 80, 1)["cost"]["total_cost_usd"],
+            0.25
+        );
     }
 
     #[test]
