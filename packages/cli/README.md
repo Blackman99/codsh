@@ -157,6 +157,10 @@ over SSH (public key, pinned host key, nothing forwarded); the remote config,
 policy, and sandbox execute, `/reconnect` attaches to a turn still running
 there, and `/remote` or `remote check` shows what the remote reports (see the
 root README).
+A remote host can require an organization identity (`[remote_access]` in its
+`requirements.toml`, checked with your own OpenID Connect provider on every
+request); the client sends its `login` session only to remotes listed in
+`[[remote_identity]]` (see the root README).
 `clone [-b BRANCH] [--cone PATH] [--full-history] <URL> [DIR]` clones with git
 in place of the reference Grove lazy clone once `GROK_CLONE`, `GROK_GROVE`, or
 Grove's `[clone] enabled` turns it on: depth 1 of one branch with blobs on

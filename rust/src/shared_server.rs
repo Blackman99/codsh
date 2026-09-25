@@ -833,6 +833,8 @@ enum ProxyEvent {
     LeaderEnded,
     Client(String),
     ClientEnded,
+    /// Time to confirm the organization identity again (ticket 207).
+    Tick,
 }
 
 #[cfg(unix)]
@@ -883,7 +885,7 @@ fn start_leader(socket: &Path) -> io::Result<std::process::Child> {
 }
 
 #[cfg(not(unix))]
-pub fn run_proxy(_: &Path) -> io::Result<i32> {
+pub fn run_proxy(_: &Path, _: Option<crate::remote_identity::Gate>) -> io::Result<i32> {
     Err(io::Error::other(
         "the shared leader needs Unix domain sockets; use agent --no-leader stdio on this platform",
     ))
@@ -892,8 +894,10 @@ pub fn run_proxy(_: &Path) -> io::Result<i32> {
 /// `agent --leader stdio`: connect the editor on stdin/stdout to the
 /// leader, starting one if none runs. The leader owns execution; a lost
 /// leader fails every request still waiting instead of retrying it.
+/// With a `gate` (ticket 207) every client line passes the host's
+/// organization identity policy first.
 #[cfg(unix)]
-pub fn run_proxy(socket: &Path) -> io::Result<i32> {
+pub fn run_proxy(socket: &Path, mut gate: Option<crate::remote_identity::Gate>) -> io::Result<i32> {
     check_socket_path(socket)?;
     if let Some(parent) = socket
         .parent()
@@ -963,6 +967,7 @@ pub fn run_proxy(socket: &Path) -> io::Result<i32> {
         );
     }
     let (tx, rx) = mpsc::channel();
+    let tick_tx = tx.clone();
     {
         let tx = tx.clone();
         thread::spawn(move || {
@@ -1002,11 +1007,61 @@ pub fn run_proxy(socket: &Path) -> io::Result<i32> {
             }
         }
     });
+    if let Some(gate) = &gate {
+        let tx = tick_tx;
+        let interval = gate.recheck_interval();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(interval);
+                if tx.send(ProxyEvent::Tick).is_err() {
+                    break;
+                }
+            }
+        });
+    }
     let mut outstanding: Vec<Value> = Vec::new();
     let mut client_done = false;
     let stdout = io::stdout();
     while let Ok(event) = rx.recv() {
+        let event = match (event, gate.as_mut()) {
+            (ProxyEvent::Client(line), Some(gate)) => match gate.on_client(&line) {
+                crate::remote_identity::Action::Forward(line) => ProxyEvent::Client(line),
+                crate::remote_identity::Action::Drop => continue,
+                crate::remote_identity::Action::Reply(reply) => {
+                    let mut out = stdout.lock();
+                    if writeln!(out, "{reply}").and_then(|_| out.flush()).is_err() {
+                        return Ok(0);
+                    }
+                    continue;
+                }
+                crate::remote_identity::Action::Revoke { reply, cancel } => {
+                    return Ok(revoke_connection(
+                        &mut writer,
+                        &stdout,
+                        &outstanding,
+                        reply,
+                        cancel,
+                    ));
+                }
+            },
+            (ProxyEvent::Leader(line), Some(gate)) => ProxyEvent::Leader(gate.on_leader(&line)),
+            (ProxyEvent::Tick, Some(gate)) => match gate.on_tick() {
+                Some(crate::remote_identity::Action::Revoke { reply, cancel }) => {
+                    return Ok(revoke_connection(
+                        &mut writer,
+                        &stdout,
+                        &outstanding,
+                        reply,
+                        cancel,
+                    ));
+                }
+                _ => continue,
+            },
+            (ProxyEvent::Tick, None) => continue,
+            (event, _) => event,
+        };
         match event {
+            ProxyEvent::Tick => {}
             ProxyEvent::Client(line) => {
                 if let Ok(message) = serde_json::from_str::<Value>(line.trim())
                     && message.get("method").is_some()
@@ -1078,6 +1133,62 @@ pub fn run_proxy(socket: &Path) -> io::Result<i32> {
         }
     }
     Ok(0)
+}
+
+/// The organization identity was refused while connected (ticket 207):
+/// cancel the prompts this client started at the leader, answer what the
+/// client still waits for, tell it why, and close.
+#[cfg(unix)]
+fn revoke_connection(
+    writer: &mut std::os::unix::net::UnixStream,
+    stdout: &io::Stdout,
+    outstanding: &[Value],
+    reply: Vec<Value>,
+    cancel: Vec<String>,
+) -> i32 {
+    for session in cancel {
+        let _ = writeln!(
+            writer,
+            "{}",
+            json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": session } })
+        );
+    }
+    let _ = writer.flush();
+    let reason = reply
+        .iter()
+        .find_map(|message| {
+            message
+                .pointer("/params/message")
+                .or_else(|| message.pointer("/error/message"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "Organization identity refused".into());
+    let replied: Vec<&Value> = reply
+        .iter()
+        .filter_map(|message| message.get("id"))
+        .collect();
+    let mut out = stdout.lock();
+    for id in outstanding {
+        if replied.contains(&id) {
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "{}",
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": crate::remote_identity::AUTH_ERROR, "message": reason.clone() }
+            })
+        );
+    }
+    for message in reply {
+        let _ = writeln!(out, "{message}");
+    }
+    let _ = out.flush();
+    eprintln!("{reason}");
+    1
 }
 
 #[derive(Clone, Debug)]

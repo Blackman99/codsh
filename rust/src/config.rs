@@ -3156,6 +3156,8 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "grok_com_config",
     "toolset",
     "disable_web_search",
+    "remote_access",
+    "remote_identity",
 ];
 
 const OVERLAY_ALLOWED: &[&str] = &["models", "model", "features", "auth", "endpoints"];

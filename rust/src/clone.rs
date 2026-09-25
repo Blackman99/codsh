@@ -1109,6 +1109,20 @@ pub fn run(args: &[String], remote_target: Option<remote::Target>) -> io::Result
             return Ok(EXIT_USAGE);
         }
     };
+    // A remote clone is a plain ssh command: it carries no organization
+    // identity, so a host that requires one refuses it (ticket 207).
+    if options.lifeline
+        && let Some(state) =
+            crate::remote_identity::policy_here(&crate::worktree::early_grok_home())
+    {
+        let why = crate::remote_identity::refusal_message(&state).unwrap_or_else(|| {
+            "this host requires an organization identity for remote access, and a remote clone cannot carry one".into()
+        });
+        say(&format!(
+            "clone: {why} Clone inside a remote session instead (codsh --rust --remote ssh://host/abs/path, then ask for the clone), or ask the host administrator."
+        ));
+        return Ok(EXIT_USAGE);
+    }
     let mut debug = Debug::open(&options)?;
     if let Err((message, code)) = gate_or_refuse(&mut debug) {
         say(&message);

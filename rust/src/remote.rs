@@ -498,9 +498,10 @@ pub fn report_text(report: &Value) -> String {
             .unwrap_or_else(|| "unknown".into())
     };
     let mut out = format!(
-        "remote {}\n  auth: {}\n  remote command: {}\n  agent: {} {}\n  server: transport={} shared={} sandbox={} live sessions={}\n  reattach: {}\n  sessions in directory: {}\n",
+        "remote {}\n  auth: {}\n  organization identity: {}\n  remote command: {}\n  agent: {} {}\n  server: transport={} shared={} sandbox={} live sessions={}\n  reattach: {}\n  sessions in directory: {}\n",
         get("/target"),
         get("/auth"),
+        crate::remote_identity::report_line(report.get("identity").unwrap_or(&Value::Null)),
         get("/remoteCommand"),
         get("/agentInfo/name"),
         get("/agentInfo/version"),
@@ -522,7 +523,7 @@ pub fn report_text(report: &Value) -> String {
     out
 }
 
-pub const HELP: &str = "Check a remote workspace over SSH.\n\nUsage: codsh --rust remote check ssh://[user@]host[:port]/abs/path [--remote-identity FILE] [--remote-known-hosts FILE] [--remote-command CMD] [--remote-ssh PROG] [--json]\n\nConnects with public-key auth and a pinned host key (BatchMode=yes, StrictHostKeyChecking=yes), runs `<remote-command> agent --leader stdio` there (default remote command: codsh --rust), and prints what that real remote reports: agent, leader, sandbox, reattach, and the features a remote session does not have.\n\nInteractive and plain sessions: codsh --rust --remote ssh://host/abs/path [-p PROMPT | --continue | --resume ID].\nThe remote host's config, credentials, permission policy, and sandbox execute every turn. Nothing local is forwarded.\n";
+pub const HELP: &str = "Check a remote workspace over SSH.\n\nUsage: codsh --rust remote check ssh://[user@]host[:port]/abs/path [--remote-identity FILE] [--remote-known-hosts FILE] [--remote-command CMD] [--remote-ssh PROG] [--json]\n\nConnects with public-key auth and a pinned host key (BatchMode=yes, StrictHostKeyChecking=yes), runs `<remote-command> agent --leader stdio` there (default remote command: codsh --rust), and prints what that real remote reports: agent, leader, sandbox, reattach, and the features a remote session does not have.\n\nInteractive and plain sessions: codsh --rust --remote ssh://host/abs/path [-p PROMPT | --continue | --resume ID].\nThe remote host's config, credentials, permission policy, and sandbox execute every turn. Nothing local is forwarded.\n\nOrganization identity: a host whose requirements.toml sets [remote_access] identity = \"required\" admits only an access token from its OpenID Connect provider, checked on every request. This client sends its `codsh --rust login` session only to remotes listed in config.toml:\n\n  [[remote_identity]]\n  target = \"ssh://host[:port][/path]\"\n  audience = \"<the audience the remote asks for>\"\n\n`remote check` reports whether the identity was accepted.\n";
 
 #[cfg(test)]
 mod tests {

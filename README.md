@@ -116,6 +116,43 @@ cloud workspaces (`x.ai/cloud/*`), and the Cursor worker need private
 infrastructure and stay refused. Checked on Linux against a local OpenSSH
 server, not against another machine, macOS, or Windows.
 
+An organization can require its identity for remote access (ticket 207). The
+reference sends its signed-in organization bearer to the official Computer Hub;
+codsh maps that to a deployable OpenID Connect provider you run (checked with
+Ory Hydra) and the SSH remote above. On the remote host, `requirements.toml`
+(or `managed_config.toml`) sets `[remote_access] identity = "required"`,
+`issuer`, `audience`, `introspection_url` (RFC 7662; https, or http on
+loopback; official x.ai/grok.com endpoints are refused; optional
+`introspection_client_id` with an owner-only `introspection_secret_file`),
+`teams`, `deny_subjects`, `recheck_secs` (default 30), and `locked` with
+`lock_message`. A user's `config.toml` cannot turn it off, and a policy that
+cannot be read or is incomplete refuses every connection. The leader proxy then
+answers nothing but `initialize` and `authenticate` until the client presents
+an access token that the provider reports active, for that issuer and audience,
+of an admitted team, and not a refresh token; it asks the provider again on
+every request, and on a timer while connected, so expiry, revocation at the
+provider (including `codsh --rust logout`), `deny_subjects`, and
+`locked` end the connection and cancel the turns it started (a turn left
+running by an earlier, already closed connection is not stopped by a later
+revocation; `codsh --rust leader kill` on the host stops it). On the client,
+`codsh --rust login` with that provider (`GROK_OIDC_ISSUER`,
+`GROK_OIDC_CLIENT_ID`, `GROK_OIDC_AUDIENCE`) is not enough by itself: the token
+is sent only to remotes listed in `[[remote_identity]] target = "ssh://host[:port][/path]"`
+with the same `audience`, only when the remote asks for that issuer, and never
+when its JWT `aud` names another audience. It is refreshed before it expires and
+sent again after a refresh. Both sides keep an owner-only JSONL audit
+(`$GROK_HOME/remote-identity.log` on the client, `remote-access.log` on the
+host) with the purpose, destination, subject, and a 12-hex SHA-256 fingerprint
+of the token, never the token; errors never contain it. `remote check` and
+`/remote` show the result. Limits: the check is in codsh's leader proxy, so a
+key that can open a shell bypasses it; restrict the organization key to a forced
+command such as `restrict,command="/path/org-agent.sh"` whose script runs
+`codsh --rust agent --leader stdio` with `SSH_CONNECTION` passed through. `agent
+serve` sockets and a remote clone carry no identity (a host that requires one
+refuses the clone). Without a policy a remote works exactly as before. There is
+no official Computer Hub, SSO, or paid account behind this; checked on Linux
+with Hydra and OpenSSH on loopback, not on macOS or Windows.
+
 `codsh --rust clone [-b BRANCH] [--cone PATH]... [--full-history] <URL> [DIR]`
 clones with plain git in place of the reference Grove lazy clone. It is off
 until a reference gate turns it on: `GROK_CLONE` or `GROVE_CLONE`, then

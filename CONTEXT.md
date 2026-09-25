@@ -37,7 +37,16 @@ owner lease and reads no local history, `session/load` replay rebuilds the
 transcript, `_codsh/prompt_complete` finishes a turn that was running when it
 attached, and a stopped remote leader or dsh is an interrupted turn with unknown
 effects. The official Computer Hub, cloud workspaces, and the Cursor worker stay
-refused. `codsh --rust clone` (ticket 191) is plain git standing in for the
+refused. A host whose `[remote_access] identity = "required"` (ticket 207,
+`remote_identity.rs`) puts a gate in the `agent --leader stdio` proxy: only
+`initialize` and `authenticate` (method `codsh-org-identity`, token in
+`_meta."codsh/identity"`, never forwarded to the leader) pass until an RFC 7662
+introspection says the token is active for the configured issuer, audience, and
+teams; every later request and a timer check again, and a denial sends
+`_codsh/remote_access_revoked`, cancels the connection's prompts, and closes. The
+client sends its `codsh --rust login` session only to `[[remote_identity]]`
+destinations with the advertised audience, re-reads auth.json before each request,
+and both sides audit a SHA-256 fingerprint, never the token. `codsh --rust clone` (ticket 191) is plain git standing in for the
 Grove lazy clone: off until `GROK_CLONE`/`GROVE_CLONE`, `GROK_GROVE`/`[cli]
 grove`, or Grove's `[clone] enabled`; depth-1 single-branch partial clone
 (`--full-history`, `--cone`), git's own credentials or `GROVE_AUTH_TOKEN` as an

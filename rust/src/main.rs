@@ -31,6 +31,7 @@ mod privacy_cmd;
 mod prompt_edit;
 mod prompt_queue;
 mod remote;
+mod remote_identity;
 mod scheduler;
 mod screen_mode;
 mod session_catalog;
@@ -2521,6 +2522,15 @@ fn connect_remote(
             ));
         }
     };
+    if let Err(error) = client.authenticate_remote(&target.label(), &init, Duration::from_secs(30))
+    {
+        client.shutdown();
+        return Err(format!(
+            "remote {} did not connect: {}",
+            target.label(),
+            error.message
+        ));
+    }
     remote_remember_init(init);
     let cwd = PathBuf::from(&target.path);
     let resolved = match session_mode(mode) {
@@ -2737,10 +2747,15 @@ fn remote_status_text(client: Option<&AcpClient>) -> String {
     } else {
         "reattach: no (the remote session ends with the connection)"
     };
+    let identity = remote_identity::report(
+        &init,
+        Ok(&client.and_then(|active| active.identity.clone())),
+    );
     format!(
-        "remote {} · {connected}\nauth: {}\nremote agent: {} {} · transport={} · sandbox={} · {reattach}\nnot in remote sessions: steer, /btw, plan, subagents, background, goal, workflow; /resume picker, fork, rewind, export; memory, rules, local MCP, plugins; @file and images; local policy flags\nofficial Computer Hub, cloud workspaces, Cursor worker: refused (private infrastructure)",
+        "remote {} · {connected}\nauth: {}\norganization identity: {}\nremote agent: {} {} · transport={} · sandbox={} · {reattach}\nnot in remote sessions: steer, /btw, plan, subagents, background, goal, workflow; /resume picker, fork, rewind, export; memory, rules, local MCP, plugins; @file and images; local policy flags\nofficial Computer Hub, cloud workspaces, Cursor worker: refused (private infrastructure)",
         target.label(),
         field("/auth"),
+        remote_identity::report_line(&identity),
         field("/agentInfo/name"),
         field("/agentInfo/version"),
         field("/server/transport"),
@@ -5500,7 +5515,32 @@ fn run_agent(launch: &Launch, command: shared_server::AgentCommand) -> io::Resul
             if let Some(note) = note {
                 eprintln!("{note}");
             }
+            // Ticket 207: a host that requires an organization identity for
+            // remote access enforces it in the leader proxy.
+            let identity = remote_identity::policy_here(&loaded.grok_home);
+            if let Some(state) = &identity
+                && let Some(message) = remote_identity::refusal_message(state)
+            {
+                std::process::exit(remote_identity::serve_refusal(
+                    &message,
+                    remote_identity::refusal_reason(state),
+                    &loaded.grok_home,
+                ));
+            }
+            let gate = match identity {
+                Some(remote_identity::PolicyState::Required(policy)) => {
+                    Some(remote_identity::Gate::new(policy, loaded.grok_home.clone()))
+                }
+                _ => None,
+            };
             if !shared {
+                if gate.is_some() {
+                    std::process::exit(remote_identity::serve_refusal(
+                        "Remote access refused: this host requires an organization identity, which the shared leader enforces, and this agent would run outside the leader (a sandbox profile other than off, or --no-leader).",
+                        "no_leader",
+                        &loaded.grok_home,
+                    ));
+                }
                 return editor_acp::serve(editor_launch(launch), sandbox);
             }
             let refused = leader_client_policy_flags(launch);
@@ -5511,7 +5551,7 @@ fn run_agent(launch: &Launch, command: shared_server::AgentCommand) -> io::Resul
                 )));
             }
             let path = shared_server::leader_socket(socket.as_deref(), &loaded.grok_home);
-            let code = shared_server::run_proxy(&path)?;
+            let code = shared_server::run_proxy(&path, gate)?;
             if code != 0 {
                 std::process::exit(code);
             }
@@ -7653,12 +7693,23 @@ fn run_remote_command(args: &[String]) -> io::Result<()> {
             )));
         }
     };
-    let sessions = client
-        .list_sessions(std::path::Path::new(&target.path), Duration::from_secs(30))
-        .ok()
-        .map(|listed| listed.len());
+    // An identity the remote requires is reported, not a hard failure: the
+    // check says what is missing (ticket 207).
+    let identity = client.authenticate_remote(&target.label(), &init, Duration::from_secs(30));
+    let sessions = if identity.is_ok() {
+        client
+            .list_sessions(std::path::Path::new(&target.path), Duration::from_secs(30))
+            .ok()
+            .map(|listed| listed.len())
+    } else {
+        None
+    };
     client.shutdown();
-    let report = remote::capability_report(&target, &init, sessions);
+    let mut report = remote::capability_report(&target, &init, sessions);
+    report["identity"] = remote_identity::report(
+        &init,
+        identity.as_ref().map_err(|error| error.message.as_str()),
+    );
     if json {
         println!(
             "{}",

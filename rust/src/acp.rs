@@ -379,6 +379,26 @@ pub struct AcpClient {
     remote_stderr: Option<std::sync::Arc<std::sync::Mutex<String>>>,
     /// `session/update` notifications collected during `session/load`.
     replay_capture: Option<Vec<Value>>,
+    /// The organization identity this remote asked for (ticket 207).
+    pub identity: Option<RemoteIdentityLink>,
+    identity_renew_at: Option<Instant>,
+    /// A renewal in flight: request id, the link it establishes, and what
+    /// was sent (for the audit line; the token is only fingerprinted).
+    identity_pending: Option<(u64, RemoteIdentityLink, crate::remote_identity::Credential)>,
+}
+
+/// What this client sent to a remote that requires an organization identity
+/// (ticket 207). The token itself is not kept: every request reads the
+/// current identity session from auth.json again, so a refresh, a logout,
+/// or a revoked refresh token applies to the next request.
+#[derive(Clone, Debug)]
+pub struct RemoteIdentityLink {
+    pub label: String,
+    pub offer: crate::remote_identity::Offer,
+    pub fingerprint: String,
+    pub subject: Option<String>,
+    pub team: Option<String>,
+    pub expires_at: Option<u64>,
 }
 
 /// What `session/load` against a remote hub returned (ticket 190).
@@ -406,7 +426,8 @@ enum PendingKind {
     Prompt,
     SetConfig,
     Close,
-    #[allow(dead_code)]
+    /// A renewed organization identity (ticket 207).
+    Identity,
     Other,
 }
 
@@ -484,6 +505,7 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_RUST_BIN",
     "CODSH_SHELL_MARKER",
     "CODSH_SHELL_WORKDIR",
+    "CODSH_SHELL_SLEEP",
     "CODSH_TEST_SCHEDULER_TIME_SCALE",
     "CODSH_TEST_MONITOR_TIME_SCALE",
     "CODSH_MOCK_MONITOR_TRACE",
@@ -733,6 +755,9 @@ impl AcpClient {
             remote: spec.remote,
             remote_stderr,
             replay_capture: None,
+            identity: None,
+            identity_renew_at: None,
+            identity_pending: None,
         })
     }
 
@@ -1024,6 +1049,176 @@ impl AcpClient {
     /// Events for one replayed `session/update` (ticket 190).
     pub fn replay_events(&mut self, params: Value) -> Vec<AcpEvent> {
         self.handle_notification("session/update", params)
+    }
+
+    /// Send this client's organization identity when the remote's
+    /// `initialize` asks for one (ticket 207). Nothing is sent to a remote
+    /// that is not listed in `[[remote_identity]]` with the audience it asks
+    /// for, and a remote that asks for nothing gets nothing.
+    pub fn authenticate_remote(
+        &mut self,
+        label: &str,
+        init: &Value,
+        timeout: Duration,
+    ) -> Result<Option<RemoteIdentityLink>, AcpError> {
+        self.identity = None;
+        let Some(offer) = crate::remote_identity::offer(init) else {
+            return Ok(None);
+        };
+        let credential = Self::identity_credential(label, &offer)?;
+        self.send_identity(label, offer, credential, timeout)
+            .map(Some)
+    }
+
+    fn identity_credential(
+        label: &str,
+        offer: &crate::remote_identity::Offer,
+    ) -> Result<crate::remote_identity::Credential, AcpError> {
+        let grok_home = crate::worktree::early_grok_home();
+        let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+        crate::remote_identity::credential_for(&grok_home, &env, label, offer).map_err(|message| {
+            crate::remote_identity::client_audit(&grok_home, label, None, Err(&message));
+            AcpError { message }
+        })
+    }
+
+    fn send_identity(
+        &mut self,
+        label: &str,
+        offer: crate::remote_identity::Offer,
+        credential: crate::remote_identity::Credential,
+        timeout: Duration,
+    ) -> Result<RemoteIdentityLink, AcpError> {
+        let grok_home = crate::worktree::early_grok_home();
+        let id = self.request(
+            "authenticate",
+            crate::remote_identity::authenticate_params(&credential),
+            PendingKind::Other,
+        )?;
+        match self.wait_result(id, timeout) {
+            Ok(result) => {
+                crate::remote_identity::client_audit(
+                    &grok_home,
+                    label,
+                    Some(&credential),
+                    Ok(&result),
+                );
+                let accepted = result
+                    .pointer("/_meta")
+                    .and_then(|meta| meta.get(crate::remote_identity::META_KEY))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let text = |key: &str| {
+                    accepted
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                };
+                let link = RemoteIdentityLink {
+                    label: label.to_string(),
+                    offer,
+                    fingerprint: crate::remote_identity::fingerprint(&credential.token),
+                    subject: text("subject"),
+                    team: text("team"),
+                    expires_at: accepted
+                        .get("expiresAt")
+                        .and_then(Value::as_u64)
+                        .or(credential.expires_at),
+                };
+                self.identity = Some(link.clone());
+                Ok(link)
+            }
+            Err(error) => {
+                crate::remote_identity::client_audit(
+                    &grok_home,
+                    label,
+                    Some(&credential),
+                    Err(&error.message),
+                );
+                self.identity = None;
+                Err(AcpError {
+                    message: format!(
+                        "{label} refused this organization identity: {}",
+                        error.message
+                    ),
+                })
+            }
+        }
+    }
+
+    /// Before a remote request, and while idle near expiry: read the
+    /// identity session again and send it when it changed (a refresh). The
+    /// remote handles lines in order, so the new token is checked before the
+    /// request that follows it; nothing waits here, and a running turn's
+    /// updates keep flowing. A session that is gone or cannot be refreshed
+    /// stops the request here, before anything is sent.
+    fn renew_identity(&mut self) -> Result<(), AcpError> {
+        let Some(link) = self.identity.clone() else {
+            return Ok(());
+        };
+        let credential = Self::identity_credential(&link.label, &link.offer)?;
+        let fingerprint = crate::remote_identity::fingerprint(&credential.token);
+        if fingerprint == link.fingerprint
+            || self
+                .identity_pending
+                .as_ref()
+                .is_some_and(|(_, pending, _)| pending.fingerprint == fingerprint)
+        {
+            return Ok(());
+        }
+        let id = self.request(
+            "authenticate",
+            crate::remote_identity::authenticate_params(&credential),
+            PendingKind::Identity,
+        )?;
+        let renewed = RemoteIdentityLink {
+            fingerprint,
+            expires_at: credential.expires_at,
+            ..link
+        };
+        self.identity_pending = Some((id, renewed, credential));
+        Ok(())
+    }
+
+    /// While idle: renew an identity that is about to expire, so a quiet
+    /// connection is not dropped by the remote's periodic check.
+    fn renew_identity_when_due(&mut self) -> Vec<AcpEvent> {
+        let Some(expires_at) = self.identity.as_ref().and_then(|link| link.expires_at) else {
+            return Vec::new();
+        };
+        if self.disconnected.is_some()
+            || crate::auth::now_unix() + 60 < expires_at
+            || self
+                .identity_renew_at
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(15))
+        {
+            return Vec::new();
+        }
+        self.identity_renew_at = Some(Instant::now());
+        match self.renew_identity() {
+            Ok(()) => Vec::new(),
+            Err(error) => vec![AcpEvent::RpcError {
+                request_id: None,
+                code: crate::remote_identity::AUTH_ERROR,
+                message: error.message,
+            }],
+        }
+    }
+
+    /// The answer to a renewal sent by [`renew_identity`].
+    fn identity_answer(&mut self, id: u64, result: Result<&Value, &str>) {
+        let Some((pending_id, link, credential)) = self.identity_pending.take() else {
+            return;
+        };
+        if pending_id != id {
+            self.identity_pending = Some((pending_id, link, credential));
+            return;
+        }
+        let grok_home = crate::worktree::early_grok_home();
+        crate::remote_identity::client_audit(&grok_home, &link.label, Some(&credential), result);
+        if result.is_ok() {
+            self.identity = Some(link);
+        }
     }
 
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
@@ -1406,6 +1601,7 @@ impl AcpClient {
 
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
         let mut events = std::mem::take(&mut self.held);
+        events.extend(self.renew_identity_when_due());
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1530,6 +1726,9 @@ impl AcpClient {
             return Err(AcpError {
                 message: detail.clone(),
             });
+        }
+        if self.identity.is_some() && !matches!(method, "initialize" | "authenticate") {
+            self.renew_identity()?;
         }
         let id = self.next_id;
         self.next_id += 1;
@@ -1736,6 +1935,19 @@ impl AcpClient {
                 self.disconnected = Some(message.clone());
                 vec![AcpEvent::Disconnected { detail: message }]
             }
+            crate::remote_identity::REVOKED_NOTIFICATION => {
+                let message = params
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Organization identity refused")
+                    .to_string();
+                let message = format!(
+                    "{message}. The remote closed this connection and cancelled any turn it had started; run `codsh --rust login` if needed, then /reconnect"
+                );
+                self.identity = None;
+                self.disconnected = Some(message.clone());
+                vec![AcpEvent::Disconnected { detail: message }]
+            }
             "_codsh/leader_disconnected" => {
                 let message = "remote codsh leader stopped or restarted; a running turn has no result, its external effects are unknown and were not retried".to_string();
                 self.disconnected = Some(message.clone());
@@ -1906,6 +2118,9 @@ impl AcpClient {
                 .and_then(Value::as_str)
                 .unwrap_or("ACP error")
                 .to_string();
+            if matches!(kind, Some(PendingKind::Identity)) {
+                self.identity_answer(id, Err(&message));
+            }
             self.completed.insert(
                 id,
                 Err(AcpError {
@@ -1966,6 +2181,10 @@ impl AcpClient {
             }
             Some(PendingKind::SessionList) => {
                 self.completed.insert(id, Ok(result));
+                Vec::new()
+            }
+            Some(PendingKind::Identity) => {
+                self.identity_answer(id, Ok(&result));
                 Vec::new()
             }
             Some(PendingKind::Prompt) => {

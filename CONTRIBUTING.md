@@ -603,7 +603,21 @@ restart reported as unknown effects with no retry. Both need OpenSSH: set
 `usr/bin/ssh-keygen` (for example `apt-get download openssh-client
 openssh-server` plus `dpkg -x`; add `libwrap0` and `libwtmpdb0` when they are
 missing), or have ssh/sshd on PATH. Without them the spec is skipped and the PTY
-script prints SKIP with the reason. `codsh --rust clone` (ticket 191) is checked by
+script prints SKIP with the reason. Organization identity for remote access
+(ticket 207) is checked by `scripts/rust-remote-identity.spec.mjs` (fixtures in
+`scripts/rust-identity-fixtures.mjs`) against a real Ory Hydra (Apache-2.0,
+sqlite build) with the organization's login and consent app on loopback, the
+same OpenSSH server with the org key restricted to a forced command, and real
+dsh: login through Hydra, no token sent without a `[[remote_identity]]`
+destination, an unauthenticated client refused, team, audience, and issuer
+mismatches, `deny_subjects`, `locked`, an unreadable policy, a user config that
+cannot turn the policy off, refresh of a short-lived token, logout and
+administrator revocation, a mid-turn revocation that cancels the remote command,
+and audit logs without the token. It needs OpenSSH as above and Hydra: download
+`hydra_<version>-linux_sqlite_64bit.tar.gz` from github.com/ory/hydra releases,
+check it against that release's `checksums.txt`, and set
+`CODSH_TEST_HYDRA=<path to the hydra binary>` (or have `hydra` on PATH); without
+it the spec is skipped with the reason. `codsh --rust clone` (ticket 191) is checked by
 `scripts/rust-clone.spec.mjs` (fixtures in `scripts/rust-clone-fixtures.mjs`)
 and `scripts/rust-clone-pty-test.py` against temporary local bare repositories
 only: file://, a loopback `git http-backend` behind a Basic-token check, and

@@ -96,6 +96,32 @@ leader。`agent headless`、`agent serve --remote <url>`、`--grok-ws-url` 和 C
 和 Cursor worker 需要私有基础设施，仍然拒绝。本次在 Linux 上对本机 OpenSSH 服务器验证，
 未对另一台机器、macOS 或 Windows 验证。
 
+组织可以要求远程访问必须使用组织身份（ticket 207）。参考实现把已登录的组织 bearer
+发给官方 Computer Hub；codsh 把它映射为你自己部署的 OpenID Connect 服务（用 Ory Hydra
+验证）加上上面的 SSH 远端。在远端主机上，`requirements.toml`（或 `managed_config.toml`）
+设置 `[remote_access] identity = "required"`、`issuer`、`audience`、`introspection_url`
+（RFC 7662；https，或回环地址上的 http；官方 x.ai/grok.com 端点会被拒绝；可选
+`introspection_client_id` 加只有属主可读的 `introspection_secret_file`）、`teams`、
+`deny_subjects`、`recheck_secs`（默认 30）以及 `locked` 与 `lock_message`。用户自己的
+`config.toml` 不能关闭它；读不出或不完整的策略会拒绝所有连接。此后 leader 代理只回答
+`initialize` 和 `authenticate`，直到客户端出示一个身份服务报告为有效、签发方与受众匹配、
+属于允许的团队、且不是 refresh token 的访问令牌；每个请求都会再问一次身份服务，连接期间
+也按定时器复查，所以过期、在身份服务处撤销（包括 `codsh --rust logout`）、
+`deny_subjects` 和 `locked` 都会结束连接并取消它启动的轮次（之前某个已关闭的连接留下仍在运行的
+轮次，不会因之后的撤销而停止；可在主机上用 `codsh --rust leader kill` 停止）。客户端上，用该身份服务执行
+`codsh --rust login`（`GROK_OIDC_ISSUER`、`GROK_OIDC_CLIENT_ID`、`GROK_OIDC_AUDIENCE`）
+本身并不授予远程访问：令牌只发给 `[[remote_identity]] target = "ssh://host[:port][/path]"`
+中列出、且 `audience` 相同的远端，只在远端要求的正是这个签发方时发送，JWT 的 `aud` 指向
+别的受众时绝不发送。令牌会在过期前刷新，刷新后重新发送。两端都保存只有属主可读的 JSONL
+审计（客户端 `$GROK_HOME/remote-identity.log`，主机 `remote-access.log`），记录用途、
+目标、主体和令牌的 12 位十六进制 SHA-256 指纹，从不记录令牌本身；错误信息也不含令牌。
+`remote check` 和 `/remote` 会显示结果。限制：检查在 codsh 的 leader 代理里，能开 shell
+的密钥可以绕过；请把组织密钥限制为强制命令，例如 `restrict,command="/path/org-agent.sh"`，
+由该脚本运行 `codsh --rust agent --leader stdio` 并传入 `SSH_CONNECTION`。`agent serve`
+套接字和远程克隆不携带身份（要求身份的主机会拒绝远程克隆）。没有策略时远端行为与以前完全
+相同。这背后没有官方 Computer Hub、SSO 或付费账号；本次在 Linux 上用回环地址的 Hydra 和
+OpenSSH 验证，未在 macOS 或 Windows 上验证。
+
 `codsh --rust clone [-b 分支] [--cone 路径]... [--full-history] <URL> [目录]` 用普通
 git 代替参考实现的 Grove 懒克隆。它默认关闭，按参考实现的开关顺序打开：`GROK_CLONE` 或
 `GROVE_CLONE`，然后是 `GROK_GROVE` 或 `$GROK_HOME/config.toml` 中的 `[cli] grove`，最后是
