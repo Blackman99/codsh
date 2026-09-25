@@ -68,8 +68,17 @@ def main():
         launcher = prefix / 'node_modules/.bin/codsh'
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
+        # Ticket 155: copies must not reach the tester's real clipboard. Failing
+        # stand-ins for the native tools plus the wrap sink marker make every
+        # copy an unconfirmed OSC 52 write (captured by this PTY) on any OS.
+        no_clipboard = home.parent / 'no-clipboard-bin'
+        no_clipboard.mkdir(exist_ok=True)
+        for tool in ('pbcopy', 'xclip', 'xsel', 'wl-copy'):
+            (no_clipboard / tool).write_text('#!/bin/sh\ncat >/dev/null\nexit 1\n')
+            (no_clipboard / tool).chmod(0o755)
         base_env = {
-            'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
+            'HOME': str(home), 'PATH': f"{no_clipboard}:{os.environ['PATH']}", 'TERM': 'xterm-256color',
+            'LC_GROK_OSC52_SINK': '1',
             'DSH_BIN': dsh, 'CODSH_NODE': NODE, 'CODSH_ACP_PATCH': str(patch),
             'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
             'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',

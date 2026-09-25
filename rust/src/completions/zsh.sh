@@ -24,6 +24,8 @@ _codsh_rust() {
     'usage:Show a session token usage ledger'
     'memory:Manage local memory notes'
     'worktree:Manage git worktrees'
+    'doctor:Diagnose terminal and clipboard setup'
+    'wrap:Run a command with local clipboard forwarding'
   )
   flags=(
     '--help[Print help]' '-h[Print a short summary]'

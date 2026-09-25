@@ -1703,10 +1703,6 @@ pub fn write_ui_key(home: &Path, key: &str, value: &str) -> std::io::Result<()> 
     std::fs::write(path, format!("{}\n", lines.join("\n")))
 }
 
-pub fn osc52(text: &str) -> String {
-    format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes()))
-}
-
 pub fn dock_message(enabled: bool) -> &'static str {
     if enabled {
         DOCK_UNSUPPORTED
@@ -2204,33 +2200,6 @@ fn parse_bool_text(text: &str) -> Option<bool> {
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
     }
-}
-
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    let mut index = 0;
-    while index < bytes.len() {
-        let remaining = bytes.len() - index;
-        let b0 = bytes[index];
-        let b1 = if remaining > 1 { bytes[index + 1] } else { 0 };
-        let b2 = if remaining > 2 { bytes[index + 2] } else { 0 };
-        out.push(TABLE[(b0 >> 2) as usize] as char);
-        out.push(TABLE[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
-        if remaining == 1 {
-            out.push('=');
-            out.push('=');
-        } else {
-            out.push(TABLE[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
-            if remaining == 2 {
-                out.push('=');
-            } else {
-                out.push(TABLE[(b2 & 0x3f) as usize] as char);
-            }
-        }
-        index += 3;
-    }
-    out
 }
 
 #[cfg(test)]
@@ -2949,14 +2918,6 @@ mod tests {
         assert!(body.contains("vim_mode = true"), "{body}");
         assert!(body.contains("mouse_reporting_toggle = true"), "{body}");
         let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn osc52_round_trip_ascii() {
-        let payload = osc52("hello");
-        assert!(payload.starts_with("\x1b]52;c;"));
-        assert!(payload.ends_with('\u{7}'));
-        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
     }
 
     #[test]

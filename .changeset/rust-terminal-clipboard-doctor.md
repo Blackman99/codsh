@@ -1,0 +1,6 @@
+---
+'codsh-cli': minor
+'codsh-bundle': minor
+---
+
+Add honest clipboard delivery, a terminal doctor, `wrap`, and focus-gated notifications to `codsh --rust` (ticket 155). Every copy (`y`/`⇧Y`, cards, memory paths, `/export`, and the new `/copy [N] [path]`) tries the native tool, tmux's buffer, and OSC 52, always writes `$GROK_HOME/last-copy.txt` (or `GROK_COPY_FILE`), and only says "Copied!" when a trusted route succeeded; otherwise it says unconfirmed or unreachable and names the backup. `codsh --rust doctor [--json]` and `/doctor` report terminal, tmux, color, newline-key, and clipboard facts with finding ids and an unverified list; `doctor fix` appends tmux settings to your tmux config only after confirmation, with a backup and an undo command, and never reloads tmux. `codsh --rust wrap <command>` runs e.g. `ssh host` in a local PTY, forwards its OSC 52 copies to this machine, and restores terminal modes when it exits or the connection drops. `[ui.notifications]` (method, condition, idle threshold, events, hooks) uses DECSET 1004 focus reports, an SSH session shows a one-time `/doctor` tip, and `GROK_EXIT_TIMEOUT_SECS` bounds a hanging quit. macOS/Windows clipboard tools, real terminals, real tmux, and real SSH are not verified here.

@@ -260,8 +260,17 @@ def main():
         launcher = pack_launcher(work, pack_env)
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
+        # Ticket 155: copies must not reach the tester's real clipboard. Failing
+        # stand-ins for the native tools plus the wrap sink marker make every
+        # copy an unconfirmed OSC 52 write (captured by this PTY) on any OS.
+        no_clipboard = home.parent / 'no-clipboard-bin'
+        no_clipboard.mkdir(exist_ok=True)
+        for tool in ('pbcopy', 'xclip', 'xsel', 'wl-copy'):
+            (no_clipboard / tool).write_text('#!/bin/sh\ncat >/dev/null\nexit 1\n')
+            (no_clipboard / tool).chmod(0o755)
         base_env = {
-            'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
+            'HOME': str(home), 'PATH': f"{no_clipboard}:{os.environ['PATH']}", 'TERM': 'xterm-256color',
+            'LC_GROK_OSC52_SINK': '1',
             'DSH_BIN': dsh, 'CODSH_NODE': NODE, 'CODSH_ACP_PATCH': str(patch),
             'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
             'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',
@@ -563,8 +572,11 @@ def main():
             minimal_md.write('\t')
             minimal_md.pump(0.3)
             minimal_md.write('y')
-            shown = minimal_md.wait_visible('copied original', 10)
-            copied = isolated / '.grok' / 'tmp' / 'copied-block.md'
+            # Ticket 155: no clipboard tool and an unknown terminal, so the
+            # copy is an unconfirmed OSC 52 write plus the backup file.
+            shown = minimal_md.wait_visible('via OSC 52, unconfirmed', 10)
+            assert 'Copied!' not in shown, shown
+            copied = isolated / '.grok' / 'last-copy.txt'
             assert copied.exists(), copied
             original = copied.read_text()
             assert '**bold**' in original
@@ -573,7 +585,7 @@ def main():
             minimal_md.resize(20, 60)
             minimal_md.pump(0.8)
             shown = minimal_md.visible()
-            assert 'copied original' in shown or 'RUST_MD' in shown or 'Decision' in shown, shown
+            assert 'OSC 52' in shown or 'RUST_MD' in shown or 'Decision' in shown, shown
             results.append(minimal_md.finish(expect_alt_leave=False))
         finally:
             minimal_md.close()

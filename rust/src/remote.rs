@@ -370,6 +370,11 @@ pub fn slash_allowed(command: &str) -> bool {
             | "/ml"
             | "/edit-prompt"
             | "/theme"
+            | "/copy"
+            | "/doctor"
+            | "/terminal-setup"
+            | "/terminal-check"
+            | "/terminal-info"
     )
 }
 

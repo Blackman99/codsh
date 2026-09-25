@@ -18,6 +18,8 @@ complete -c codsh -n '__fish_use_subcommand' -a 'du disk-usage' -d 'Show isolate
 complete -c codsh -n '__fish_use_subcommand' -a 'usage' -d 'Show a session token usage ledger'
 complete -c codsh -n '__fish_use_subcommand' -a 'memory' -d 'Manage local memory notes'
 complete -c codsh -n '__fish_use_subcommand' -a 'worktree' -d 'Manage git worktrees'
+complete -c codsh -n '__fish_use_subcommand' -a 'doctor' -d 'Diagnose terminal and clipboard setup'
+complete -c codsh -n '__fish_use_subcommand' -a 'wrap' -d 'Run a command with local clipboard forwarding'
 complete -c codsh -n '__fish_seen_subcommand_from completions' -a 'bash elvish fish powershell zsh' -d 'Target shell'
 complete -c codsh -l help -s h -d 'Print help'
 complete -c codsh -l version -s V -d 'Print version'

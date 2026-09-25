@@ -126,8 +126,17 @@ def main():
             '[ui]\nmouse_reporting_toggle = true\nvim_mode = false\nscroll_mode = "wheel"\nscroll_speed = 50\ninvert_scroll = false\n'
             '[features]\ndock = false\n'
         )
+        # Ticket 155: copies must not reach the tester's real clipboard. Failing
+        # stand-ins for the native tools plus the wrap sink marker make every
+        # copy an unconfirmed OSC 52 write (captured by this PTY) on any OS.
+        no_clipboard = home.parent / 'no-clipboard-bin'
+        no_clipboard.mkdir(exist_ok=True)
+        for tool in ('pbcopy', 'xclip', 'xsel', 'wl-copy'):
+            (no_clipboard / tool).write_text('#!/bin/sh\ncat >/dev/null\nexit 1\n')
+            (no_clipboard / tool).chmod(0o755)
         base_env = {
-            'HOME': str(home), 'PATH': os.environ['PATH'], 'TERM': 'xterm-256color',
+            'HOME': str(home), 'PATH': f"{no_clipboard}:{os.environ['PATH']}", 'TERM': 'xterm-256color',
+            'LC_GROK_OSC52_SINK': '1',
             'DSH_BIN': dsh, 'CODSH_NODE': NODE, 'CODSH_ACP_PATCH': str(patch),
             'DSH_TELEMETRY_DISABLED': '1', 'DSH_TELEMETRY_MODE': 'OFF',
             'DEEPSEEK_API_KEY': '', 'CODSH_UPDATE_CHECK': 'off',
@@ -330,8 +339,8 @@ def main():
             session.write(sgr_mouse(32, end, row))
             session.pump(0.1)
             session.write(sgr_release(end, row))
-            shown = session.wait_visible('Copied', 10)
-            assert 'Copied' in shown
+            shown = session.wait_visible('via OSC 52, unconfirmed', 10)
+            assert 'Copied!' not in shown
             assert 'DRAFT_KEEP' in shown
             assert 'folded · click to expand' in shown.split('┌Draft')[0]
             payloads = osc52_payloads(session.data)
@@ -357,7 +366,7 @@ def main():
             shown = session.wait_visible('read=0.', 10)
             assert 'DRAFT_KEEP' in shown
             session.write('y')
-            shown = session.wait_visible('Copied', 10)
+            shown = session.wait_visible('via OSC 52, unconfirmed', 10)
             yanked = osc52_payloads(session.data)[-1]
             assert yanked.count('\n') == 0, yanked
             assert 'TOKEN_ALPHA unique-nav' in yanked, yanked
@@ -375,7 +384,7 @@ def main():
             shown = session.visible()
             assert 'DRAFT_KEEP' in shown
             session.write('Y')
-            shown = session.wait_visible('Copied', 10)
+            shown = session.wait_visible('via OSC 52, unconfirmed', 10)
             meta = osc52_payloads(session.data)[-1]
             assert meta.startswith('thought ') or meta.startswith('answer ') or meta.startswith('user '), meta
             assert '\n' not in meta, meta

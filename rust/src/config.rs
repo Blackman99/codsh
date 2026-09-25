@@ -1908,6 +1908,8 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         web.disable_for_process();
     }
     warnings.extend(web.warnings.iter().cloned());
+    // `[ui.notifications]` keys codsh does not implement are named, not dropped silently.
+    warnings.extend(crate::notifications::resolve(&table).warnings);
     for reason in &web.errors {
         errors.push(ConfigError {
             path: Some(config_path.clone()),

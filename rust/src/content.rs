@@ -724,14 +724,6 @@ pub fn open_transcript_pager(turns: &[TurnView], home: &Path) -> Result<String, 
     }
 }
 
-pub fn copy_original(original: &str, home: &Path) -> Result<String, String> {
-    let dir = home.join("tmp");
-    std::fs::create_dir_all(&dir).map_err(|error| format!("copy failed: {error}"))?;
-    let path = dir.join("copied-block.md");
-    std::fs::write(&path, original.as_bytes()).map_err(|error| format!("copy failed: {error}"))?;
-    Ok(format!("copied original {} bytes", original.len()))
-}
-
 pub fn expand_last_folded(
     display: &mut DisplayState,
     turns: &[TurnView],
@@ -969,12 +961,9 @@ mod tests {
         assert!(markdown.contains("cannot read"));
         assert!(markdown.contains("failed"));
         assert!(!markdown.contains("successfully"));
-        let dir = tempfile::tempdir().unwrap();
+        // The copy itself goes through crate::clipboard (ticket 155).
         let original = original_block(&turn, BlockKind::Tool, 0);
-        let copied = copy_original(&original, dir.path()).unwrap();
-        assert!(copied.contains("copied original"));
-        let bytes = std::fs::read_to_string(dir.path().join("tmp/copied-block.md")).unwrap();
-        assert_eq!(bytes, "read missing.txt\ncannot read");
+        assert_eq!(original, "read missing.txt\ncannot read");
         let painted = render_transcript("", std::slice::from_ref(&turn), &DisplayState::default());
         assert!(painted.contains("[error] tool t1 failed"), "{painted}");
         assert!(painted.contains("failed"), "{painted}");

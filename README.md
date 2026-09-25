@@ -540,6 +540,76 @@ as the live row did (the text-only `<pasted-image>` path is model input, not
 typed text), and sends nothing again. A prompt queued under one model is
 rebuilt for the model selected when it sends: a text-only model gets the path,
 not the image block that was queued earlier.
+Clipboard, terminal doctor, wrap, and notifications in `codsh --rust`
+(ticket 155): every copy (`y`/`⇧Y` and mouse copy in scrollback, the
+question and plan cards, memory paths, `/export` to the clipboard, and
+`/copy [N] [path]`, which copies the Nth-latest response's source Markdown or
+writes it to a file) tries the native tool (macOS `pbcopy`; Linux `wl-copy`
+under Wayland, `xclip`/`xsel` under X11; Windows `clip.exe`), `tmux
+load-buffer -` inside tmux, and OSC 52 (always on Linux; on macOS/Windows only
+inside tmux, over SSH, in a container without a display, or under `codsh
+wrap`; inside tmux both the plain and the DCS-passthrough form), and always
+writes a backup to `$GROK_HOME/last-copy.txt` (`GROK_COPY_FILE` moves it,
+`~` expands to your real home). The hint only says `Copied!` when a trusted
+leg succeeded: a local native tool, or OSC 52 to a terminal documented to
+accept it with no multiplexer in between. A tmux-buffer-only copy says so, an
+OSC 52 write nobody can confirm says "unconfirmed" and names the backup, and
+no route at all says "Clipboard unreachable" with the backup path. Native
+tools over SSH or in a display-less container write the remote clipboard and
+never count as delivered. `GROK_CLIPBOARD_NO_OSC52` turns the OSC 52 leg off.
+`codsh --rust doctor [--json]` and `/doctor` (aliases `/terminal-setup`,
+`/terminal-check`, `/terminal-info`) report the detected terminal and the
+variable that identified it, TERM/COLORTERM and color depth, multiplexer (and
+tmux's `set-clipboard`, `allow-passthrough`, `extended-keys`,
+`terminal-features` read with `tmux show-options`), SSH, container, display
+server, the newline key, every clipboard route, the backup path, the expected
+copy result, and the notification setup, plus findings with ids and a list of
+what this build has not verified; findings never change the exit code.
+`doctor fix [<id>...] [--yes]` (or `/doctor fix <id> --yes`) only appends
+`terminal.tmux-clipboard`, `terminal.dcs-passthrough`,
+`terminal.tmux-extended-keys`, or `terminal.tmux-truecolor` lines to your real
+`~/.tmux.conf` (`$BYOBU_CONFIG_DIR/.tmux.conf` under byobu; refused when that
+is unset): it prints the plan, asks at a TTY or needs `--yes`, keeps a
+`.tmux.conf.codsh-backup-<time>` copy and the file's mode and line endings,
+prints the undo command, refuses a conflicting or conditional existing
+assignment and a symlinked file, and never runs `tmux source-file` (it shows
+that command). `terminal.ssh-wrap`, `terminal.newline-fallback`,
+`terminal.iterm2-clipboard-permission`, `terminal.wezterm-kitty`,
+`terminal.byobu-screen`, and `clipboard.unreachable` are advice only.
+`codsh --rust wrap <command> [args...]` (Unix; for example `wrap ssh host`)
+runs the command in a local pseudo-terminal with your real environment plus
+`GROK_OSC52_SINK=1` and `LC_GROK_OSC52_SINK=1` (the `LC_` form survives
+OpenSSH's default `SendEnv LC_*`), forwards keys and resizes, copies OSC 52
+writes from it (split across reads or tmux-wrapped, deduplicated) to this
+machine's clipboard through the same routes, refuses OSC 52 clipboard reads,
+and when the command exits or the connection drops restores what it left on
+(alternate screen, mouse and focus reporting, bracketed paste, hidden cursor,
+application cursor keys/keypad, kitty keyboard, modifyOtherKeys, synchronized
+output) and the outer termios, then exits with the command's code (128+signal
+when it was killed). A codsh session over SSH that was not started through
+wrap shows a one-time tip pointing at `/doctor`; `[ui.contextual_hints]
+ssh_wrap = false` turns it off. `[ui.notifications]` takes `method`
+(`auto`|`osc9`|`osc99`|`osc777`|`bel`|`none`; auto: iTerm2/WezTerm/Warp OSC 9,
+Kitty OSC 99, Ghostty/VTE/foot OSC 777, Zellij and everything else BEL),
+`condition` (`unfocused` default, `always`, `never`), `idle_threshold_secs`
+(3), `events` (`turn_complete` and `approval_required` by default; also
+`agent_error`, `session_ready`), and `[[ui.notifications.hooks]]` (`command`
+run with `sh -c` and `GROK_EVENT`, `GROK_MESSAGE`, `GROK_SESSION_ID`;
+`events`, `only_unfocused` = true, `timeout_secs` = 10). Focus comes from the
+terminal's DECSET 1004 reports; a terminal that never reports focus counts as
+focused, so the default stays quiet. An unfocused notification waits until
+the terminal has been unfocused for the threshold and is dropped if focus
+returns first; inside tmux the sequence is wrapped for passthrough.
+`sleep_prevention`, `progress_bar`, `title`, `session_recap*`, and
+`task_complete` are not implemented and produce a config warning.
+`GROK_EXIT_TIMEOUT_SECS` (default 20, `0` disables) force-exits a quit whose
+teardown hangs, restoring the terminal first, with a hard exit 5 seconds
+later. Not verified here: macOS `pbcopy`, Windows `clip.exe`, real terminals
+(iTerm2, Kitty, Ghostty, WezTerm, Alacritty, Apple Terminal, Windows Terminal,
+editor terminals) accepting OSC 52 or showing OSC 9/99/777, a real tmux
+server, real SSH through wrap, and wl-copy/xclip on a real display; the tests
+use fake tools, a fake `tmux`, and a fake remote program on real PTYs, and
+never touch the user's terminal or tmux config.
 `chips=false` only means the current draft has no attachment. Unicode, large paste, and resize keep an unsent draft. A refused
 submit, including first-run with no provider, puts that draft back and still
 shows `Execution unavailable` on a narrow screen. Failed

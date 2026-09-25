@@ -309,19 +309,34 @@ pub fn export_session(
             })
         }
         ExportTarget::Clipboard => {
-            copy_text(&markdown)?;
+            let report = copy_text(&markdown);
             let lines = markdown.lines().count();
-            let message = format!(
-                "Conversation copied to clipboard ({} chars, {} lines). {REDACTION_NOTE}",
-                markdown.len(),
-                lines
-            );
+            if report.delivery == crate::clipboard::Delivery::Unreachable && report.backup.is_err()
+            {
+                return Err(DataError::new(report.message));
+            }
+            let message = if report.delivery == crate::clipboard::Delivery::Confirmed {
+                format!(
+                    "Conversation copied to clipboard via {} ({} chars, {} lines). {REDACTION_NOTE}",
+                    report.destination,
+                    markdown.len(),
+                    lines
+                )
+            } else {
+                // Never claim the clipboard got it when that is unknown.
+                format!(
+                    "Conversation export to clipboard: {} ({} chars, {} lines). {REDACTION_NOTE}",
+                    report.message,
+                    markdown.len(),
+                    lines
+                )
+            };
             writeln!(out, "{message}").map_err(|error| DataError::new(error.to_string()))?;
             Ok(ExportOutcome {
                 markdown,
                 message,
                 wrote_file: None,
-                clipboard: true,
+                clipboard: report.delivered(),
             })
         }
         ExportTarget::File(path) => {
@@ -783,32 +798,14 @@ fn post_share(url: &str, body: &[u8]) -> Result<String, DataError> {
         .map_err(|_| DataError::new("share response was not UTF-8; no success is claimed"))
 }
 
-fn copy_text(text: &str) -> Result<(), DataError> {
-    let mut child = std::process::Command::new("pbcopy");
-    child
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let mut process = child.spawn().map_err(|error| {
-        DataError::new(format!(
-            "clipboard is unreachable ({error}); write export to a file instead"
-        ))
-    })?;
-    if let Some(stdin) = process.stdin.as_mut() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| DataError::new(error.to_string()))?;
-    }
-    let status = process
-        .wait()
-        .map_err(|error| DataError::new(error.to_string()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(DataError::new(
-            "clipboard copy failed; the transcript was not written anywhere else",
-        ))
-    }
+fn copy_text(text: &str) -> crate::clipboard::CopyReport {
+    // The launcher always sets the isolated GROK_HOME; the backup file lives there.
+    let grok_home = std::env::var_os("GROK_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".grok")
+        });
+    crate::clipboard::copy_live(text, &grok_home)
 }
 
 fn dir_size(path: &Path) -> io::Result<u64> {

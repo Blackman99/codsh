@@ -1072,6 +1072,48 @@ without it. Resume shows a sent image turn by its placeholders, never its
 `<pasted-image>` path, and sends nothing again.
 _Avoid_: upload, embed
 
+**Clipboard delivery**:
+The result of one copy in `codsh --rust` (ticket 155). Every copy tries the
+native tool, tmux's paste buffer inside tmux, and OSC 52 where the route
+rules enable it, and always writes the backup file (`$GROK_HOME/last-copy.txt`
+or `GROK_COPY_FILE`). It is *confirmed* only when a trusted leg succeeded (a
+local native tool, or OSC 52 to a terminal documented to accept it with no
+multiplexer between), *tmux buffer* when only tmux holds it, *unverified* when
+OSC 52 went out and nobody can confirm it, and *unreachable* otherwise; the
+last two name the backup file and never say "Copied!". A native tool over SSH
+or in a display-less container writes the remote clipboard and is never
+confirmed.
+_Avoid_: copied (for an unverified or unreachable copy)
+
+**Terminal doctor**:
+`codsh --rust doctor [--json]` and `/doctor`: detected terminal facts with the
+variable that identified each, clipboard routes and the expected delivery,
+tmux options read with `tmux show-options`, findings with stable ids, and the
+list of things this build has not verified. Findings never change the exit
+code. `doctor fix` edits only the user's tmux config, after confirmation,
+with a backup, the file's mode and line endings kept, and a printed undo
+command; it refuses conflicting or conditional assignments and never runs
+`tmux source-file`.
+_Avoid_: auto-fix, repair
+
+**Wrap**:
+`codsh --rust wrap <command>`: runs a command (usually `ssh host`) in a local
+pseudo-terminal, marks it with `GROK_OSC52_SINK`/`LC_GROK_OSC52_SINK`, copies
+its OSC 52 writes to the local clipboard, refuses OSC 52 reads, and restores
+the terminal modes and termios it left behind when it exits or drops. Exit
+code is the command's, or 128+signal.
+_Avoid_: tunnel, proxy
+
+**Terminal notification**:
+An OSC 9/99/777 or BEL sequence written for a `[ui.notifications]` event
+(`turn_complete`, `approval_required`, `agent_error`, `session_ready`) when
+the condition holds. With `unfocused` it fires only after DECSET 1004 focus
+reports say the terminal has been unfocused for `idle_threshold_secs`, and a
+focus report in the meantime drops it; a terminal that never reports focus
+counts as focused. Hooks run the configured command with `GROK_EVENT`,
+`GROK_MESSAGE`, and `GROK_SESSION_ID`.
+_Avoid_: desktop notification (codsh only writes the sequence)
+
 **Image preview card**:
 The notice shown while the pointer rests on an `[Image #N]` chip, or while the
 cursor rests on or just after that chip. It names the chip, the sniffed pixel

@@ -111,9 +111,21 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("compact", &[], "Compact conversation context", true),
     SlashCommand::new("context", &[], "Show context occupancy", true),
     SlashCommand::new(
+        "copy",
+        &[],
+        "Copy the latest response ([N] [path] for older or to a file)",
+        true,
+    ),
+    SlashCommand::new(
         "dashboard",
         &["agents-dashboard", "sessions"],
         "Open the agent dashboard",
+        true,
+    ),
+    SlashCommand::new(
+        "doctor",
+        &["terminal-setup", "terminal-check", "terminal-info"],
+        "Diagnose terminal, tmux and clipboard setup",
         true,
     ),
     SlashCommand::new(
