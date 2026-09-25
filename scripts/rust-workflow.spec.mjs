@@ -8,7 +8,7 @@
 // /workflow save, and the listing the model sees.
 // Build the debug binary first:
 //   cargo build --manifest-path rust/Cargo.toml --locked -p codsh-rust
-import { execFileSync, spawn } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { createServer } from 'node:net'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -1227,5 +1227,155 @@ let objective = if type_of(args) == "map" { args.objective } else { "none" };
     expect(unwritable).toContain("Could not save workflow 'keeper': ")
     expect(unwritable).toContain('No project workflow directory is writable here, so nothing was saved.')
     expect(readFileSync(join(blocked.cwd, '.grok'), 'utf8')).toBe('a file')
+  }, 240000)
+})
+
+describe('plugin workflows (ticket 205)', () => {
+  const WORKFLOW = (name, description, body) => `let meta = #{ name: "${name}", description: "${description}" };\n${body}`
+  /** A real plugin directory: manifest with license, workflows/ with Rhai files. */
+  function writePlugin(root, { name = 'demo', version = '1.0.0', workflows }) {
+    rmSync(join(root, 'workflows'), { recursive: true, force: true })
+    mkdirSync(join(root, 'workflows'), { recursive: true })
+    writeFileSync(join(root, 'plugin.json'), JSON.stringify({ name, version, license: 'MIT', description: 'workflow fixture' }))
+    for (const [file, body] of Object.entries(workflows)) writeFileSync(join(root, 'workflows', `${file}.rhai`), body)
+    return root
+  }
+  /** `codsh-rust plugin ...` against the agent's isolated homes. */
+  function plugin(agent, ...args) {
+    const result = spawnSync(engine, ['plugin', ...args], {
+      cwd: agent.cwd,
+      env: { PATH: process.env.PATH, HOME: agent.home, USERPROFILE: agent.home, GROK_HOME: agent.grokHome, CODSH_UPDATE_CHECK: 'off' },
+      encoding: 'utf8',
+      timeout: 60000,
+    })
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    return result.stdout
+  }
+  const list = agent => JSON.parse(plugin(agent, 'list', '--json'))
+  const started = agent => agent.events.filter(event => event.event === 'start').length
+
+  it('adds an active plugin\'s workflows as <plugin>:<name> and the free bare name, below personal ones, and withdraws them on disable', async () => {
+    const agent = startAgent({ control: true })
+    const source = writePlugin(join(agent.root, 'src', 'demo'), {
+      workflows: {
+        review: WORKFLOW('review', 'plugin review', 'agent("CHILD_SAY plugin review").output'),
+        triage: WORKFLOW('triage', 'plugin triage', 'agent("CHILD_SAY plugin triage").output'),
+        broken: 'let meta = #{ name: "broken", description: "d" ;\n1',
+      },
+    })
+    // Installing records the plugin and lists its workflows; nothing runs.
+    plugin(agent, 'install', source, '--trust')
+    const [row] = list(agent)
+    expect(row).toMatchObject({ name: 'demo', version: '1.0.0', license: 'MIT', state: 'disabled', trusted: true, enabled: false })
+    expect(row.contributions.workflows).toEqual(['demo:review', 'demo:triage'])
+    expect(row.contributions.problems.some(problem => problem.startsWith('workflow broken.rhai not loaded'))).toBe(true)
+    const sessionId = await open(agent)
+    expect(engines(agent)).toEqual([])
+    expect(started(agent)).toBe(0)
+
+    // Installed but not enabled: not invocable, and the reply says why.
+    expect(await agent.slash(sessionId, 'x', 'review')).toMatch(/^Workflow 'review' unavailable: workflow 'review' is not available: plugin 'demo' is disabled \(/)
+    agent.updates.length = 0
+    await workflow(agent, sessionId, { source: { type: 'name', name: 'demo:review' } })
+    expect(answer(agent)).toMatch(/PARENT_WORKFLOW error: Error: workflow_resolve_failed: workflow 'demo:review' is not available: plugin 'demo' is disabled/)
+    expect(started(agent)).toBe(0)
+
+    plugin(agent, 'enable', 'demo')
+    expect(list(agent)[0].state).toBe('active')
+    // The model sees the plugin workflows under the names that run them.
+    agent.updates.length = 0
+    await agent.send('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'WORKFLOW_CONTEXT' }] }, 60000)
+    const shown = answer(agent, sessionId)
+    expect(shown).toContain('- review: plugin review\n')
+    expect(shown).toContain('- triage: plugin triage\n')
+    expect(shown).not.toContain('broken')
+
+    const qualified = await runToEnd(agent, sessionId, { source: { type: 'name', name: 'demo:review' } }, 'review')
+    expect(resultText(qualified, 'review')).toBe('CHILD_SAID plugin review')
+    const { dir, state } = runDir(agent, sessionId, 'review')
+    expect(state.origin).toMatchObject({ scope: 'plugin', callName: 'review', plugin: { name: 'demo', version: '1.0.0', license: 'MIT', scope: 'user', trusted: true } })
+    expect(JSON.parse(readFileSync(join(dir, 'launch.json'), 'utf8')).origin.plugin.name).toBe('demo')
+    expect(await agent.slash(sessionId, 'x', 'triage')).toContain("Workflow 'triage' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'triage', sessionId), 'triage'), 'triage')).toBe('CHILD_SAID plugin triage')
+    expect(await agent.slash(sessionId, 'runs')).toContain('Source: plugin demo 1.0.0')
+    expect(await agent.slash(sessionId, 'x', 'demo:broken')).toMatch(/^Workflow 'demo:broken' unavailable: workflow 'demo:broken' is not loaded: \S+broken\.rhai is invalid: /)
+
+    // A personal workflow of the same name owns the bare name; the plugin's stays reachable qualified.
+    mkdirSync(join(agent.grokHome, 'workflows'), { recursive: true })
+    writeFileSync(join(agent.grokHome, 'workflows', 'review.rhai'), WORKFLOW('review', 'user review', 'agent("CHILD_SAY user review").output'))
+    expect(await agent.slash(sessionId, 'x', 'review')).toContain("Workflow 'review-2' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'review-2', sessionId), 'review-2'), 'review-2')).toBe('CHILD_SAID user review')
+    expect(await agent.slash(sessionId, 'x', 'demo:review')).toContain("Workflow 'review-3' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'review-3', sessionId), 'review-3'), 'review-3')).toBe('CHILD_SAID plugin review')
+
+    // Disabled: neither name of the plugin runs any more.
+    plugin(agent, 'disable', 'demo')
+    const before = started(agent)
+    expect(await agent.slash(sessionId, 'x', 'demo:review')).toMatch(/^Workflow 'demo:review' unavailable: workflow 'demo:review' is not available: plugin 'demo' is disabled/)
+    expect(await agent.slash(sessionId, 'x', 'triage')).toMatch(/^Workflow 'triage' unavailable: workflow 'triage' is not available: plugin 'demo' is disabled/)
+    expect(started(agent)).toBe(before)
+    // Uninstalled: the names are unknown.
+    plugin(agent, 'uninstall', 'demo')
+    expect(await agent.slash(sessionId, 'x', 'triage')).toBe("Workflow 'triage' unavailable: unknown workflow: triage")
+  }, 240000)
+
+  it('two plugins offering one name run only qualified', async () => {
+    const agent = startAgent({ control: true })
+    for (const name of ['alpha', 'beta']) {
+      const source = writePlugin(join(agent.root, 'src', name), { name, workflows: { lint: WORKFLOW('lint', `${name} lint`, `agent("CHILD_SAY ${name} lint").output`) } })
+      plugin(agent, 'install', source, '--trust')
+      plugin(agent, 'enable', name)
+    }
+    const sessionId = await open(agent)
+    expect(await agent.slash(sessionId, 'x', 'lint')).toBe("Workflow 'lint' unavailable: ambiguous workflow 'lint': offered by plugins alpha, beta; run alpha:lint or beta:lint")
+    expect(await agent.slash(sessionId, 'x', 'beta:lint')).toContain("Workflow 'lint' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'lint', sessionId), 'lint'), 'lint')).toBe('CHILD_SAID beta lint')
+  }, 180000)
+
+  it('a paused plugin run replays its launch script after an update, and does not resume while the plugin is disabled or removed', async () => {
+    const agent = startAgent({ control: true })
+    const held = tag => WORKFLOW('review', 'plugin review', `let a = agent("CHILD_SAY first", #{ label: "early" });\nlet b = agent("CHILD_ONCE ${tag}", #{ label: "held" });\n"v1 " + a.output + " " + b.output`)
+    const source = writePlugin(join(agent.root, 'src', 'demo'), { workflows: { review: held('plug-a') } })
+    plugin(agent, 'install', source, '--trust')
+    plugin(agent, 'enable', 'demo')
+    const sessionId = await open(agent)
+    const pauseHeld = async (name, tag) => {
+      await waitFor(() => childTurns(agent).some(line => line.user.some(text => text.includes(`CHILD_ONCE ${tag}`))), `the held turn of ${name}`)
+      expect(await agent.slash(sessionId, `pause ${name}`)).toMatch(new RegExp(`^Paused ${name}`))
+      await waitFor(() => engines(agent).length === 0, 'the engine exited')
+    }
+
+    expect(await agent.slash(sessionId, 'x', 'demo:review')).toContain("Workflow 'review' started in the background.")
+    await pauseHeld('review', 'plug-a')
+    const original = readFileSync(join(runDir(agent, sessionId, 'review').dir, 'script.rhai'), 'utf8')
+
+    // Update to 2.0.0 with a different script: the paused run keeps its copy.
+    writePlugin(source, { version: '2.0.0', workflows: { review: WORKFLOW('review', 'plugin review v2', '"v2"') } })
+    plugin(agent, 'update', 'demo')
+    expect(list(agent)[0]).toMatchObject({ version: '2.0.0', state: 'active' })
+    expect(await agent.slash(sessionId, 'resume review')).toBe('Resumed review from its journal.')
+    expect(await agent.slash(sessionId, 'runs')).toContain('Source: plugin demo 1.0.0')
+    const resumed = runBlock(await completion(agent, 'review', sessionId), 'review')
+    expect(resultText(resumed, 'review')).toBe('v1 CHILD_SAID first CHILD_ONCE_DONE plug-a')
+    expect(readFileSync(join(runDir(agent, sessionId, 'review').dir, 'script.rhai'), 'utf8')).toBe(original)
+    expect(await agent.slash(sessionId, 'runs')).toContain('installed now: 2.0.0')
+    // A new launch reads the updated plugin.
+    expect(await agent.slash(sessionId, 'x', 'review')).toContain("Workflow 'review-2' started in the background.")
+    expect(resultText(runBlock(await completion(agent, 'review-2', sessionId), 'review-2'), 'review-2')).toBe('v2')
+
+    // A paused run of a disabled plugin is refused, and resumes once it is enabled again.
+    writePlugin(source, { version: '3.0.0', workflows: { review: held('plug-b') } })
+    plugin(agent, 'update', 'demo')
+    expect(await agent.slash(sessionId, 'x', 'review')).toContain("Workflow 'review-3' started in the background.")
+    await pauseHeld('review-3', 'plug-b')
+    plugin(agent, 'disable', 'demo')
+    const refused = await agent.slash(sessionId, 'resume review-3').catch(error => error.message)
+    expect(refused).toContain("run 'review-3' came from plugin 'demo', which is disabled (")
+    expect(refused).toContain('enable it again to resume')
+    expect(runDir(agent, sessionId, 'review-3').state.status).toBe('user_paused')
+    plugin(agent, 'uninstall', 'demo')
+    const gone = await agent.slash(sessionId, 'resume review-3').catch(error => error.message)
+    expect(gone).toContain("run 'review-3' came from plugin 'demo', which is no longer installed")
+    expect(engines(agent)).toEqual([])
   }, 240000)
 })

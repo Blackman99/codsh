@@ -105,6 +105,23 @@ export function agentsLine(agents) {
   return `Agents: ${parts.join(', ')}`
 }
 
+/**
+ * Where a plugin run's script came from (ticket 205): the plugin and the
+ * version it had at launch, and the installed version when that changed.
+ */
+export function sourceLine(origin) {
+  const plugin = origin?.plugin
+  if (!plugin?.name) return undefined
+  const at = plugin.version ? `${plugin.name} ${plugin.version}` : plugin.name
+  let line = `Source: plugin ${at}`
+  if (plugin.commit) line += ` (${String(plugin.commit).slice(0, 12)})`
+  const now = origin.installed
+  if (now && (now.version !== plugin.version || now.commit !== plugin.commit)) {
+    line += `; installed now: ${now.version ?? 'no version'}${now.commit ? ` (${String(now.commit).slice(0, 12)})` : ''}, this run keeps the script it started with`
+  }
+  return line
+}
+
 /** Reference `format_workflow_runs_overview`: display names only, no run ids. */
 export function formatOverview(runs, now = Date.now()) {
   if (runs.length === 0) return 'No workflow runs in this session yet. Launch one with /workflow <name> [args]; browse with /workflows.'
@@ -121,6 +138,8 @@ export function formatOverview(runs, now = Date.now()) {
     out += `\n  Elapsed: ${formatElapsed(elapsedMs(run, now))}`
     const objective = squash(run.objective)
     if (objective) out += `\n  Objective: ${truncate(objective, OBJECTIVE_CAP)}`
+    const source = sourceLine(run.origin)
+    if (source) out += `\n  ${source}`
     out += '\n'
   }
   return `${out}Manage with /workflow pause|resume|stop|save <name>.`
@@ -329,13 +348,13 @@ export class RunStore {
   writeLaunch(runId, launch) {
     mkdirSync(this.dir(runId), { recursive: true })
     atomicWrite(join(this.dir(runId), 'script.rhai'), launch.script)
-    atomicWrite(join(this.dir(runId), 'launch.json'), `${JSON.stringify({ args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null }, null, 2)}\n`)
+    atomicWrite(join(this.dir(runId), 'launch.json'), `${JSON.stringify({ args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null, origin: launch.origin ?? null }, null, 2)}\n`)
   }
 
   readLaunch(runId) {
     const script = readFileSync(join(this.dir(runId), 'script.rhai'), 'utf8')
     const launch = JSON.parse(readFileSync(join(this.dir(runId), 'launch.json'), 'utf8'))
-    return { script, args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null }
+    return { script, args: launch.args ?? null, definition: launch.definition, scriptPath: launch.scriptPath ?? null, effort: launch.effort ?? null, origin: launch.origin ?? null }
   }
 
   save(run) {

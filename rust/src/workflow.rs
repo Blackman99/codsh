@@ -87,6 +87,8 @@ pub struct Resolved {
     pub meta: WorkflowMeta,
     pub script: String,
     pub path: Option<PathBuf>,
+    /// For a catalog workflow: its scope, file and plugin (ticket 205).
+    pub origin: Option<Value>,
 }
 
 /// Where a `script_path` may live, as in the reference `resolve_by_path`.
@@ -112,6 +114,26 @@ pub(crate) fn invalid_name(name: &str) -> String {
     format!(
         "invalid workflow name '{name}': expected 1-64 lowercase letters, digits, or single hyphens"
     )
+}
+
+/// A catalog name: `<name>` or a plugin's `<plugin>:<name>` (ticket 205).
+pub(crate) fn valid_call_name(name: &str) -> bool {
+    match name.split_once(':') {
+        Some((plugin, workflow)) => {
+            crate::plugin::is_valid_plugin_name(plugin) && valid_name(workflow)
+        }
+        None => valid_name(name),
+    }
+}
+
+pub(crate) fn invalid_call_name(name: &str) -> String {
+    if name.contains(':') {
+        format!(
+            "invalid workflow name '{name}': expected <plugin>:<name> with a plugin name and 1-64 lowercase letters, digits, or single hyphens"
+        )
+    } else {
+        invalid_name(name)
+    }
 }
 
 pub(crate) fn parse_workflow(script: &str, path: Option<&Path>) -> Result<WorkflowMeta, String> {
@@ -200,8 +222,8 @@ pub(crate) fn read_trusted_source(path: &Path) -> Result<String, String> {
 pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
     match source {
         Source::Name(name) => {
-            if !valid_name(name) {
-                return Err(invalid_name(name));
+            if !valid_call_name(name) {
+                return Err(invalid_call_name(name));
             }
             let catalog = crate::workflow_catalog::scan(scope);
             let entry = catalog.find(name)?;
@@ -209,6 +231,7 @@ pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
                 meta: entry.meta.clone(),
                 script: entry.script.clone(),
                 path: Some(entry.path.clone()),
+                origin: Some(entry.origin_json()),
             })
         }
         Source::Script(script) => {
@@ -222,6 +245,7 @@ pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
                 meta,
                 script: script.clone(),
                 path: None,
+                origin: None,
             })
         }
         Source::Path(raw) => {
@@ -268,6 +292,7 @@ pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
                 meta,
                 script,
                 path: Some(canonical),
+                origin: None,
             })
         }
     }
@@ -781,6 +806,7 @@ where
             "meta": meta_json(&resolved.meta),
             "path": resolved.path.as_ref().map(|path| path.display().to_string()),
             "script": resolved.script,
+            "origin": resolved.origin,
             "agentBudget": budget.total,
             "agentsUsed": budget.used,
             "replay": journal.len(),

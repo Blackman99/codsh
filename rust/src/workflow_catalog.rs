@@ -15,6 +15,15 @@
 //! name ambiguous (the reference `DuplicateName`). A run copies the script it
 //! resolved at launch, so editing the file later changes new launches only.
 //!
+//! Ticket 205 adds plugin workflows: an active plugin (installed, enabled,
+//! trusted, present; project plugins also need workspace trust) contributes
+//! the `.rhai` files of its `workflows` directories. The reference registry
+//! has no plugin scope, so this follows the plugin asset rule of ticket 166:
+//! a plugin workflow always runs as `<plugin>:<name>`, and also as the bare
+//! `<name>` unless a project or personal workflow owns that name or another
+//! active plugin offers it too. A disabled, blocked, missing or shadowed
+//! plugin loads nothing; its names are refused with the plugin's state.
+//!
 //! `save_project` is the reference `save_project_workflow`: folder trust is
 //! required, the directories are created one real component at a time under
 //! the canonical project root, and the file is created atomically without
@@ -27,6 +36,7 @@ use std::path::{Component, Path, PathBuf};
 use serde_json::{Value, json};
 use xai_workflow::WorkflowMeta;
 
+use crate::plugin::PluginWorkflowSource;
 use crate::workflow::{
     MAX_WORKFLOW_SOURCE_BYTES, Scope, invalid_name, parse_workflow, project_root,
     read_trusted_source, valid_name,
@@ -45,6 +55,7 @@ const MAX_SHOWN_ERROR_BYTES: usize = 240;
 pub enum CatalogScope {
     Project,
     User,
+    Plugin,
 }
 
 impl CatalogScope {
@@ -52,7 +63,80 @@ impl CatalogScope {
         match self {
             Self::Project => "project",
             Self::User => "user",
+            Self::Plugin => "plugin",
         }
+    }
+}
+
+/// The plugin a workflow came from: identity, provenance and trust, kept
+/// with every run it starts (ticket 205).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginOrigin {
+    pub name: String,
+    /// `user` (installed) or `project` (`.grok/plugins`).
+    pub scope: String,
+    pub version: Option<String>,
+    pub license: Option<String>,
+    pub source: String,
+    pub marketplace: Option<String>,
+    pub commit: Option<String>,
+    pub trusted: bool,
+}
+
+impl PluginOrigin {
+    fn from_source(source: &PluginWorkflowSource) -> Self {
+        Self {
+            name: source.name.clone(),
+            scope: source.scope.clone(),
+            version: source.version.clone(),
+            license: source.license.clone(),
+            source: source.source.clone(),
+            marketplace: source.marketplace.clone(),
+            commit: source.commit.clone(),
+            trusted: source.trusted,
+        }
+    }
+
+    /// `demo 1.2.0 · license MIT · user plugin · trusted · source … · commit …`.
+    pub fn describe(&self) -> String {
+        let mut parts = vec![match &self.version {
+            Some(version) => format!("{} {version}", self.name),
+            None => format!("{} (no version)", self.name),
+        }];
+        parts.push(format!(
+            "license {}",
+            self.license.as_deref().unwrap_or("not declared")
+        ));
+        parts.push(format!("{} plugin", self.scope));
+        parts.push(
+            if self.trusted {
+                "trusted"
+            } else {
+                "not trusted"
+            }
+            .into(),
+        );
+        if let Some(marketplace) = &self.marketplace {
+            parts.push(format!("marketplace {marketplace}"));
+        }
+        parts.push(format!("source {}", self.source));
+        if let Some(commit) = &self.commit {
+            parts.push(format!("commit {}", &commit[..commit.len().min(12)]));
+        }
+        parts.join(" · ")
+    }
+
+    pub fn json(&self) -> Value {
+        json!({
+            "name": self.name,
+            "scope": self.scope,
+            "version": self.version,
+            "license": self.license,
+            "source": self.source,
+            "marketplace": self.marketplace,
+            "commit": self.commit,
+            "trusted": self.trusted,
+        })
     }
 }
 
@@ -62,6 +146,46 @@ pub struct Entry {
     pub script: String,
     pub scope: CatalogScope,
     pub path: PathBuf,
+    /// Set for a plugin workflow.
+    pub plugin: Option<PluginOrigin>,
+    /// Whether the bare `meta.name` runs this entry (always for project and
+    /// personal workflows; for a plugin one only when nothing else owns it).
+    pub bare: bool,
+}
+
+impl Entry {
+    /// `<plugin>:<name>` for a plugin workflow.
+    pub fn qualified(&self) -> Option<String> {
+        self.plugin
+            .as_ref()
+            .map(|plugin| format!("{}:{}", plugin.name, self.meta.name))
+    }
+
+    /// The name that runs this entry: bare when it owns the name.
+    pub fn call_name(&self) -> String {
+        match self.qualified() {
+            Some(qualified) if !self.bare => qualified,
+            _ => self.meta.name.clone(),
+        }
+    }
+
+    /// `project`, `user`, or `plugin <name>`.
+    pub fn scope_label(&self) -> String {
+        match &self.plugin {
+            Some(plugin) => format!("plugin {}", plugin.name),
+            None => self.scope.label().to_string(),
+        }
+    }
+
+    /// What a run keeps about where its script came from.
+    pub fn origin_json(&self) -> Value {
+        json!({
+            "scope": self.scope.label(),
+            "callName": self.call_name(),
+            "path": self.path.display().to_string(),
+            "plugin": self.plugin.as_ref().map(PluginOrigin::json),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +193,33 @@ pub struct Skipped {
     pub path: PathBuf,
     pub scope: CatalogScope,
     pub error: String,
+    /// The plugin whose workflow directory held the file.
+    pub plugin: Option<String>,
+}
+
+/// An installed plugin with workflow directories, in any state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginState {
+    pub origin: PluginOrigin,
+    /// `active`, `disabled`, `blocked`, `missing`, or `shadowed`.
+    pub status: String,
+    pub detail: String,
+    /// `.rhai` file stems in its workflow directories (read, never run).
+    pub files: Vec<String>,
+    pub problems: Vec<String>,
+}
+
+impl PluginState {
+    fn active(&self) -> bool {
+        self.status == "active"
+    }
+
+    fn unavailable(&self, name: &str) -> String {
+        format!(
+            "workflow '{name}' is not available: plugin '{}' is {} ({})",
+            self.origin.name, self.status, self.detail
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -83,20 +234,82 @@ pub struct Catalog {
     pub project_dir: PathBuf,
     pub project_trusted: bool,
     pub user_dir: Option<PathBuf>,
+    /// Installed plugins that declare workflows, active or not.
+    pub plugins: Vec<PluginState>,
+    /// Bare names several active plugins offer: only `<plugin>:<name>` runs.
+    pub plugin_conflicts: BTreeMap<String, Vec<String>>,
 }
 
 impl Catalog {
     /// The reference `resolve_entry`: an ambiguous name is refused before a
-    /// runnable same-named entry of a lower scope is considered.
+    /// runnable same-named entry of a lower scope is considered. A
+    /// `<plugin>:<name>` names one plugin's workflow.
     pub fn find(&self, name: &str) -> Result<&Entry, String> {
         if let Some(scope) = self.duplicates.get(name) {
-            return Err(format!(
-                "ambiguous workflow '{name}': duplicate definitions in {} scope",
-                scope.label()
-            ));
+            return Err(match name.split_once(':') {
+                Some((plugin, _)) => {
+                    format!("ambiguous workflow '{name}': duplicate definitions in plugin {plugin}")
+                }
+                None => format!(
+                    "ambiguous workflow '{name}': duplicate definitions in {} scope",
+                    scope.label()
+                ),
+            });
         }
-        if let Some(entry) = self.entries.iter().find(|entry| entry.meta.name == name) {
+        let stem_of =
+            |bad: &Skipped, stem: &str| bad.path.file_name().and_then(|n| n.to_str()) == Some(stem);
+        let invalid = |bad: &Skipped, name: &str| {
+            format!(
+                "workflow '{name}' is not loaded: {} is invalid: {}",
+                bad.path.display(),
+                bad.error
+            )
+        };
+        if let Some((plugin, workflow)) = name.split_once(':') {
+            if let Some(entry) = self.entries.iter().find(|entry| {
+                entry
+                    .plugin
+                    .as_ref()
+                    .is_some_and(|origin| origin.name == plugin)
+                    && entry.meta.name == workflow
+            }) {
+                return Ok(entry);
+            }
+            if let Some(state) = self
+                .plugins
+                .iter()
+                .find(|state| state.origin.name == plugin)
+                && !state.active()
+            {
+                return Err(state.unavailable(name));
+            }
+            let stem = format!("{workflow}.rhai");
+            if let Some(bad) = self
+                .skipped
+                .iter()
+                .find(|bad| bad.plugin.as_deref() == Some(plugin) && stem_of(bad, &stem))
+            {
+                return Err(invalid(bad, name));
+            }
+            return Err(format!("unknown workflow: {name}"));
+        }
+        if let Some(entry) = self
+            .entries
+            .iter()
+            .find(|entry| entry.bare && entry.meta.name == name)
+        {
             return Ok(entry);
+        }
+        if let Some(owners) = self.plugin_conflicts.get(name) {
+            let qualified: Vec<String> = owners
+                .iter()
+                .map(|owner| format!("{owner}:{name}"))
+                .collect();
+            return Err(format!(
+                "ambiguous workflow '{name}': offered by plugins {}; run {}",
+                owners.join(", "),
+                qualified.join(" or ")
+            ));
         }
         // A file named after the workflow that failed to load is named in the
         // error, so the user learns why `/<name>` does nothing.
@@ -104,20 +317,40 @@ impl Catalog {
         if let Some(bad) = self
             .skipped
             .iter()
-            .find(|bad| bad.path.file_name().and_then(|n| n.to_str()) == Some(stem.as_str()))
+            .filter(|bad| stem_of(bad, &stem))
+            .min_by_key(|bad| bad.plugin.is_some())
         {
-            return Err(format!(
-                "workflow '{name}' is not loaded: {} is invalid: {}",
-                bad.path.display(),
-                bad.error
-            ));
+            return Err(invalid(bad, name));
+        }
+        if let Some(state) = self
+            .plugins
+            .iter()
+            .find(|state| !state.active() && state.files.iter().any(|file| file == name))
+        {
+            return Err(state.unavailable(name));
         }
         Err(format!("unknown workflow: {name}"))
     }
+
+    /// Whether `name` means something to the catalog: runnable, or refused
+    /// with a reason other than "unknown".
+    pub fn knows(&self, name: &str) -> bool {
+        !matches!(self.find(name), Err(error) if error.starts_with("unknown workflow:"))
+    }
 }
 
-/// Scan the catalog for a session directory (reference `WorkflowRegistry::scan`).
+/// Scan the catalog for a session directory (reference `WorkflowRegistry::scan`)
+/// with the installed plugins of `$GROK_HOME`.
 pub fn scan(scope: &Scope) -> Catalog {
+    let plugins = match &scope.grok_home {
+        Some(home) => crate::plugin::workflow_sources(home, &scope.cwd, scope.trusted),
+        None => Vec::new(),
+    };
+    scan_with(scope, &plugins)
+}
+
+/// [`scan`] with the plugin sources given.
+pub fn scan_with(scope: &Scope, plugins: &[PluginWorkflowSource]) -> Catalog {
     let project_dir = project_root(&scope.cwd).join(".grok").join("workflows");
     let user_dir = scope.grok_home.as_ref().map(|home| home.join("workflows"));
     let mut catalog = Catalog {
@@ -128,6 +361,8 @@ pub fn scan(scope: &Scope) -> Catalog {
         project_dir: project_dir.clone(),
         project_trusted: scope.trusted,
         user_dir: user_dir.clone(),
+        plugins: Vec::new(),
+        plugin_conflicts: BTreeMap::new(),
     };
     let mut dirs = Vec::new();
     if scope.trusted {
@@ -148,7 +383,132 @@ pub fn scan(scope: &Scope) -> Catalog {
         .partition(|entry| !catalog.duplicates.contains_key(&entry.meta.name));
     catalog.entries = runnable;
     catalog.shadowed.extend(ambiguous);
+    add_plugins(&mut catalog, plugins);
     catalog
+}
+
+/// Active plugins' workflows after the project and personal ones; every
+/// plugin with workflow directories is recorded with its state.
+fn add_plugins(catalog: &mut Catalog, plugins: &[PluginWorkflowSource]) {
+    let mut contributed = Vec::new();
+    for source in plugins {
+        let origin = PluginOrigin::from_source(source);
+        let files = rhai_stems(&source.dirs);
+        catalog.plugins.push(PluginState {
+            origin: origin.clone(),
+            status: source.status.clone(),
+            detail: source.status_detail.clone(),
+            files,
+            problems: source.problems.clone(),
+        });
+        if source.status != "active" {
+            continue;
+        }
+        let mut scoped = Vec::new();
+        for dir in &source.dirs {
+            let (entries, skipped) = scan_directory(dir, CatalogScope::Plugin);
+            scoped.extend(entries.into_iter().map(|mut entry| {
+                entry.plugin = Some(origin.clone());
+                entry.bare = false;
+                entry
+            }));
+            catalog.skipped.extend(skipped.into_iter().map(|mut bad| {
+                bad.plugin = Some(source.name.clone());
+                bad
+            }));
+        }
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for entry in &scoped {
+            *counts.entry(entry.meta.name.clone()).or_default() += 1;
+        }
+        for (name, count) in counts {
+            if count > 1 {
+                let (twice, rest): (Vec<Entry>, Vec<Entry>) = scoped
+                    .into_iter()
+                    .partition(|entry| entry.meta.name == name);
+                scoped = rest;
+                catalog.shadowed.extend(twice);
+                catalog
+                    .duplicates
+                    .insert(format!("{}:{name}", source.name), CatalogScope::Plugin);
+            }
+        }
+        contributed.extend(scoped);
+    }
+    let mut offered: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for entry in &contributed {
+        if let Some(plugin) = &entry.plugin {
+            offered
+                .entry(entry.meta.name.clone())
+                .or_default()
+                .push(plugin.name.clone());
+        }
+    }
+    for entry in &mut contributed {
+        let name = &entry.meta.name;
+        let local = catalog
+            .entries
+            .iter()
+            .any(|existing| existing.meta.name == *name)
+            || catalog.duplicates.contains_key(name);
+        entry.bare = !local && offered.get(name).is_some_and(|owners| owners.len() == 1);
+    }
+    catalog.plugin_conflicts = offered
+        .into_iter()
+        .filter(|(_, owners)| owners.len() > 1)
+        .collect();
+    catalog.entries.extend(contributed);
+}
+
+/// `.rhai` file stems of some directories, without reading the files.
+fn rhai_stems(dirs: &[PathBuf]) -> Vec<String> {
+    let mut stems: Vec<String> = dirs
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("rhai"))
+        .filter_map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(str::to_string)
+        })
+        .collect();
+    stems.sort();
+    stems.dedup();
+    stems
+}
+
+/// A plugin's workflows by the qualified name that runs them, and the files
+/// that do not load, for `plugin list` / `inspect` / `/plugins`.
+pub fn plugin_workflow_names(plugin: &str, dirs: &[PathBuf]) -> (Vec<String>, Vec<String>) {
+    let mut names = Vec::new();
+    let mut problems = Vec::new();
+    for dir in dirs {
+        let (entries, skipped) = scan_directory(dir, CatalogScope::Plugin);
+        for entry in entries {
+            let qualified = format!("{plugin}:{}", entry.meta.name);
+            if names.contains(&qualified) {
+                problems.push(format!(
+                    "workflow {qualified} is defined twice in this plugin; neither runs"
+                ));
+            } else {
+                names.push(qualified);
+            }
+        }
+        for bad in skipped {
+            problems.push(format!(
+                "workflow {} not loaded: {}",
+                bad.path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| bad.path.display().to_string()),
+                bad.error
+            ));
+        }
+    }
+    (names, problems)
 }
 
 fn merge_scope(catalog: &mut Catalog, scoped: Vec<Entry>) {
@@ -195,6 +555,7 @@ fn scan_directory(dir: &Path, scope: CatalogScope) -> (Vec<Entry>, Vec<Skipped>)
             scope,
             error: "workflow directory is a symlink or not a directory; nothing in it is loaded"
                 .into(),
+            plugin: None,
         });
         return (Vec::new(), skipped);
     }
@@ -205,6 +566,7 @@ fn scan_directory(dir: &Path, scope: CatalogScope) -> (Vec<Entry>, Vec<Skipped>)
                 path: dir.to_path_buf(),
                 scope,
                 error: format!("failed to read {}: {error}", dir.display()),
+                plugin: None,
             });
             return (Vec::new(), skipped);
         }
@@ -225,8 +587,15 @@ fn scan_directory(dir: &Path, scope: CatalogScope) -> (Vec<Entry>, Vec<Skipped>)
                 script,
                 scope,
                 path,
+                plugin: None,
+                bare: true,
             }),
-            Err(error) => skipped.push(Skipped { path, scope, error }),
+            Err(error) => skipped.push(Skipped {
+                path,
+                scope,
+                error,
+                plugin: None,
+            }),
         }
     }
     (entries, skipped)
@@ -288,7 +657,7 @@ pub fn listing(catalog: &Catalog) -> Option<String> {
         let (desc_budget, when_budget) = field_budgets(&entry.meta.description, when);
         body.push_str(&format!(
             "- {}: {}",
-            entry.meta.name,
+            entry.call_name(),
             truncate_with_marker(&entry.meta.description, desc_budget)
         ));
         if let Some(when) = when.filter(|text| !text.is_empty()) {
@@ -320,14 +689,14 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
             .entries
             .iter()
             .map(|entry| {
-                let name = &entry.meta.name;
-                if taken(name) {
+                let name = entry.call_name();
+                if taken(&name) {
                     format!(
                         "{name} [{}, run with /workflow {name}]",
-                        entry.scope.label()
+                        entry.scope_label()
                     )
                 } else {
-                    format!("/{name} [{}]", entry.scope.label())
+                    format!("/{name} [{}]", entry.scope_label())
                 }
             })
             .collect();
@@ -340,7 +709,9 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
     let mut hidden: Vec<String> = catalog
         .shadowed
         .iter()
-        .filter(|entry| !catalog.duplicates.contains_key(&entry.meta.name))
+        .filter(|entry| {
+            entry.plugin.is_none() && !catalog.duplicates.contains_key(&entry.meta.name)
+        })
         .map(|entry| format!("{} [{}]", entry.meta.name, entry.scope.label()))
         .collect();
     hidden.dedup();
@@ -352,10 +723,15 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
         ));
     }
     for (name, scope) in &catalog.duplicates {
-        problems.push(format!(
-            "Not runnable: '{name}' is defined twice in {} scope (ambiguous)",
-            scope.label()
-        ));
+        match name.split_once(':') {
+            Some((plugin, _)) => problems.push(format!(
+                "Not runnable: '{name}' is defined twice in plugin {plugin} (ambiguous)"
+            )),
+            None => problems.push(format!(
+                "Not runnable: '{name}' is defined twice in {} scope (ambiguous)",
+                scope.label()
+            )),
+        }
     }
     if !catalog.skipped.is_empty() {
         let files: Vec<String> = catalog
@@ -368,7 +744,10 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_else(|| bad.path.display().to_string());
-                format!("{file} [{}]", bad.scope.label())
+                match &bad.plugin {
+                    Some(plugin) => format!("{file} [plugin {plugin}]"),
+                    None => format!("{file} [{}]", bad.scope.label()),
+                }
             })
             .collect();
         let more = catalog.skipped.len().saturating_sub(MAX_SHOWN_INVALID);
@@ -382,6 +761,8 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
             }
         ));
     }
+    // Plugin notes share the problems line so the overview still fits.
+    problems.extend(plugin_notes(catalog));
     if !problems.is_empty() {
         lines.push(format!(
             "{}; /workflows <name> says why.",
@@ -395,32 +776,98 @@ pub fn overview(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> String {
         .unwrap_or_else(|| "no user folder (GROK_HOME is unset)".into());
     if catalog.project_trusted {
         lines.push(format!(
-            "Folders: {} (project, first) and {user}. Built-in and plugin workflows are not part of this catalog; they ship separately.",
+            "Folders: {} (project, first), {user}, then active plugins. Built-in workflows ship separately.",
             catalog.project_dir.display()
         ));
     } else {
         lines.push(format!(
-            "Folders: {user}; {} loads once this folder is trusted. Built-in and plugin workflows are not part of this catalog; they ship separately.",
+            "Folders: {user}, then active plugins; {} loads once this folder is trusted. Built-in workflows ship separately.",
             catalog.project_dir.display()
         ));
     }
     if catalog.entries.is_empty() {
-        lines.push("Add <name>.rhai files (named after meta.name) to a folder above, or save a run with /workflow save <name>.".into());
+        lines.push("Add <name>.rhai files (named after meta.name) to a folder above, save a run with /workflow save <name>, or enable a plugin that ships workflows.".into());
     } else {
         lines.push("Run /<name> or /workflow <name> [--agent-budget N] [--effort LEVEL] [text | JSON args]; details: /workflows <name>; keep a run: /workflow save <name>.".into());
     }
     lines.join("\n")
 }
 
+/// Plugin workflows that only run qualified, offered by several plugins, or
+/// not loaded because their plugin is not active.
+fn plugin_notes(catalog: &Catalog) -> Vec<String> {
+    let mut notes = Vec::new();
+    let qualified_only: Vec<String> = catalog
+        .entries
+        .iter()
+        .filter(|entry| {
+            entry.plugin.is_some()
+                && !entry.bare
+                && !catalog.plugin_conflicts.contains_key(&entry.meta.name)
+        })
+        .filter_map(Entry::qualified)
+        .collect();
+    if !qualified_only.is_empty() {
+        notes.push(format!("Qualified only: {}", qualified_only.join(", ")));
+    }
+    for (name, owners) in &catalog.plugin_conflicts {
+        let runs: Vec<String> = owners
+            .iter()
+            .map(|owner| format!("{owner}:{name}"))
+            .collect();
+        notes.push(format!(
+            "'{name}' is offered by plugins {}; run {}",
+            owners.join(", "),
+            runs.join(" or ")
+        ));
+    }
+    let inactive: Vec<String> = catalog
+        .plugins
+        .iter()
+        .filter(|state| !state.active() && !state.files.is_empty())
+        .map(|state| {
+            format!(
+                "{} ({}, {} workflow{})",
+                state.origin.name,
+                state.status,
+                state.files.len(),
+                if state.files.len() == 1 { "" } else { "s" }
+            )
+        })
+        .collect();
+    if !inactive.is_empty() {
+        notes.push(format!(
+            "Plugin workflows not loaded: {}",
+            inactive.join(", ")
+        ));
+    }
+    notes
+}
+
 /// `/workflows <name>`: one workflow's description, how to run it, its file,
 /// and the copies it hides; or why a file of that name is not loaded.
 pub fn detail(catalog: &Catalog, name: &str, taken: &dyn Fn(&str) -> bool) -> String {
-    let file = format!("{name}.rhai");
+    let (plugin_part, bare_name) = match name.split_once(':') {
+        Some((plugin, workflow)) => (Some(plugin), workflow),
+        None => (None, name),
+    };
+    let file = format!("{bare_name}.rhai");
     let mut lines = Vec::new();
-    if let Some(entry) = catalog.entries.iter().find(|entry| entry.meta.name == name) {
+    let matches = |entry: &Entry| match plugin_part {
+        Some(plugin) => {
+            entry.meta.name == bare_name
+                && entry
+                    .plugin
+                    .as_ref()
+                    .is_some_and(|origin| origin.name == plugin)
+        }
+        None => entry.meta.name == name,
+    };
+    for entry in catalog.entries.iter().filter(|entry| matches(entry)) {
+        let call = entry.call_name();
         lines.push(format!(
-            "{name} [{}] — {}",
-            entry.scope.label(),
+            "{call} [{}] — {}",
+            entry.scope_label(),
             truncate_with_marker(&squash(&entry.meta.description), 400)
         ));
         if let Some(when) = entry.meta.when_to_use.as_deref().filter(|w| !w.is_empty()) {
@@ -429,47 +876,96 @@ pub fn detail(catalog: &Catalog, name: &str, taken: &dyn Fn(&str) -> bool) -> St
                 truncate_with_marker(&squash(when), 400)
             ));
         }
-        if taken(name) {
-            lines.push(format!(
-                "Run: /workflow {name} [args] (/{name} is taken by another command)"
-            ));
-        } else {
-            lines.push(format!("Run: /{name} [args] or /workflow {name} [args]"));
+        let qualified = entry.qualified().filter(|qualified| *qualified != call);
+        let mut runs = Vec::new();
+        for run in std::iter::once(call.clone()).chain(qualified) {
+            if taken(&run) {
+                runs.push(format!(
+                    "/workflow {run} [args] (/{run} is taken by another command)"
+                ));
+            } else {
+                runs.push(format!("/{run} [args] or /workflow {run} [args]"));
+            }
+        }
+        lines.push(format!("Run: {}", runs.join("; ")));
+        if let Some(origin) = &entry.plugin {
+            lines.push(format!("Plugin: {}", origin.describe()));
+            if !entry.bare {
+                let why = if catalog.plugin_conflicts.contains_key(&entry.meta.name) {
+                    "other plugins offer it too"
+                } else {
+                    "a project or personal workflow owns it"
+                };
+                lines.push(format!(
+                    "/{} does not run this one: {why}.",
+                    entry.meta.name
+                ));
+            }
         }
         lines.push(format!("Path: {}", entry.path.display()));
     }
-    for entry in catalog
-        .shadowed
-        .iter()
-        .filter(|entry| entry.meta.name == name)
-    {
-        let why = if catalog.duplicates.contains_key(name) {
-            "the name is ambiguous"
-        } else {
-            "the project workflow takes precedence"
+    for entry in catalog.shadowed.iter().filter(|entry| matches(entry)) {
+        let why = match &entry.plugin {
+            Some(_) => "the name is defined twice in this plugin".to_string(),
+            None if catalog.duplicates.contains_key(name) => "the name is ambiguous".into(),
+            None => "the project workflow takes precedence".into(),
         };
         lines.push(format!(
             "Hidden: {} [{}] — {why}.",
             entry.path.display(),
-            entry.scope.label()
+            entry.scope_label()
         ));
     }
     if let Some(scope) = catalog.duplicates.get(name) {
+        lines.push(match plugin_part {
+            Some(plugin) => format!(
+                "Not runnable: '{name}' is defined twice in plugin {plugin} (ambiguous); the plugin must rename one."
+            ),
+            None => format!(
+                "Not runnable: '{name}' is defined twice in {} scope (ambiguous); rename one file and its meta.name.",
+                scope.label()
+            ),
+        });
+    }
+    if plugin_part.is_none()
+        && let Some(owners) = catalog.plugin_conflicts.get(name)
+    {
+        let runs: Vec<String> = owners
+            .iter()
+            .map(|owner| format!("/{owner}:{name}"))
+            .collect();
         lines.push(format!(
-            "Not runnable: '{name}' is defined twice in {} scope (ambiguous); rename one file and its meta.name.",
-            scope.label()
+            "/{name} is ambiguous: plugins {} each offer it; run {}.",
+            owners.join(", "),
+            runs.join(" or ")
         ));
     }
-    for bad in catalog
-        .skipped
-        .iter()
-        .filter(|bad| bad.path.file_name().and_then(|n| n.to_str()) == Some(file.as_str()))
-    {
+    for bad in catalog.skipped.iter().filter(|bad| {
+        bad.path.file_name().and_then(|n| n.to_str()) == Some(file.as_str())
+            && plugin_part.is_none_or(|plugin| bad.plugin.as_deref() == Some(plugin))
+    }) {
+        let scope = match &bad.plugin {
+            Some(plugin) => format!("plugin {plugin}"),
+            None => bad.scope.label().to_string(),
+        };
         lines.push(format!(
-            "Not loaded: {} [{}] — {}",
+            "Not loaded: {} [{scope}] — {}",
             bad.path.display(),
-            bad.scope.label(),
             truncate_with_marker(&squash(&bad.error), MAX_SHOWN_ERROR_BYTES)
+        ));
+    }
+    for state in catalog.plugins.iter().filter(|state| {
+        !state.active()
+            && plugin_part.is_none_or(|plugin| state.origin.name == plugin)
+            && state.files.iter().any(|file| file == bare_name)
+    }) {
+        lines.push(format!(
+            "Not available: plugin {} is {} ({}); its workflow {}:{bare_name} does not run until the plugin is active. Plugin: {}",
+            state.origin.name,
+            state.status,
+            state.detail,
+            state.origin.name,
+            state.origin.describe()
         ));
     }
     if lines.is_empty() {
@@ -485,13 +981,13 @@ pub fn menu_entries(catalog: &Catalog, taken: &dyn Fn(&str) -> bool) -> Vec<(Str
     catalog
         .entries
         .iter()
-        .filter(|entry| !taken(&entry.meta.name))
+        .filter(|entry| !taken(&entry.call_name()))
         .map(|entry| {
             (
-                format!("/{}", entry.meta.name),
+                format!("/{}", entry.call_name()),
                 format!(
                     "workflow · {}  {}",
-                    entry.scope.label(),
+                    entry.scope_label(),
                     truncate_with_marker(&squash(&entry.meta.description), 120)
                 ),
             )
@@ -506,6 +1002,8 @@ pub fn to_json(catalog: &Catalog) -> Value {
             "description": entry.meta.description,
             "whenToUse": entry.meta.when_to_use,
             "scope": entry.scope.label(),
+            "callName": entry.call_name(),
+            "plugin": entry.plugin.as_ref().map(PluginOrigin::json),
             "path": entry.path.display().to_string(),
         })
     };
@@ -514,7 +1012,9 @@ pub fn to_json(catalog: &Catalog) -> Value {
         "entries": catalog.entries.iter().map(entry).collect::<Vec<_>>(),
         "shadowed": catalog.shadowed.iter().map(entry).collect::<Vec<_>>(),
         "duplicates": catalog.duplicates.iter().map(|(name, scope)| json!({"name": name, "scope": scope.label()})).collect::<Vec<_>>(),
-        "skipped": catalog.skipped.iter().map(|skipped| json!({"path": skipped.path.display().to_string(), "scope": skipped.scope.label(), "error": skipped.error})).collect::<Vec<_>>(),
+        "skipped": catalog.skipped.iter().map(|skipped| json!({"path": skipped.path.display().to_string(), "scope": skipped.scope.label(), "plugin": skipped.plugin, "error": skipped.error})).collect::<Vec<_>>(),
+        "plugins": catalog.plugins.iter().map(|state| json!({"plugin": state.origin.json(), "status": state.status, "detail": state.detail, "files": state.files, "problems": state.problems})).collect::<Vec<_>>(),
+        "pluginConflicts": catalog.plugin_conflicts,
         "projectDir": catalog.project_dir.display().to_string(),
         "projectTrusted": catalog.project_trusted,
         "userDir": catalog.user_dir.as_ref().map(|dir| dir.display().to_string()),
@@ -967,6 +1467,8 @@ mod tests {
             script: script("dup", dir),
             scope,
             path: path(dir),
+            plugin: None,
+            bare: true,
         };
         let mut project = vec![
             entry("a", CatalogScope::Project),
@@ -980,6 +1482,8 @@ mod tests {
             project_dir: PathBuf::from("p"),
             project_trusted: true,
             user_dir: None,
+            plugins: Vec::new(),
+            plugin_conflicts: BTreeMap::new(),
         };
         reject_same_scope_duplicates(&mut project, CatalogScope::Project, &mut catalog.duplicates);
         assert!(project.is_empty());
@@ -1064,7 +1568,11 @@ mod tests {
         assert!(detail(&catalog, "ghost", &taken).starts_with("No saved workflow"));
         let empty = overview(&scan(&fx.scope(false).clone_with_home(None)), &taken);
         assert!(empty.starts_with("No saved workflows found."), "{empty}");
-        assert!(empty.contains("Built-in and plugin workflows are not part of this catalog"));
+        assert!(empty.contains("then active plugins"), "{empty}");
+        assert!(
+            empty.contains("Built-in workflows ship separately."),
+            "{empty}"
+        );
     }
 
     #[test]
@@ -1174,5 +1682,257 @@ mod tests {
         assert!(serve_op(&json!({"op": "run"})).is_none());
         let reply = serve_op(&json!({"op": "catalog", "cwd": "relative"})).unwrap();
         assert_eq!(reply["type"], "rejected");
+    }
+
+    fn plugin_source(fx: &Fixture, name: &str, status: &str) -> PluginWorkflowSource {
+        let root = fx.home.join("plugins").join(name);
+        PluginWorkflowSource {
+            name: name.into(),
+            scope: "user".into(),
+            version: Some("1.2.0".into()),
+            license: Some("MIT".into()),
+            source: root.display().to_string(),
+            marketplace: None,
+            commit: Some("0123456789abcdef".into()),
+            trusted: status != "blocked",
+            status: status.into(),
+            status_detail: format!("{status} for the test"),
+            dirs: vec![root.join("workflows")],
+            root,
+            problems: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn plugin_workflows_run_qualified_and_bare_below_project_and_user() {
+        let fx = Fixture::new();
+        fx.write(
+            &fx.project_dir(),
+            "review.rhai",
+            &script("review", "project review"),
+        );
+        let demo = plugin_source(&fx, "demo", "active");
+        fx.write(
+            &demo.dirs[0],
+            "review.rhai",
+            &script("review", "plugin review"),
+        );
+        fx.write(
+            &demo.dirs[0],
+            "triage.rhai",
+            &script("triage", "plugin triage"),
+        );
+        fx.write(&demo.dirs[0], "broken.rhai", "let meta = ");
+        let catalog = scan_with(&fx.scope(true), std::slice::from_ref(&demo));
+
+        assert_eq!(
+            catalog.find("review").unwrap().meta.description,
+            "project review"
+        );
+        let qualified = catalog.find("demo:review").unwrap();
+        assert_eq!(qualified.meta.description, "plugin review");
+        assert_eq!(qualified.call_name(), "demo:review");
+        assert_eq!(qualified.scope_label(), "plugin demo");
+        let triage = catalog.find("triage").unwrap();
+        assert!(triage.bare);
+        assert_eq!(triage.call_name(), "triage");
+        assert_eq!(catalog.find("demo:triage").unwrap().path, triage.path);
+        let origin = triage.origin_json();
+        assert_eq!(origin["plugin"]["name"], "demo");
+        assert_eq!(origin["plugin"]["version"], "1.2.0");
+        assert_eq!(origin["plugin"]["commit"], "0123456789abcdef");
+        assert!(
+            catalog
+                .find("demo:broken")
+                .unwrap_err()
+                .contains("is invalid"),
+            "invalid plugin files are named"
+        );
+        assert_eq!(
+            catalog.find("demo:ghost").unwrap_err(),
+            "unknown workflow: demo:ghost"
+        );
+        assert!(catalog.knows("demo:broken"));
+        assert!(!catalog.knows("demo:ghost"));
+
+        let names: Vec<String> = catalog.entries.iter().map(Entry::call_name).collect();
+        assert_eq!(names, ["review", "demo:review", "triage"]);
+        let list = listing(&catalog).unwrap();
+        assert!(list.contains("- demo:review: plugin review"), "{list}");
+        assert!(list.contains("- triage: plugin triage"), "{list}");
+
+        let text = overview(&catalog, &|_| false);
+        assert!(
+            text.starts_with("Saved workflows (3): /review [project], /demo:review [plugin demo], /triage [plugin demo]."),
+            "{text}"
+        );
+        assert!(text.contains("broken.rhai [plugin demo]"), "{text}");
+        assert!(text.contains("Qualified only: demo:review"), "{text}");
+        assert!(text.lines().count() <= 6, "{text}");
+
+        let about = detail(&catalog, "review", &|_| false);
+        assert!(
+            about.contains("review [project] — project review"),
+            "{about}"
+        );
+        assert!(
+            about.contains("demo:review [plugin demo] — plugin review"),
+            "{about}"
+        );
+        assert!(
+            about.contains("Plugin: demo 1.2.0 · license MIT · user plugin · trusted · source "),
+            "{about}"
+        );
+        assert!(about.contains("commit 0123456789ab"), "{about}");
+        assert!(
+            about
+                .contains("/review does not run this one: a project or personal workflow owns it."),
+            "{about}"
+        );
+        let about = detail(&catalog, "demo:triage", &|_| false);
+        assert!(
+            about.contains("Run: /triage [args] or /workflow triage [args]; /demo:triage [args]"),
+            "{about}"
+        );
+
+        let menu = menu_entries(&catalog, &|name| name == "triage");
+        let rows: Vec<&str> = menu.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(rows, ["/review", "/demo:review"]);
+        assert!(
+            menu[1]
+                .1
+                .starts_with("workflow · plugin demo  plugin review")
+        );
+
+        let value = to_json(&catalog);
+        assert_eq!(value["entries"][1]["callName"], "demo:review");
+        assert_eq!(value["entries"][1]["plugin"]["license"], "MIT");
+        assert_eq!(value["plugins"][0]["status"], "active");
+        assert_eq!(value["skipped"][0]["plugin"], "demo");
+        assert!(value["listing"].as_str().unwrap().contains("demo:review"));
+
+        // Untrusted project: the plugin's bare name is free again.
+        let untrusted = scan_with(&fx.scope(false), std::slice::from_ref(&demo));
+        assert_eq!(
+            untrusted.find("review").unwrap().meta.description,
+            "plugin review"
+        );
+    }
+
+    #[test]
+    fn two_plugins_with_one_name_run_only_qualified() {
+        let fx = Fixture::new();
+        let one = plugin_source(&fx, "one", "active");
+        let two = plugin_source(&fx, "two", "active");
+        fx.write(&one.dirs[0], "lint.rhai", &script("lint", "one lint"));
+        fx.write(&two.dirs[0], "lint.rhai", &script("lint", "two lint"));
+        fx.write(&two.dirs[0], "solo.rhai", &script("solo", "two solo"));
+        let catalog = scan_with(&fx.scope(true), &[one, two]);
+        assert_eq!(
+            catalog.find("lint").unwrap_err(),
+            "ambiguous workflow 'lint': offered by plugins one, two; run one:lint or two:lint"
+        );
+        assert!(!catalog.knows("ghost"));
+        assert!(catalog.knows("lint"));
+        assert_eq!(
+            catalog.find("one:lint").unwrap().meta.description,
+            "one lint"
+        );
+        assert_eq!(
+            catalog.find("two:lint").unwrap().meta.description,
+            "two lint"
+        );
+        assert_eq!(catalog.find("solo").unwrap().meta.description, "two solo");
+        let text = overview(&catalog, &|_| false);
+        assert!(
+            text.contains("'lint' is offered by plugins one, two; run one:lint or two:lint"),
+            "{text}"
+        );
+        let about = detail(&catalog, "lint", &|_| false);
+        assert!(
+            about.contains("/lint is ambiguous: plugins one, two each offer it"),
+            "{about}"
+        );
+        assert_eq!(to_json(&catalog)["pluginConflicts"]["lint"][1], "two");
+    }
+
+    #[test]
+    fn a_plugin_that_defines_a_name_twice_runs_neither() {
+        let fx = Fixture::new();
+        let mut demo = plugin_source(&fx, "demo", "active");
+        let extra = demo.root.join("more");
+        demo.dirs.push(extra.clone());
+        fx.write(&demo.dirs[0], "twice.rhai", &script("twice", "first"));
+        fx.write(&extra, "twice.rhai", &script("twice", "second"));
+        let catalog = scan_with(&fx.scope(true), &[demo.clone()]);
+        assert_eq!(
+            catalog.find("demo:twice").unwrap_err(),
+            "ambiguous workflow 'demo:twice': duplicate definitions in plugin demo"
+        );
+        assert_eq!(
+            catalog.find("twice").unwrap_err(),
+            "unknown workflow: twice"
+        );
+        let (names, problems) = plugin_workflow_names("demo", &demo.dirs);
+        assert_eq!(names, ["demo:twice"]);
+        assert_eq!(
+            problems,
+            ["workflow demo:twice is defined twice in this plugin; neither runs"]
+        );
+        let text = overview(&catalog, &|_| false);
+        assert!(
+            text.contains("'demo:twice' is defined twice in plugin demo"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn inactive_plugins_load_nothing_and_say_why() {
+        let fx = Fixture::new();
+        for status in ["disabled", "blocked", "missing", "shadowed"] {
+            let off = plugin_source(&fx, "off", status);
+            fx.write(
+                &off.dirs[0],
+                "deploy.rhai",
+                &script("deploy", "never loads"),
+            );
+            let catalog = scan_with(&fx.scope(true), &[off]);
+            assert!(catalog.entries.is_empty(), "{status}");
+            let expected = format!(
+                "workflow 'deploy' is not available: plugin 'off' is {status} ({status} for the test)"
+            );
+            assert_eq!(catalog.find("deploy").unwrap_err(), expected);
+            assert_eq!(
+                catalog.find("off:deploy").unwrap_err(),
+                expected.replace("'deploy'", "'off:deploy'")
+            );
+            assert!(catalog.knows("deploy"));
+            assert!(listing(&catalog).is_none());
+            let text = overview(&catalog, &|_| false);
+            assert!(
+                text.contains(&format!(
+                    "Plugin workflows not loaded: off ({status}, 1 workflow)"
+                )),
+                "{text}"
+            );
+            let about = detail(&catalog, "off:deploy", &|_| false);
+            assert!(
+                about.starts_with(&format!("Not available: plugin off is {status}")),
+                "{about}"
+            );
+            assert_eq!(to_json(&catalog)["plugins"][0]["files"][0], "deploy");
+        }
+    }
+
+    #[test]
+    fn qualified_names_are_validated() {
+        use crate::workflow::{invalid_call_name, valid_call_name};
+        assert!(valid_call_name("demo:review"));
+        assert!(valid_call_name("review"));
+        assert!(!valid_call_name("demo:"));
+        assert!(!valid_call_name(":review"));
+        assert!(!valid_call_name("Demo:review"));
+        assert!(!valid_call_name("demo:re:view"));
+        assert!(invalid_call_name("demo:").contains("<plugin>:<name>"));
     }
 }

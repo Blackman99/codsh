@@ -250,6 +250,9 @@ pub struct Contributions {
     pub commands: Vec<String>,
     pub agents: Vec<String>,
     pub hooks: Vec<String>,
+    /// Rhai workflows by the name that runs them (`plugin:name`; ticket 205).
+    /// Only their `meta` is read; installing or listing never runs one.
+    pub workflows: Vec<String>,
     /// `.mcp.json` or `mcpServers` is present. This build does not start
     /// plugin MCP servers; the MCP ticket owns that.
     pub mcp: bool,
@@ -265,6 +268,7 @@ impl Contributions {
             (self.commands.len(), "command", "commands"),
             (self.agents.len(), "agent", "agents"),
             (self.hooks.len(), "hook", "hooks"),
+            (self.workflows.len(), "workflow", "workflows"),
         ] {
             if count > 0 {
                 parts.push(format!("{count} {}", if count == 1 { one } else { many }));
@@ -287,6 +291,7 @@ impl Contributions {
             "commands": self.commands,
             "agents": self.agents,
             "hooks": self.hooks,
+            "workflows": self.workflows,
             "mcp": self.mcp,
             "problems": self.problems,
         })
@@ -2036,6 +2041,19 @@ fn read_plugin_at(root: &Path) -> Result<Option<(String, RepoPlugin)>, PluginErr
 }
 
 fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
+    installed_views(ctx, true)
+}
+
+/// Installed plugins with their state; `with_contributions` also reads what
+/// each one provides (asset discovery), which the workflow catalog skips.
+fn installed_views(ctx: &Context, with_contributions: bool) -> Vec<InstalledView> {
+    let contributions = |name: &str, path: &Path| {
+        if with_contributions {
+            contributions_for(ctx, name, path)
+        } else {
+            Contributions::default()
+        }
+    };
     let registry = load_registry(ctx).unwrap_or_else(|_| InstallRegistry::empty());
     let trusted = trusted_set(ctx).unwrap_or_default();
     let enabled = enabled_set(ctx);
@@ -2074,7 +2092,7 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                     InstallKind::Git { url, .. } => url.clone(),
                     InstallKind::Local { source_path, .. } => source_path.display().to_string(),
                 },
-                contributions: contributions_for(ctx, name, &path),
+                contributions: contributions(name, &path),
                 path,
                 marketplace: repo
                     .marketplace
@@ -2113,7 +2131,7 @@ fn list_installed_views(ctx: &Context) -> Vec<InstalledView> {
                     )
                 };
                 views.push(InstalledView {
-                    contributions: contributions_for(ctx, &name, &child),
+                    contributions: contributions(&name, &child),
                     name,
                     version: plugin.version,
                     license: plugin.license,
@@ -2180,6 +2198,7 @@ struct PluginLayout {
     skill_dirs: Vec<PathBuf>,
     command_dirs: Vec<PathBuf>,
     agent_dirs: Vec<PathBuf>,
+    workflow_dirs: Vec<PathBuf>,
     hooks_file: Option<PathBuf>,
     hooks_inline: Option<JsonValue>,
     mcp: bool,
@@ -2192,7 +2211,8 @@ const MANIFEST_FILES: &[&str] = &[
     ".claude-plugin/plugin.json",
 ];
 
-/// Manifest `rules`, `skills`, `commands`, `agents` (a path or a list) and
+/// Manifest `rules`, `skills`, `commands`, `agents`, `workflows` (a path or
+/// a list) and
 /// `hooks` (a path or an inline object) replace the default `rules/`,
 /// `skills/`, `commands/`, `agents/`, and `hooks/hooks.json`. Every path
 /// stays inside the plugin root.
@@ -2253,6 +2273,7 @@ fn plugin_layout(root: &Path) -> PluginLayout {
     layout.skill_dirs = dirs("skills", &mut layout.problems);
     layout.command_dirs = dirs("commands", &mut layout.problems);
     layout.agent_dirs = dirs("agents", &mut layout.problems);
+    layout.workflow_dirs = dirs("workflows", &mut layout.problems);
     match manifest.get("hooks") {
         Some(JsonValue::String(rel)) => match component_path(root, rel) {
             Ok(path) if path.is_file() => layout.hooks_file = Some(path),
@@ -2440,6 +2461,10 @@ fn contributions_for(ctx: &Context, name: &str, root: &Path) -> Contributions {
     if let Some(value) = read_hooks_value(&layout, &mut out.problems) {
         out.hooks = hook_labels(&value, &mut out.problems);
     }
+    let (workflows, problems) =
+        crate::workflow_catalog::plugin_workflow_names(name, &layout.workflow_dirs);
+    out.workflows = workflows;
+    out.problems.extend(problems);
     out.mcp = layout.mcp;
     out
 }
@@ -2452,6 +2477,7 @@ fn contribution_lines(contributions: &Contributions, indent: &str) -> Vec<String
         ("commands", &contributions.commands),
         ("agents", &contributions.agents),
         ("hooks", &contributions.hooks),
+        ("workflows", &contributions.workflows),
     ] {
         if !items.is_empty() {
             lines.push(format!("{indent}{label} {}", items.join(", ")));
@@ -2486,6 +2512,7 @@ fn extension_view(plugin: &InstalledView) -> Vec<String> {
         .chain(&c.commands)
         .chain(&c.agents)
         .chain(&c.hooks)
+        .chain(&c.workflows)
         .chain(&c.rules)
         .map(String::as_str)
         .collect();
@@ -2566,6 +2593,65 @@ pub fn hook_env(grok_home: &Path, cwd: &Path, workspace_trusted: bool) -> (Strin
         PLUGIN_HOOKS_ENV.to_string(),
         JsonValue::Array(entries).to_string(),
     )
+}
+
+/// One installed plugin that declares workflows, for the workflow catalog
+/// (ticket 205): identity, provenance, trust and state, and its workflow
+/// directories. Only an `active` plugin's workflows load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginWorkflowSource {
+    pub name: String,
+    pub scope: String,
+    pub version: Option<String>,
+    pub license: Option<String>,
+    pub source: String,
+    pub marketplace: Option<String>,
+    pub commit: Option<String>,
+    pub trusted: bool,
+    pub status: String,
+    pub status_detail: String,
+    pub root: PathBuf,
+    pub dirs: Vec<PathBuf>,
+    pub problems: Vec<String>,
+}
+
+/// Every installed plugin (user and project scope, any state) whose layout
+/// has a `workflows` directory. Reads registry, trust and config state and
+/// the manifest; it reads no workflow file and runs nothing.
+pub fn workflow_sources(
+    grok_home: &Path,
+    cwd: &Path,
+    workspace_trusted: bool,
+) -> Vec<PluginWorkflowSource> {
+    let ctx = read_context(grok_home, cwd, workspace_trusted);
+    installed_views(&ctx, false)
+        .into_iter()
+        .filter_map(|plugin| {
+            let layout = if plugin.path.is_dir() {
+                plugin_layout(&plugin.path)
+            } else {
+                PluginLayout::default()
+            };
+            if layout.workflow_dirs.is_empty() {
+                return None;
+            }
+            Some(PluginWorkflowSource {
+                name: plugin.name,
+                scope: plugin.scope,
+                version: plugin.version,
+                license: plugin.license,
+                source: plugin.source,
+                marketplace: plugin.marketplace,
+                commit: plugin.commit,
+                trusted: plugin.trusted,
+                status: plugin.status,
+                status_detail: plugin.status_detail,
+                root: plugin.path,
+                dirs: layout.workflow_dirs,
+                problems: layout.problems,
+            })
+        })
+        .collect()
 }
 
 fn catalog_plugins(ctx: &Context, source: &MarketplaceSource) -> Vec<CatalogPlugin> {
@@ -3697,7 +3783,7 @@ fn contained_join(root: &Path, rel: &str) -> Result<PathBuf, PluginError> {
     Ok(candidate)
 }
 
-fn is_valid_plugin_name(name: &str) -> bool {
+pub(crate) fn is_valid_plugin_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && name
@@ -5767,6 +5853,56 @@ mod tests {
         .unwrap();
         assert!(active_roots(&env.grok_home, &env.cwd, true).is_empty());
         assert!(hook_entries(&env, true).is_empty());
+    }
+
+    #[test]
+    fn plugin_workflows_are_listed_and_follow_the_plugin_state() {
+        let dir = TempDir::new().unwrap();
+        let env = ctx(&dir);
+        let source = dir.path().join("src-demo");
+        write_content_plugin(&source, "demo", "1.0.0", "V1");
+        std::fs::create_dir_all(source.join("workflows")).unwrap();
+        std::fs::write(
+            source.join("workflows/review.rhai"),
+            "let meta = #{ name: \"review\", description: \"plugin review\" };\n\"V1\"",
+        )
+        .unwrap();
+        std::fs::write(source.join("workflows/bad.rhai"), "let meta = ").unwrap();
+        install_local(&env, &source);
+        let row = inspect(&env.grok_home, &env.cwd, &env.env, true).installed[0].clone();
+        assert_eq!(row.contributions.workflows, vec!["demo:review".to_string()]);
+        assert!(
+            row.contributions
+                .problems
+                .iter()
+                .any(|problem| problem.starts_with("workflow bad.rhai not loaded")),
+            "{:?}",
+            row.contributions.problems
+        );
+        assert!(row.contributions.summary().contains("1 workflow"));
+        assert_eq!(row.contributions.json()["workflows"][0], "demo:review");
+        let sources = workflow_sources(&env.grok_home, &env.cwd, true);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].status, "disabled");
+        assert_eq!(sources[0].version.as_deref(), Some("1.0.0"));
+        assert!(sources[0].dirs[0].ends_with("workflows"));
+        set_enabled(&env, "demo", true);
+        let sources = workflow_sources(&env.grok_home, &env.cwd, true);
+        assert_eq!(sources[0].status, "active");
+        assert!(sources[0].trusted);
+        run(
+            &env.grok_home,
+            &env.cwd,
+            &env.env,
+            true,
+            &PluginCommand::Uninstall {
+                name: "demo".into(),
+                confirm: true,
+                keep_data: false,
+            },
+        )
+        .unwrap();
+        assert!(workflow_sources(&env.grok_home, &env.cwd, true).is_empty());
     }
 
     #[test]

@@ -29,6 +29,12 @@ invalid, the slash menu completes `/<name>`, `/<name> args` runs real dsh
 children and reports into the session, /workflow save writes a finished run
 into the project catalog, and -p runs a workflow by name.
 
+Ticket 205 installs a real plugin (`plugin install --trust`, `plugin enable`)
+that ships workflows/: /workflows lists them with the plugin, /<name> runs
+the free bare name and /<plugin>:<name> the one a project workflow owns, both
+with real dsh children, and after `plugin disable` -p by the qualified name is
+refused with the plugin's state.
+
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first); the binary is also the workflow
 engine. It reuses the Session harness of rust-screen-pty-test.py.
@@ -114,6 +120,15 @@ agent("CHILD_SAY personal digest").output
 
 KEEP = '''let meta = #{ name: "keeper", description: "A run worth keeping" };
 agent("CHILD_SAY kept answer", #{ label: "keeper" }).output
+'''
+
+PLUGIN_LINT = '''let meta = #{ name: "lint", description: "Plugin lint of one topic" };
+let topic = if type_of(args) == "map" { args.objective } else { "nothing" };
+agent("CHILD_SAY plugin lint of " + topic, #{ label: "linter" }).output
+'''
+
+PLUGIN_DIGEST = '''let meta = #{ name: "digest", description: "Plugin digest (the project owns /digest)" };
+agent("CHILD_SAY plugin digest", #{ label: "plugin-digester" }).output
 '''
 
 BROKEN = '''let meta = #{ name: "broken", description: "A script with a syntax error" };
@@ -301,7 +316,7 @@ def main():
             flat = shown.replace('\n', '')
             assert 'Hidden: digest [user] (a project workflow of the same name takes precedence)' in flat, shown
             assert 'Not loaded (invalid, never run): mangled.rhai [user]' in flat, shown
-            assert 'Built-in and plugin workflows are not part of this catalog' in flat, shown
+            assert 'Built-in workflows ship separately.' in flat, shown
             assert 'details: /workflows <name>' in flat, shown
             prompt(session, '/workflows digest')
             shown = wait_until(session, lambda s: 'digest [project] — Project digest of one topic' in s, '/workflows digest', 15)
@@ -353,6 +368,46 @@ def main():
         finally:
             session.close()
 
+        # Ticket 205: a real plugin with workflows, in a third PTY session.
+        plugin_src = work / 'src-demo'
+        (plugin_src / 'workflows').mkdir(parents=True)
+        (plugin_src / 'plugin.json').write_text(json.dumps({'name': 'demo', 'version': '1.0.0', 'license': 'MIT', 'description': 'PTY plugin'}))
+        (plugin_src / 'workflows' / 'lint.rhai').write_text(PLUGIN_LINT)
+        (plugin_src / 'workflows' / 'digest.rhai').write_text(PLUGIN_DIGEST)
+
+        def cli(*args):
+            ran = subprocess.run([NODE, str(LAUNCHER), '--rust', *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
+            assert ran.returncode == 0, (args, ran.stdout, ran.stderr)
+            return ran.stdout
+        cli('plugin', 'install', str(plugin_src), '--trust')
+        listed = json.loads(cli('plugin', 'list', '--json'))
+        assert listed[0]['state'] == 'disabled' and listed[0]['contributions']['workflows'] == ['demo:digest', 'demo:lint'], listed
+        cli('plugin', 'enable', 'demo')
+        session = Session('plugin', LAUNCHER, cwd, env, output,
+                          extra=['--fullscreen', '--always-approve', '--trust'], cols=150, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            prompt(session, '/workflows')
+            shown = wait_until(session, lambda s: '/demo:digest [plugin demo]' in s.replace('\n', ''), '/workflows with plugin', 15)
+            flat = shown.replace('\n', '')
+            assert '/lint [plugin demo]' in flat and '/digest [project]' in flat, shown
+            assert 'Qualified only: demo:digest' in flat, shown
+            prompt(session, '/workflows demo:digest')
+            shown = wait_until(session, lambda s: 'Plugin: demo 1.0.0 · license MIT · user plugin · trusted' in s.replace('\n', ''), '/workflows demo:digest', 15)
+            prompt(session, '/lint the api')
+            shown = wait_until(session, lambda s: "Workflow 'lint' started in the background." in s, 'plugin slash launch', 20)
+            shown = wait_until(session, lambda s: 'CHILD_SAID plugin lint of the api' in s and "Workflow 'lint' (run id wf_" in s,
+                               'plugin lint completion', 60)
+            prompt(session, '/demo:digest please')
+            shown = wait_until(session, lambda s: 'CHILD_SAID plugin digest' in s and "Workflow 'digest' (run id wf_" in s,
+                               'qualified plugin completion', 60)
+            prompt(session, '/workflow runs')
+            shown = wait_until(session, lambda s: 'Source: plugin demo 1.0.0' in s, 'runs source line', 15)
+            results['plugin_session'] = True
+            results['plugin_screen'] = session.finish(expect_alt_leave=True)['exit']
+        finally:
+            session.close()
+
         # 6. Headless: the same saved script from -p (a plain prompt waits for
         #    its run and prints its block), and none with --no-subagents.
         def plain(*args):
@@ -380,6 +435,14 @@ def main():
         assert named.returncode == 0, named.stderr
         assert "Workflow 'digest' ended;" in named.stdout and '— status: complete' in named.stdout, named.stdout
         assert 'CHILD_SAID project digest of headless' in named.stdout, named.stdout
+        # Ticket 205: -p by the plugin's qualified name, then refused once disabled.
+        qualified = plain(call({'source': {'type': 'name', 'name': 'demo:lint'}, 'args': {'objective': 'headless'}}))
+        assert qualified.returncode == 0, qualified.stderr
+        assert 'CHILD_SAID plugin lint of headless' in qualified.stdout, qualified.stdout
+        cli('plugin', 'disable', 'demo')
+        refused = plain(call({'source': {'type': 'name', 'name': 'demo:lint'}}))
+        assert "workflow 'demo:lint' is not available: plugin 'demo' is disabled" in refused.stdout, refused.stdout
+        assert 'CHILD_SAID plugin lint' not in refused.stdout, refused.stdout
         results['headless'] = True
 
         # 7. Ticket 182: six held children under a cap of 2 from config.toml,

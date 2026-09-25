@@ -49,8 +49,12 @@
  * as the `subagent` tool.
  *
  * Differences from the reference that this build states instead of hiding:
- * - There are no built-in or plugin workflows in the catalog (they ship in
- *   their own tickets); only project and personal files are listed.
+ * - There are no built-in workflows in the catalog. Project and personal
+ *   files come first; active plugins add theirs as `<plugin>:<name>` (and the
+ *   bare name when nothing else owns it), which the reference registry has
+ *   no scope for. A run started from a plugin keeps its origin (plugin,
+ *   version, commit) with its script copy; resuming it needs the plugin to
+ *   be active again but still replays the copy taken at launch.
  * - `resume_from` is refused by the engine with an explicit error: dsh
  *   children are disposed when their call ends, so there is no finished
  *   child session to resume from a later agent() call.
@@ -671,7 +675,8 @@ export function createWorkflowRuns(deps) {
             const objective = start.args && typeof start.args === 'object' && typeof start.args.objective === 'string' ? start.args.objective : undefined
             run.objective = launchObjective ?? objective ?? String(line.meta?.description ?? '')
             try {
-              session.store.writeLaunch(run.id, { script: String(line.script ?? ''), args: start.args, definition, scriptPath: line.path ?? null, effort: run.effort ?? null })
+              run.origin = line.origin && typeof line.origin === 'object' ? line.origin : null
+              session.store.writeLaunch(run.id, { script: String(line.script ?? ''), args: start.args, definition, scriptPath: line.path ?? null, effort: run.effort ?? null, origin: run.origin })
             } catch (cause) {
               process.stderr.write(`rust-acp-workflow: could not save the script of run ${run.id}; it cannot be resumed: ${cause instanceof Error ? cause.message : cause}\n`)
             }
@@ -805,6 +810,33 @@ export function createWorkflowRuns(deps) {
     if (activeCount(session) >= MAX_ACTIVE_RUNS) throw resumeError(ACTIVE_LIMIT)
   }
 
+  /**
+   * A run started from a plugin workflow resumes only while that plugin is
+   * active (ticket 205): disabling or uninstalling it withdraws its
+   * workflows, paused runs included. An updated plugin does not change the
+   * run: it replays the script copied at launch, and the overview names the
+   * version now installed.
+   */
+  async function pluginGate(session, run, origin) {
+    const plugin = origin?.plugin
+    if (!plugin?.name) return
+    let reply
+    try {
+      reply = await catalog(session)
+    } catch (cause) {
+      throw resumeError(`cannot check plugin '${plugin.name}' before resuming '${run.name}': ${cause?.detail ?? (cause instanceof Error ? cause.message : String(cause))}`)
+    }
+    const states = Array.isArray(reply?.plugins) ? reply.plugins : []
+    const state = states.find(item => item?.plugin?.name === plugin.name && item?.plugin?.scope === plugin.scope) ?? states.find(item => item?.plugin?.name === plugin.name)
+    if (!state) {
+      throw resumeError(`run '${run.name}' came from plugin '${plugin.name}', which is no longer installed (or no longer ships workflows); install and enable it again to resume. The run would replay the script it started with.`)
+    }
+    if (state.status !== 'active') {
+      throw resumeError(`run '${run.name}' came from plugin '${plugin.name}', which is ${state.status} (${state.detail}); enable it again to resume. The run would replay the script it started with.`)
+    }
+    run.origin = { ...(run.origin ?? origin), installed: { version: state.plugin?.version ?? null, commit: state.plugin?.commit ?? null } }
+  }
+
   async function resume(session, run, parent, { budget, call }) {
     resumable(session, run, budget)
     run.resuming = true
@@ -818,6 +850,7 @@ export function createWorkflowRuns(deps) {
       } catch (cause) {
         throw resumeError(`no persisted script for '${run.name}'; cannot resume (${cause instanceof Error ? cause.message : cause})`)
       }
+      await pluginGate(session, run, launch.origin)
       const prior = run.status
       const epoch = run.epoch
       run.epoch = (run.epoch ?? 0) + 1

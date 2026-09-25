@@ -229,7 +229,7 @@ Installation does not enable execution. Enable/disable (`plugin enable|disable`,
 Space in `/plugins`) is the only switch for plugin content: `plugin::active_roots`
 (enabled, not disabled, install-trusted or workspace-trusted for project
 plugins, present, not shadowed) feeds `assets::discover` (plugin rules before
-project rules, `/plugin:name` skills and commands, `plugin:agent` agents) and
+project rules, `/plugin:name` skills and commands, `plugin:agent` agents; workflows go to `workflow_catalog`) and
 `plugin::hook_env` writes `CODSH_PLUGIN_HOOKS` for `rust-acp-hooks.mjs`, which
 runs those command hooks under the same contract. Enabling never widens tool
 permissions (`executionGranted` stays false). A live TUI session replaces the
@@ -373,7 +373,21 @@ same catalog for `/workflows`, the slash menu, and `/<name>` (sent as a
 (`parseNamedArgs`), injects a `form: snapshot` reminder for a host-side
 launch, adds the reference listing to a top-level agent's first step when it
 changes, and saves a run through the engine (create-new, no symlinks, trusted
-project only). Built-in and plugin workflow catalogs are separate tickets.
+project only). Built-in workflows are a separate ticket. Ticket 205 adds
+plugin workflows: `plugin::workflow_sources` lists installed plugins whose
+layout has `workflows` directories (manifest `workflows`, default
+`workflows/`) with state, trust, and provenance, without asset discovery;
+`scan_with` adds an active plugin's files after project and personal ones.
+The reference registry has no plugin scope, so the ticket 166 asset rule
+applies: `<plugin>:<name>` always resolves, the bare name only when no
+project/personal entry or other active plugin has it (two plugins make it
+ambiguous, one plugin defining a name twice makes the qualified name
+ambiguous), and an inactive plugin's names are refused with its status.
+The engine's `started` line carries `origin` (scope, path, plugin name,
+version, commit, source, license); the plugin keeps it in `launch.json` and
+`run.json`, shows it in `/workflow runs`, and before resuming a plugin run
+asks the engine for the catalog and refuses unless that plugin is active.
+The resumed run still replays its stored `script.rhai`.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and
