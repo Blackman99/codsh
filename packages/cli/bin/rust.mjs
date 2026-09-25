@@ -308,6 +308,10 @@ export async function launchRust(args) {
         // rust-acp-subagents registers the typed `subagent` tool in its place.
         '- id: tool-subagent',
         '  disabled: true',
+        // rust-acp-subagents registers the Rhai `workflow` tool in its place
+        // (ticket 181). workflow-worker-thread stays: tool-ralph needs it.
+        '- id: tool-workflow',
+        '  disabled: true',
         '- insert:',
         ...lspInsert,
         ...askInsert,

@@ -73,6 +73,10 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     // rust-acp-subagents registers the typed `subagent` tool in its place.
     '- id: tool-subagent',
     '  disabled: true',
+    // rust-acp-subagents registers the Rhai `workflow` tool in its place
+    // (ticket 181). workflow-worker-thread stays: tool-ralph needs it.
+    '- id: tool-workflow',
+    '  disabled: true',
   ]
   // dsh owns code navigation. No language server is configured, so a call
   // reports LSP_UNAVAILABLE instead of inventing a location. The profile does

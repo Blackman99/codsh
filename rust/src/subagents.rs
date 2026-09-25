@@ -520,6 +520,8 @@ pub struct Entry {
     pub worktree: Option<String>,
     /// After the end: whether the worktree was kept (it holds changes).
     pub worktree_kept: Option<bool>,
+    /// Ticket 181: the workflow run (its name) that spawned this child.
+    pub workflow: String,
 }
 
 impl Entry {
@@ -573,6 +575,66 @@ impl Entry {
     }
 }
 
+/// One workflow run (ticket 181), keyed by its `workflow` tool call id. The
+/// run is foreground: its tool block shows this line while it runs.
+#[derive(Clone, Debug)]
+pub struct WorkflowRun {
+    pub id: String,
+    pub name: String,
+    pub status: String,
+    pub phase: String,
+    pub agents: u64,
+    pub running: u64,
+    pub started: Instant,
+    pub elapsed: Option<Duration>,
+}
+
+impl WorkflowRun {
+    pub fn live(&self) -> bool {
+        self.status == "running"
+    }
+
+    fn quoted_name(&self) -> String {
+        if self.name.is_empty() {
+            String::new()
+        } else {
+            format!(": '{}'", self.name)
+        }
+    }
+
+    fn agents(&self) -> String {
+        let calls = match self.agents {
+            1 => "1 agent".to_string(),
+            count => format!("{count} agents"),
+        };
+        if self.live() && self.running > 0 {
+            format!("{calls} ({} running)", self.running)
+        } else {
+            calls
+        }
+    }
+
+    /// The parent-scrollback line for the workflow tool block.
+    pub fn block_title(&self) -> String {
+        let phase = activity(&self.phase);
+        if self.live() {
+            format!(
+                "Workflow running{}{phase} · {}",
+                self.quoted_name(),
+                self.agents()
+            )
+        } else {
+            format!(
+                "Workflow {} in {}{}{phase} · {}",
+                self.status,
+                seconds(self.elapsed.unwrap_or_else(|| self.started.elapsed())),
+                self.quoted_name(),
+                self.agents()
+            )
+        }
+    }
+}
+
 fn activity(text: &str) -> String {
     if text.is_empty() {
         String::new()
@@ -595,6 +657,7 @@ fn seconds(elapsed: Duration) -> String {
 pub struct Board {
     pub entries: Vec<Entry>,
     pub hide_completed: bool,
+    pub workflows: Vec<WorkflowRun>,
 }
 
 /// A line the client shows once, e.g. a background child finishing.
@@ -620,6 +683,57 @@ fn text(value: &Value, key: &str) -> String {
 impl Board {
     pub fn get(&self, id: &str) -> Option<&Entry> {
         self.entries.iter().find(|entry| entry.id == id)
+    }
+
+    pub fn workflow(&self, id: &str) -> Option<&WorkflowRun> {
+        self.workflows.iter().find(|run| run.id == id)
+    }
+
+    /// A workflow status line. A settled run keeps its first final status.
+    fn apply_workflow(&mut self, event: &Value) {
+        let id = text(event, "id");
+        if id.is_empty() {
+            return;
+        }
+        let index = match self.workflows.iter().position(|run| run.id == id) {
+            Some(index) => index,
+            None => {
+                self.workflows.push(WorkflowRun {
+                    id,
+                    name: String::new(),
+                    status: "running".into(),
+                    phase: String::new(),
+                    agents: 0,
+                    running: 0,
+                    started: Instant::now(),
+                    elapsed: None,
+                });
+                self.workflows.len() - 1
+            }
+        };
+        let run = &mut self.workflows[index];
+        if !run.live() {
+            return;
+        }
+        let name = text(event, "name");
+        if !name.is_empty() {
+            run.name = name;
+        }
+        run.phase = text(event, "phase");
+        run.agents = event
+            .get("agents")
+            .and_then(Value::as_u64)
+            .unwrap_or(run.agents);
+        run.running = event.get("running").and_then(Value::as_u64).unwrap_or(0);
+        let status = text(event, "status");
+        match status.as_str() {
+            "completed" | "failed" | "cancelled" | "paused" => {
+                run.status = status;
+                run.running = 0;
+                run.elapsed = Some(run.started.elapsed());
+            }
+            _ => {}
+        }
     }
 
     fn upsert(&mut self, event: &Value) -> Option<&mut Entry> {
@@ -648,6 +762,7 @@ impl Board {
             elapsed: None,
             worktree: None,
             worktree_kept: None,
+            workflow: text(event, "workflow"),
         });
         self.entries.last_mut()
     }
@@ -716,6 +831,10 @@ impl Board {
                     }
                 }
                 entry.background.then(|| Notice(entry.block_title()))
+            }
+            "workflow" => {
+                self.apply_workflow(event);
+                None
             }
             "refused" => {
                 let detail = text(event, "detail");
@@ -816,7 +935,7 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
     for (index, entry) in visible.iter().enumerate() {
         let mark = if index == modal.cursor { ">" } else { " " };
         lines.push(format!(
-            "{mark} [{}] {} · {} · {}{}{}",
+            "{mark} [{}] {} · {} · {}{}{}{}",
             entry.status.as_str(),
             entry.label,
             entry.type_name,
@@ -825,6 +944,11 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
                 " · background"
             } else {
                 ""
+            },
+            if entry.workflow.is_empty() {
+                String::new()
+            } else {
+                format!(" · workflow {}", entry.workflow)
             },
             activity(&entry.activity)
         ));
@@ -1261,6 +1385,49 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("h shows completed"))
         );
+    }
+
+    #[test]
+    fn workflow_runs_title_their_block_and_tag_their_children() {
+        let mut board = Board::default();
+        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "", "status": "running", "phase": "", "agents": 0, "running": 0}));
+        assert_eq!(
+            board.workflow("wf1").unwrap().block_title(),
+            "Workflow running · 0 agents"
+        );
+        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "running", "phase": "scan", "agents": 2, "running": 2}));
+        assert_eq!(
+            board.workflow("wf1").unwrap().block_title(),
+            "Workflow running: 'review' · scan · 2 agents (2 running)"
+        );
+        board.apply(&json!({"event": "start", "id": "wf1:agent-1", "type": "general-purpose", "label": "review #1", "model": "m/m", "background": false, "workflow": "review", "workflowRun": "wf1", "child": "c"}));
+        let lines = list_lines(&board, &TasksModal::default());
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("review #1 · general-purpose")
+                    && line.contains(" · workflow review")),
+            "{lines:?}"
+        );
+        assert_eq!(board.running(), 1, "the run itself is not a subagent");
+        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "completed", "phase": "scan", "agents": 2, "running": 0}));
+        let title = board.workflow("wf1").unwrap().block_title();
+        assert!(title.starts_with("Workflow completed in "), "{title}");
+        assert!(title.ends_with(": 'review' · scan · 2 agents"), "{title}");
+        board.apply(&json!({"event": "workflow", "id": "wf1", "name": "review", "status": "failed", "phase": "", "agents": 3, "running": 0}));
+        let run = board.workflow("wf1").unwrap();
+        assert_eq!(
+            (run.status.as_str(), run.agents),
+            ("completed", 2),
+            "a settled run is final"
+        );
+        board.apply(&json!({"event": "workflow", "id": "", "status": "running"}));
+        assert_eq!(board.workflows.len(), 1);
+        // A script rejected before it started has no name yet.
+        board.apply(&json!({"event": "workflow", "id": "wf2", "name": "", "status": "failed", "phase": "", "agents": 0, "running": 0}));
+        let title = board.workflow("wf2").unwrap().block_title();
+        assert!(title.starts_with("Workflow failed in "), "{title}");
+        assert!(title.ends_with("s · 0 agents"), "{title}");
     }
 
     #[test]

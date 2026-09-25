@@ -300,7 +300,16 @@ answer is stale); without a terminal a question gets the no-operator text and a
 plan review is approved. `plan_state` and `todos` follow session events. The
 Rust client only renders the card, review, status flag, and todos pane and sends
 `plan_set` for `/plan` and Shift+Tab.
-Deny and hook blocks have
+Rhai workflows
+(`rust-acp-workflow.mjs`) are a `workflow` tool that `rust-acp-subagents.mjs`
+registers: the vendored
+reference engine (`rust/upstream/xai-workflow`) runs in the native binary's
+hidden `__workflow-engine` subcommand (dsh gets its path in
+`CODSH_WORKFLOW_ENGINE`), speaks JSON lines on stdio, resolves the script,
+budget, and agent options, and asks the host for each agent call; the host
+starts it as a dsh child through the subagent planner (type, capability, model,
+effort, isolation) with a per-run live cap, reports `event: "workflow"` lines
+for the tool block, and never offers the tool to a child. Deny and hook blocks have
 no side effects; unsplittable shell, including a parameter expansion such as `$x`, `${x}`, `$1`, `"$1"`, `$@`, or `$*`, and Read/Edit path rules on operands cannot be
 glob-allowed or auto-approved as read-only. Wrappers, including `sudo`, `nohup`,
 and `xargs`, peel to the inner command

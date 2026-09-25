@@ -390,7 +390,7 @@ def main():
         unfiltered = plain(launcher, project, agent_env, ['-p', 'hello'])
         assert unfiltered.returncode == 0, unfiltered.stderr
         offered = [json.loads(line) for line in agent_trace.read_text().splitlines() if line.strip()]
-        assert {'subagent', 'subagent_fork'} <= set(offered[0]['tools']), offered[0]
+        assert {'subagent', 'subagent_fork', 'workflow'} <= set(offered[0]['tools']), offered[0]
         agent_trace.unlink()
         denied_agent = plain(launcher, project, agent_env,
                              ['-p', 'hello', '--disallowed-tools', 'Agent'])
@@ -399,6 +399,7 @@ def main():
         assert masked, 'Agent deny made no model request'
         for row in masked:
             assert 'subagent' not in row['tools'] and 'subagent_fork' not in row['tools'], row
+            assert 'workflow' not in row['tools'], row  # it only starts subagents (ticket 181)
             assert 'read' in row['tools'], row
         agent_trace.unlink()
         # Agent(type) removes that subagent type through the subagent

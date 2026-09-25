@@ -46,6 +46,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
+import { DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
 
 export const MARK = '\u241esubagent\u241e'
 export const DEFAULT_MAX_CONCURRENT = 32
@@ -170,10 +171,26 @@ export function childAllowList(parentTools, type, lastLevel) {
   const wanted = type.tools ? new Set(type.tools.map(canonicalTool)) : null
   return parentTools.filter(tool => {
     if (tool === 'run_code') return false
+    // Workflows launch only from a top-level session (reference).
+    if (tool === WORKFLOW_TOOL) return false
     if (lastLevel && SPAWN_TOOLS.includes(tool)) return false
     if (wanted && !wanted.has(tool)) return false
     return allowsTool(type.capability, tool)
   })
+}
+
+/**
+ * Reference capability intersection: a requested mode narrows the type's
+ * mode and never widens it. read-write with execute leaves read-only.
+ */
+export function intersectCapability(requested, ceiling) {
+  if (!requested) return ceiling
+  if (!ceiling) return requested
+  if (requested === 'all') return ceiling
+  if (ceiling === 'all') return requested
+  if (requested === 'read-only' || ceiling === 'read-only') return 'read-only'
+  if (requested === ceiling) return requested
+  return 'read-only'
 }
 
 const TOOL_ALIASES = new Map([
@@ -215,6 +232,22 @@ function agentDepth(agent) {
   const runtime = agent?.options?.subagentDepth
   const header = agent?.session?.header?.delegationDepth
   return Math.max(Number.isSafeInteger(runtime) ? runtime : 0, Number.isSafeInteger(header) ? header : 0)
+}
+
+/** Whether an agent is a subagent at any depth (its session came from a spawn). */
+export function isChildAgent(agent) {
+  return agent?.session?.header?.origin === 'subagent' || agentDepth(agent) > 0
+}
+
+/** Registered global tool names among `names` (restrict() rejects others). */
+function registered(ctx, names) {
+  return names.filter(tool => {
+    try {
+      return Boolean(ctx.tools.get(tool))
+    } catch {
+      return false
+    }
+  })
 }
 
 /** Root (top-level) session id of an agent, following parentSession links. */
@@ -345,17 +378,11 @@ export function apply(ctx) {
     // Disabled: no spawn tool reaches any agent, and a call that still
     // arrives is refused before dsh runs it.
     ctx.on('tools/pre-execute', async (exec, next) => {
-      if (SPAWN_TOOLS.includes(exec.name)) return { kind: 'deny', reason: 'subagents are disabled for this session' }
+      if (SPAWN_TOOLS.includes(exec.name) || exec.name === WORKFLOW_TOOL) return { kind: 'deny', reason: 'subagents are disabled for this session' }
       return next()
     }, true)
     ctx.on('agent/created', ({ agent }) => {
-      const deny = SPAWN_TOOLS.filter(tool => {
-        try {
-          return Boolean(ctx.tools.get(tool))
-        } catch {
-          return false
-        }
-      })
+      const deny = registered(ctx, [...SPAWN_TOOLS, WORKFLOW_TOOL])
       if (deny.length > 0) {
         try {
           agent.ctx.tools.restrict({ deny })
@@ -415,6 +442,22 @@ export function apply(ctx) {
     ctx.on('dispose', () => clearInterval(timer))
   }
 
+  // Child sessions never receive the workflow tool, and a call that still
+  // arrives from one is refused before dsh runs it.
+  ctx.on('agent/created', ({ agent }) => {
+    if (!isChildAgent(agent)) return
+    const deny = registered(ctx, [WORKFLOW_TOOL])
+    if (deny.length > 0) {
+      try {
+        agent.ctx.tools.restrict({ deny })
+      } catch {}
+    }
+  })
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    if (exec.name === WORKFLOW_TOOL && isChildAgent(exec.agent)) return { kind: 'deny', reason: `workflow_depth_exceeded: ${DEPTH_MESSAGE}` }
+    return next()
+  }, true)
+
   // Child activity for the board: the tool a running child just called.
   ctx.on('tools/pre-execute', async (exec, next) => {
     const agent = exec.agent
@@ -427,6 +470,212 @@ export function apply(ctx) {
 
   const typeNames = types.map(type => type.name)
   const defaultType = typeNames.includes('general-purpose') ? 'general-purpose' : typeNames[0]
+
+  /**
+   * Resolve one child without starting it: type, depth, capability, tool
+   * allow-list, model/effort preflight and isolation. Throws the refusal.
+   * spec: { parent, id, typeName?, prompt, label?, model?, effort?,
+   *         capability?, isolation?, background?, signal, workflow? }
+   */
+  async function planChild(spec) {
+    if (error) throw new Error(`subagent policy refused: ${error}`)
+    const parent = spec.parent
+    const typeName = typeof spec.typeName === 'string' && spec.typeName.trim() ? spec.typeName.trim() : defaultType
+    const type = types.find(candidate => candidate.name === typeName)
+    if (!type) {
+      throw new Error(`unknown or disabled subagent type "${typeName}"; available: ${typeNames.join(', ') || '(none)'}`)
+    }
+    const depth = agentDepth(parent) + 1
+    if (depth > policy.maxDepth) {
+      throw new Error(`subagent depth ${depth} exceeds maxDepth ${policy.maxDepth}; this agent cannot spawn subagents`)
+    }
+    const lastLevel = depth >= policy.maxDepth
+    // A requested capability mode only narrows the type (reference intersection).
+    const capability = spec.capability ? intersectCapability(spec.capability, type.capability) : type.capability
+    const shaped = { ...type, capability }
+    const parentTools = [...ctx.tools.view(parent).visible.keys()]
+    const allow = childAllowList(parentTools, shaped, lastLevel)
+    const parentOptions = parent.options ?? {}
+    const provider = type.provider ?? parentOptions.provider
+    const model = spec.model ?? type.model ?? parentOptions.model
+    const effort = spec.effort
+    const routed = Boolean(spec.model || type.model || effort)
+    if (routed) {
+      const llm = ctx.get('llm')
+      if (!llm) throw new Error('cannot resolve the subagent model because the llm service is unavailable')
+      try {
+        await llm.resolveCallConfig({ provider, model, ...effort ? { reasoningEffort: effort } : {} }, spec.signal)
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : String(cause)
+        emit({ event: 'refused', id: spec.id, type: type.name, label: spec.label, detail: `no available model ${provider}/${model}${effort ? ` with effort ${effort}` : ''}` })
+        if (effort && /reasoning effort/i.test(detail)) throw new Error(`workflow agent effort "${effort}" is not available for model ${provider}/${model}: ${detail}`)
+        throw new Error(`subagent type "${type.name}" model ${provider}/${model} is not available: ${detail}`)
+      }
+    }
+    const isolation = spec.isolation === undefined || spec.isolation === null || spec.isolation === '' ? null : String(spec.isolation)
+    if (isolation !== null && isolation !== 'worktree') throw new Error(`unknown isolation "${isolation}"; the only isolation is "worktree"`)
+    if (isolation) {
+      try {
+        poolDir()
+      } catch (cause) {
+        throw new Error(`worktree isolation is unavailable: ${cause instanceof Error ? cause.message : cause}`)
+      }
+    }
+    const unrestricted = capability === 'all' && !type.tools && !lastLevel
+    const prompt = type.instructions
+      ? `<system-reminder>\n${type.instructions}\n</system-reminder>\n\n${spec.prompt}`
+      : String(spec.prompt)
+    const request = {
+      label: String(spec.label ?? type.name),
+      prompt: [{ type: 'text', text: prompt }],
+      parent,
+      maxDepth: policy.maxDepth,
+      ...routed ? { agentOptions: { provider, model, ...effort ? { reasoningEffort: effort } : {} } } : {},
+      ...unrestricted ? {} : { toolFilter: { allow } },
+    }
+    const base = {
+      id: spec.id,
+      type: type.name,
+      label: request.label,
+      model: `${provider ?? ''}/${model ?? ''}`,
+      background: spec.background === true,
+      parentSession: parent.id,
+      depth,
+      tools: unrestricted ? null : allow,
+      ...isolation ? { isolation } : {},
+      ...spec.workflow ? { workflow: spec.workflow.name, workflowRun: spec.workflow.run, ...spec.workflow.phase ? { phase: spec.workflow.phase } : {} } : {},
+    }
+    return { type, request, base, isolation }
+  }
+
+  /**
+   * One planned child: a board record plus `run(signal)` (admission, worktree,
+   * dsh spawn, dispose) and `finish(...)` (status, board end, worktree
+   * settlement). `admit` is { acquire(signal, onQueued), release(), count(),
+   * limit }.
+   */
+  function childRun(plan, admit) {
+    const { request, base, isolation, type } = plan
+    const id = base.id
+    const parent = request.parent
+    const controller = new AbortController()
+    const record = { id, status: 'queued', controller, cancelRequested: false, type: type.name }
+    records.set(id, record)
+    const run = async signal => {
+      await admit.acquire(signal, () => {
+        emit({ ...base, event: 'queued', running: admit.count(), limit: admit.limit })
+      })
+      let started
+      const startedAt = Date.now()
+      try {
+        record.status = 'running'
+        let spawnRequest = request
+        if (isolation) {
+          // Created after admission so a queued child holds no directory.
+          try {
+            record.worktree = createWorktree({
+              source: parent.session.header.cwd,
+              label: `${String(request.label).slice(0, 24)} ${id.slice(-8)}`,
+              type: 'subagent',
+              parentSessionId: parent.id,
+              ownerPid: process.pid,
+            })
+          } catch (cause) {
+            throw new Error(`worktree isolation failed, so the subagent did not start: ${cause instanceof Error ? cause.message : cause}`)
+          }
+          base.worktree = record.worktree.path
+          base.branch = record.worktree.branch
+          spawnRequest = { ...request, parent: parentInWorktree(parent, record.worktree.sessionCwd) }
+        }
+        started = await ctx.subagents.start('spawn', { ...spawnRequest, signal })
+        const child = started.localAgent
+        if (child?.id) {
+          record.childId = child.id
+          byChild.set(child.id, record)
+        }
+        emit({ ...base, event: 'start', child: record.childId ?? started.id })
+        const result = await started.result
+        return { result, startedAt }
+      } catch (cause) {
+        if (signal.aborted) return { result: { stopReason: 'aborted', output: [] }, startedAt }
+        throw cause
+      } finally {
+        admit.release()
+        if (started) {
+          try {
+            await started.dispose()
+          } catch {}
+        }
+      }
+    }
+    const finish = (outcome, startedAt, failure) => {
+      const elapsedMs = Date.now() - (startedAt ?? Date.now())
+      let status
+      let detail = ''
+      if (failure !== undefined) {
+        status = controller.signal.aborted ? 'cancelled' : 'failed'
+        detail = failure instanceof Error ? failure.message : String(failure)
+      } else if (outcome.stopReason === 'completed') {
+        status = 'completed'
+        detail = outputText(outcome.output).slice(0, 400)
+      } else if (outcome.stopReason === 'aborted') {
+        status = 'cancelled'
+        detail = stopReasonError('aborted')
+      } else {
+        status = 'failed'
+        detail = [stopReasonError(outcome.stopReason), outcome.diagnostic].filter(Boolean).join(': ')
+      }
+      record.status = status
+      if (record.childId) byChild.delete(record.childId)
+      if (record.worktree) {
+        record.settled = settleWorktree(record.worktree)
+        if (!record.settled.kept) delete base.worktree
+      }
+      emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId, ...record.settled ? { worktreeKept: record.settled.kept, changedFiles: record.settled.changed?.length ?? null } : {} })
+      return status
+    }
+    const withWorktree = text => (record.settled ? `${text}${text ? '\n\n' : ''}${record.settled.note}` : text)
+    return { record, controller, run, finish, withWorktree }
+  }
+
+  /** Wait for a foreground child; `signal` is the caller's (parent turn or run). */
+  async function runForeground(child, signal) {
+    const { record, controller, run, finish, withWorktree } = child
+    const onParentAbort = () => controller.abort(signal.reason ?? new Error('parent turn cancelled'))
+    if (signal.aborted) onParentAbort()
+    else signal.addEventListener('abort', onParentAbort, { once: true })
+    try {
+      let settled
+      try {
+        settled = await run(controller.signal)
+      } catch (failure) {
+        const status = finish(undefined, undefined, failure)
+        const text = withWorktree(failure instanceof Error ? failure.message : String(failure))
+        return { status, text, failure, record }
+      }
+      const { result, startedAt } = settled
+      const status = finish(result, startedAt)
+      if (status === 'completed') return { status, text: withWorktree(outputText(result.output)), record }
+      const headline = record.cancelRequested && !signal.aborted
+        ? 'subagent run was cancelled by the user'
+        : stopReasonError(result.stopReason) ?? 'subagent run was cancelled'
+      const partial = outputText(result.output)
+      return {
+        status,
+        text: withWorktree(`${headline}${result.diagnostic ? `\nDiagnostic: ${result.diagnostic}` : ''}${partial ? `\nPartial output before the run ended:\n${partial}` : ''}`),
+        record,
+      }
+    } finally {
+      signal.removeEventListener('abort', onParentAbort)
+    }
+  }
+
+  const sessionAdmit = root => ({
+    acquire: (signal, onQueued) => admission.acquire(root, signal, onQueued),
+    release: () => admission.release(root),
+    count: () => admission.count(root),
+    limit: admission.limit,
+  })
 
   ctx.tools.register(defineTool({
     name: 'subagent',
@@ -454,153 +703,26 @@ export function apply(ctx) {
     },
     isConcurrencySafe: () => true,
     async execute(args, exec) {
-      if (error) throw new Error(`subagent policy refused: ${error}`)
       const parent = exec.agent
       if (!parent) throw new Error('subagent tool requires a calling agent')
-      const typeName = typeof args.subagent_type === 'string' && args.subagent_type.trim() ? args.subagent_type.trim() : defaultType
-      const type = types.find(candidate => candidate.name === typeName)
-      if (!type) {
-        throw new Error(`unknown or disabled subagent type "${typeName}"; available: ${typeNames.join(', ') || '(none)'}`)
-      }
-      const depth = agentDepth(parent) + 1
-      if (depth > policy.maxDepth) {
-        throw new Error(`subagent depth ${depth} exceeds maxDepth ${policy.maxDepth}; this agent cannot spawn subagents`)
-      }
-      const lastLevel = depth >= policy.maxDepth
-      const parentTools = [...ctx.tools.view(parent).visible.keys()]
-      const allow = childAllowList(parentTools, type, lastLevel)
-      const parentOptions = parent.options ?? {}
-      const provider = type.provider ?? parentOptions.provider
-      const model = type.model ?? parentOptions.model
-      if (type.model) {
-        const llm = ctx.get('llm')
-        if (!llm) throw new Error('cannot resolve the subagent model because the llm service is unavailable')
-        try {
-          await llm.resolveCallConfig({ provider, model }, exec.signal)
-        } catch (cause) {
-          const detail = cause instanceof Error ? cause.message : String(cause)
-          emit({ event: 'refused', id: exec.callId, type: type.name, label: args.description, detail: `no available model ${provider}/${model}` })
-          throw new Error(`subagent type "${type.name}" model ${provider}/${model} is not available: ${detail}`)
-        }
-      }
-      const isolation = args.isolation === undefined || args.isolation === null || args.isolation === '' ? null : String(args.isolation)
-      if (isolation !== null && isolation !== 'worktree') throw new Error(`unknown isolation "${isolation}"; the only isolation is "worktree"`)
-      if (isolation) {
-        try {
-          poolDir()
-        } catch (cause) {
-          throw new Error(`worktree isolation is unavailable: ${cause instanceof Error ? cause.message : cause}`)
-        }
-      }
-      exec.signal.throwIfAborted()
       const background = args.run_in_background === true
       const id = typeof exec.callId === 'string' && exec.callId ? exec.callId : `subagent-${++seq}`
-      const root = rootSessionOf(ctx, parent)
-      const controller = new AbortController()
-      const record = {
-        id,
-        status: 'queued',
-        controller,
-        cancelRequested: false,
-        type: type.name,
-      }
-      records.set(id, record)
-      const prompt = type.instructions
-        ? `<system-reminder>\n${type.instructions}\n</system-reminder>\n\n${args.prompt}`
-        : String(args.prompt)
-      const request = {
-        label: String(args.description ?? type.name),
-        prompt: [{ type: 'text', text: prompt }],
+      const plan = await planChild({
         parent,
-        maxDepth: policy.maxDepth,
-        ...type.model ? { agentOptions: { provider, model } } : {},
-        ...type.capability === 'all' && !type.tools && !lastLevel ? {} : { toolFilter: { allow } },
-      }
-      const base = {
-        id,
-        type: type.name,
-        label: request.label,
-        model: `${provider ?? ''}/${model ?? ''}`,
+        id: exec.callId,
+        typeName: args.subagent_type,
+        prompt: args.prompt,
+        label: args.description,
+        isolation: args.isolation,
         background,
-        parentSession: parent.id,
-        depth,
-        tools: type.capability === 'all' && !type.tools && !lastLevel ? null : allow,
-        ...isolation ? { isolation } : {},
-      }
-      const run = async signal => {
-        await admission.acquire(root, signal, () => {
-          emit({ ...base, event: 'queued', running: admission.count(root), limit: admission.limit })
-        })
-        let started
-        const startedAt = Date.now()
-        try {
-          record.status = 'running'
-          let spawnRequest = request
-          if (isolation) {
-            // Created after admission so a queued child holds no directory.
-            try {
-              record.worktree = createWorktree({
-                source: parent.session.header.cwd,
-                label: `${String(request.label).slice(0, 24)} ${id.slice(-8)}`,
-                type: 'subagent',
-                parentSessionId: parent.id,
-                ownerPid: process.pid,
-              })
-            } catch (cause) {
-              throw new Error(`worktree isolation failed, so the subagent did not start: ${cause instanceof Error ? cause.message : cause}`)
-            }
-            base.worktree = record.worktree.path
-            base.branch = record.worktree.branch
-            spawnRequest = { ...request, parent: parentInWorktree(parent, record.worktree.sessionCwd) }
-          }
-          started = await ctx.subagents.start('spawn', { ...spawnRequest, signal })
-          const child = started.localAgent
-          if (child?.id) {
-            record.childId = child.id
-            byChild.set(child.id, record)
-          }
-          emit({ ...base, event: 'start', child: record.childId ?? started.id })
-          const result = await started.result
-          return { result, startedAt }
-        } catch (cause) {
-          if (signal.aborted) return { result: { stopReason: 'aborted', output: [] }, startedAt }
-          throw cause
-        } finally {
-          admission.release(root)
-          if (started) {
-            try {
-              await started.dispose()
-            } catch {}
-          }
-        }
-      }
-      const finish = (outcome, startedAt, failure) => {
-        const elapsedMs = Date.now() - (startedAt ?? Date.now())
-        let status
-        let detail = ''
-        if (failure !== undefined) {
-          status = controller.signal.aborted ? 'cancelled' : 'failed'
-          detail = failure instanceof Error ? failure.message : String(failure)
-        } else if (outcome.stopReason === 'completed') {
-          status = 'completed'
-          detail = outputText(outcome.output).slice(0, 400)
-        } else if (outcome.stopReason === 'aborted') {
-          status = 'cancelled'
-          detail = stopReasonError('aborted')
-        } else {
-          status = 'failed'
-          detail = [stopReasonError(outcome.stopReason), outcome.diagnostic].filter(Boolean).join(': ')
-        }
-        record.status = status
-        if (record.childId) byChild.delete(record.childId)
-        if (record.worktree) {
-          record.settled = settleWorktree(record.worktree)
-          if (!record.settled.kept) delete base.worktree
-        }
-        emit({ ...base, event: 'end', status, detail, elapsedMs, child: record.childId, ...record.settled ? { worktreeKept: record.settled.kept, changedFiles: record.settled.changed?.length ?? null } : {} })
-        return status
-      }
-      const withWorktree = text => (record.settled ? `${text}${text ? '\n\n' : ''}${record.settled.note}` : text)
+        signal: exec.signal,
+      })
+      plan.base.id = id
+      exec.signal.throwIfAborted()
+      const root = rootSessionOf(ctx, parent)
+      const child = childRun(plan, sessionAdmit(root))
+      const { record, controller, run, finish, withWorktree } = child
+      const { base, request, type } = plan
       if (background) {
         const jobs = ctx.get('jobs')
         if (!jobs) throw new Error('background subagents need the dsh jobs service')
@@ -633,29 +755,36 @@ export function apply(ctx) {
         emit({ ...base, event: 'job', job: jobId })
         return `started background subagent job ${jobId} (${type.name}). Collect the result with job_output and stop it with job_kill.`
       }
-      const onParentAbort = () => controller.abort(exec.signal.reason ?? new Error('parent turn cancelled'))
-      if (exec.signal.aborted) onParentAbort()
-      else exec.signal.addEventListener('abort', onParentAbort, { once: true })
-      try {
-        let settled
-        try {
-          settled = await run(controller.signal)
-        } catch (failure) {
-          finish(undefined, undefined, failure)
-          if (record.settled) throw new Error(withWorktree(failure instanceof Error ? failure.message : String(failure)))
-          throw failure
-        }
-        const { result, startedAt } = settled
-        const status = finish(result, startedAt)
-        if (status === 'completed') return withWorktree(outputText(result.output))
-        const headline = record.cancelRequested && !exec.signal.aborted
-          ? 'subagent run was cancelled by the user'
-          : stopReasonError(result.stopReason) ?? 'subagent run was cancelled'
-        const partial = outputText(result.output)
-        throw new Error(withWorktree(`${headline}${result.diagnostic ? `\nDiagnostic: ${result.diagnostic}` : ''}${partial ? `\nPartial output before the run ended:\n${partial}` : ''}`))
-      } finally {
-        exec.signal.removeEventListener('abort', onParentAbort)
+      const settled = await runForeground(child, exec.signal)
+      if (settled.failure !== undefined) {
+        if (record.settled) throw new Error(settled.text)
+        throw settled.failure
       }
+      if (settled.status === 'completed') return settled.text
+      throw new Error(settled.text)
     },
   }))
+
+  // Workflows (ticket 181): each agent() call is a child of the calling
+  // session, admitted by the run's own live-child cap.
+  registerWorkflow(ctx, {
+    isChildAgent: agent => isChildAgent(agent),
+    emit,
+    refusal: error ? `subagent policy refused: ${error}` : null,
+    spawnChild: async spec => {
+      const plan = await planChild(spec)
+      const child = childRun(plan, {
+        acquire: () => Promise.resolve(),
+        release: () => {},
+        count: () => 0,
+        limit: 0,
+      })
+      const settled = await runForeground(child, spec.signal)
+      if (settled.failure !== undefined && settled.status === 'failed' && !settled.record.childId && !settled.record.worktree) {
+        // Nothing started (for example worktree creation failed): a host error.
+        throw settled.failure
+      }
+      return { status: settled.status, text: settled.text, childId: settled.record.childId }
+    },
+  })
 }

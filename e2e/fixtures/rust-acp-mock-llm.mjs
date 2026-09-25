@@ -600,6 +600,31 @@ async function * subagentChildTurn(options, kind, signal) {
     yield* mockText(`CHILD_NEST tools=${tools} result=${done.at(-1)?.isError ? 'error' : 'ok'}:${resultText(done.at(-1)).replaceAll('\n', ' ').slice(0, 160)}`)
     return
   }
+  // Workflow children (ticket 181). SAY echoes the rest of its prompt line,
+  // MODEL reports the route and effort dsh used for this child, FAIL ends
+  // with a provider error, WORKFLOW tries to start a workflow itself.
+  if (kind === 'SAY') {
+    const text = rawUserTexts(options).map(line => /CHILD_SAY ([^\n]*)/.exec(line)?.[1]).find(Boolean) ?? ''
+    yield* mockText(`CHILD_SAID ${text}`)
+    return
+  }
+  if (kind === 'MODEL') {
+    const model = options.model?.id ?? options.model ?? ''
+    yield* mockText(`CHILD_MODEL route=${options.provider}/${model} effort=${options.reasoningEffort ?? 'default'} tools=${tools}`)
+    return
+  }
+  if (kind === 'FAIL') {
+    yield { type: 'finish', reason: { kind: 'error', failure: { code: 'MOCK_CHILD_FAIL', message: 'child provider failed' } } }
+    return
+  }
+  if (kind === 'WORKFLOW') {
+    if (done.length === 0) {
+      yield* mockToolCall('rust-acp-child-workflow', 'workflow', { source: { type: 'script', script: 'let meta = #{ name: "nested", description: "d" };\n1' } })
+      return
+    }
+    yield* mockText(`CHILD_WORKFLOW tools=${tools} result=${done.at(-1)?.isError ? 'error' : 'ok'}:${resultText(done.at(-1)).replaceAll('\n', ' ').slice(0, 300)}`)
+    return
+  }
   if (kind === 'SLOW') {
     try {
       await sleep(60000, signal)
@@ -614,6 +639,21 @@ async function * subagentChildTurn(options, kind, signal) {
 
 async function * subagentsTurn(options) {
   const texts = rawUserTexts(options)
+  // Workflows (ticket 181): `WORKFLOW_CALL <json>` calls the workflow tool
+  // with that input once, then reports the result.
+  const lastStep = [...texts].reverse().find(text => text.includes('WORKFLOW_CALL ') || text.includes('SPAWN:'))
+  const workflowText = lastStep?.includes('WORKFLOW_CALL ') ? lastStep : undefined
+  if (workflowText) {
+    const done = turnToolResults(options, 'WORKFLOW_CALL ')
+    if (done.length === 0) {
+      const input = JSON.parse(workflowText.slice(workflowText.indexOf('WORKFLOW_CALL ') + 'WORKFLOW_CALL '.length))
+      yield* mockToolCall(`rust-acp-workflow-${Date.now().toString(36)}`, 'workflow', input)
+      return
+    }
+    const last = done.at(-1)
+    yield* mockText(`PARENT_WORKFLOW ${last.isError ? 'error' : 'ok'}: ${resultText(last)}`)
+    return
+  }
   const childText = texts.find(text => /CHILD_[A-Z]+/.test(text))
   if (childText) {
     yield* subagentChildTurn(options, /CHILD_([A-Z]+)/.exec(childText)[1], options.signal)

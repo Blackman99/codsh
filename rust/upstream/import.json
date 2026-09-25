@@ -399,6 +399,65 @@
       "path": "upstream/xai-grok-markdown/src/url_scan.rs",
       "upstreamPath": "crates/codegen/xai-grok-markdown/src/url_scan.rs",
       "upstreamSha256": "fc8617a31d3539e3f00ea729b48c193d01a880a775b8b9e4f172d7c0f52988a5"
+    },
+    {
+      "path": "upstream/xai-workflow/Cargo.toml",
+      "upstreamPath": "crates/codegen/xai-workflow/Cargo.toml",
+      "upstreamSha256": "770e698b2ff559f5acd769195f86e627e763bed0a75fdff423e55b9031d6241d",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-workflow/LICENSE",
+      "upstreamPath": "LICENSE",
+      "upstreamSha256": "116f7778b9802e569b7fa3a532b17bd80eb13c67837def01eed093d4ea472f28"
+    },
+    {
+      "path": "upstream/xai-workflow/NOTICE",
+      "upstreamPath": null,
+      "upstreamSha256": "a8ed31a7bc9034a78513809a4f74a8f52f9650abb344ee8e7d866d81c08b2c1d",
+      "modified": true,
+      "note": "local Apache-2.0 notice for packed native licenses"
+    },
+    {
+      "path": "upstream/xai-workflow/examples/validate.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/examples/validate.rs",
+      "upstreamSha256": "d410cdcc266faa84ba2308d0a28825b5159ca240e5ff6a29fcb45bb05cc35aea"
+    },
+    {
+      "path": "upstream/xai-workflow/src/engine.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/engine.rs",
+      "upstreamSha256": "c4e951949bc9ba8dd3a582f8f213a61c90606c511a9acd7a11edf47b20cbf2eb",
+      "modified": true
+    },
+    {
+      "path": "upstream/xai-workflow/src/host.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/host.rs",
+      "upstreamSha256": "4623273c77155001f8b91d9cd171ae9613faf995dce6d03a4962b11407e4e6f1"
+    },
+    {
+      "path": "upstream/xai-workflow/src/journal.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/journal.rs",
+      "upstreamSha256": "d7ac861e01bdd9a5efad984e94e46bd298cf5e93cfc510ad7e4b3f1b4e3cbeca"
+    },
+    {
+      "path": "upstream/xai-workflow/src/lib.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/lib.rs",
+      "upstreamSha256": "827c1c59cd0a804c79969c56e83a853fdac645fc8309f72647b7322ebc618a2f"
+    },
+    {
+      "path": "upstream/xai-workflow/src/meta.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/meta.rs",
+      "upstreamSha256": "206360642cafbcdf4a7f7541b6f690f33b5a625390b69464e93d6b47d90e05da"
+    },
+    {
+      "path": "upstream/xai-workflow/src/run.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/run.rs",
+      "upstreamSha256": "1df7ef3ea4765dcbde1bc789f7d9208d44cf4e3d2af423420fbd41c127082045"
+    },
+    {
+      "path": "upstream/xai-workflow/src/validate.rs",
+      "upstreamPath": "crates/codegen/xai-workflow/src/validate.rs",
+      "upstreamSha256": "7dd9fc9280d5977fe2319867bafa1bd672d6051aaf94f12f31a3dda7b50bd798"
     }
   ],
   "supplementalLicenses": [
@@ -416,6 +475,16 @@
       "path": "licenses/tui-scrollbar-0.2.2/LICENSE-APACHE",
       "url": "https://raw.githubusercontent.com/joshka/tui-widgets/5c7acc5d2c71e077dc5b098c04e3abe26eef6939/LICENSE-APACHE",
       "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "licenses/rhai_codegen-3.2.0/LICENSE-MIT.txt",
+      "url": "https://raw.githubusercontent.com/rhaiscript/rhai/b247dd730de3f2c97fa1e46f138a17f9d844de67/LICENSE-MIT.txt",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+    },
+    {
+      "path": "licenses/rhai_codegen-3.2.0/LICENSE-APACHE.txt",
+      "url": "https://raw.githubusercontent.com/rhaiscript/rhai/b247dd730de3f2c97fa1e46f138a17f9d844de67/LICENSE-APACHE.txt",
+      "sha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9"
     }
   ]
 }

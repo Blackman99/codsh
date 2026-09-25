@@ -6,6 +6,7 @@ members = [
     "upstream/xai-ratatui-inline",
     "upstream/xai-grok-markdown-core",
     "upstream/xai-grok-markdown",
+    "upstream/xai-workflow",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ fuzzy-matcher = "0.3.7"
 html-escape = "0.2"
 ignore = "0.4"
 itertools = "0.14"
+libc = "0.2"
 linkify = "0.10"
 lipsum = "0.9"
 pretty_assertions = "1"
@@ -33,12 +35,19 @@ pulldown-cmark = "0.13"
 rand = "0.9"
 ratatui = "0.29"
 ratatui-core = "0.1"
+rhai = { version = "1.25", features = ["serde"] }
+serde = "1"
 serde_json = "1"
+sha2 = "0.10"
 strum = { version = "0.27", features = ["derive"] }
 supports-color = "3.0"
 syntect = { version = "5.3", default-features = false, features = ["default-onig"] }
+tempfile = "3"
 termwiz = { version = "0.23", default-features = false }
 textwrap = "0.16"
+thiserror = "2"
+tokio = { version = "1", features = ["sync"] }
+tokio-util = "0.7"
 tracing = "0.1"
 tui-scrollbar = "0.2"
 two-face = { version = "0.4", default-features = false, features = ["syntect-onig"] }
@@ -49,6 +58,7 @@ xai-grok-markdown = { path = "upstream/xai-grok-markdown" }
 xai-grok-markdown-core = { path = "upstream/xai-grok-markdown-core" }
 xai-ratatui-inline = { path = "upstream/xai-ratatui-inline" }
 xai-ratatui-textarea = { path = "upstream/xai-ratatui-textarea" }
+xai-workflow = { path = "upstream/xai-workflow" }
 
 [workspace.lints.clippy]
 too_many_arguments = "allow"
@@ -91,6 +101,9 @@ xai-grok-markdown.workspace = true
 xai-grok-markdown-core.workspace = true
 xai-ratatui-inline.workspace = true
 xai-ratatui-textarea.workspace = true
+xai-workflow.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.3"

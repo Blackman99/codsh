@@ -511,6 +511,14 @@ pub fn dsh_spawn_spec(
     env.push(("DSH_TELEMETRY_MODE".into(), "OFF".into()));
     env.push(("CODSH_UPDATE_CHECK".into(), "off".into()));
     env.push(("DEEPSEEK_API_KEY".into(), String::new()));
+    // The dsh `workflow` tool runs Rhai scripts in this executable
+    // (`__workflow-engine`, ticket 181).
+    if let Ok(exe) = std::env::current_exe() {
+        env.push((
+            "CODSH_WORKFLOW_ENGINE".into(),
+            exe.to_string_lossy().into_owned(),
+        ));
+    }
     for (key, value) in extra_env {
         env.retain(|(existing, _)| existing != key);
         // Only the identity session the agent core uses. Parent GROK_AUTH_*
@@ -1812,6 +1820,11 @@ mod tests {
         assert_eq!(
             env.get("XAI_API_KEY").map(String::as_str),
             Some("model-key")
+        );
+        assert_eq!(
+            env.get("CODSH_WORKFLOW_ENGINE").map(String::as_str),
+            Some(std::env::current_exe().unwrap().to_string_lossy().as_ref()),
+            "the dsh workflow tool runs scripts in this executable"
         );
     }
 

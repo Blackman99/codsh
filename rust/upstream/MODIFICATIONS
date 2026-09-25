@@ -74,6 +74,21 @@ Ticket 57 (#189) adds local `src/auth.rs` and `src/extra_ca.rs` for substitute
 login/logout/setup, extra CA trust, and signed managed-config fetch. Those
 modules do not import upstream xai-grok-login or official entitlements.
 
+Ticket 49 (#181) vendors the Apache-2.0 `xai-workflow` crate (the reference
+Rhai workflow engine, crates/codegen/xai-workflow) as upstream/xai-workflow.
+Its sources and example are unchanged except src/engine.rs, which carries a
+header note and replaces one `match` with `?` for the current Clippy
+(question_mark); behaviour is identical. Cargo.toml adds `publish = false`, and
+a NOTICE was added for packed native licenses. The crate's own tests run with
+the workspace. The host side is local `src/workflow.rs` (the hidden
+`__workflow-engine` JSON-line subcommand, the reference registry's
+source-resolution rules, and the reference host's agent-option checks) and
+`packages/cli/bin/rust-acp-workflow.mjs`; neither imports the reference
+workflow manager, host service, or session crates. The engine's operation and
+size limits are not a security sandbox. rhai_codegen 3.2.0 ships no license
+file, so its MIT and Apache-2.0 texts come from the rhai repository at the
+crate's VCS revision recorded in import.json.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

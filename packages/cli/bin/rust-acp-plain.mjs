@@ -4,7 +4,8 @@
  * CODSH_PLAIN_TOOLS is "allow:read,grep", "deny:edit", or both joined by ";".
  * When both are set, deny wins. Public ids (read_file, Bash, Agent) map to
  * the dsh tool name. Agent denies every subagent spawn tool dsh registered
- * (subagent and subagent_fork). Agent(type), in any letter case, is refused
+ * (subagent and subagent_fork) and the workflow tool, whose only effect is
+ * starting subagents (ticket 181). Agent(type), in any letter case, is refused
  * here: the Rust client turns `--disallowed-tools Agent(type)` into the
  * subagent policy (rust-acp-subagents.mjs) and never puts a typed entry in
  * CODSH_PLAIN_TOOLS, so one arriving here (say, inherited) cannot be honored.
@@ -48,8 +49,11 @@ function canonicalTool(name) {
   return mapped ?? text
 }
 
-/** Spawn tools behind the public Agent id. Only registered ones are masked. */
-const SUBAGENT_TOOLS = ['subagent', 'subagent_fork']
+/**
+ * Spawn tools behind the public Agent id. Only registered ones are masked.
+ * `workflow` starts subagents from a script, so denying Agent removes it too.
+ */
+const SUBAGENT_TOOLS = ['subagent', 'subagent_fork', 'workflow']
 const WEB_TOOLS = ['web_search', 'web_fetch']
 
 /** Any `agent(` prefix, any case: `Agent()`, `agent(explore)`, and the pieces of `Agent(explore, plan)`. */
