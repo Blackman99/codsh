@@ -8,6 +8,11 @@
 //! policy the plugin reads (CODSH_BASH_POLICY) and keeps the command half of
 //! the task board from those lines.
 //!
+//! Monitors (ticket 176) share this board: `rust-acp-monitor.mjs` runs each
+//! one as a dsh job of kind `monitor` and reports it on the same channel
+//! (`"kind":"monitor"`), plus a `monitor` line when an event reaches the
+//! model and `hint` lines for what the user should see at once.
+//!
 //! A command lives exactly as long as dsh keeps it: it ends with its session
 //! (closed on a switch or `/new`) and with the dsh process. The board never
 //! claims a command is still running after that, and a restored history never
@@ -22,6 +27,10 @@ pub const MARK: &str = "\u{241e}job\u{241e}";
 pub const DEFAULT_BUDGET_MS: u64 = 15_000;
 /// The user line of a transcript turn that a finished command opened.
 pub const NOTICE_PREFIX: &str = "◎ Task completed · ";
+/// The user line of a transcript turn that a monitor event opened.
+pub const MONITOR_PREFIX: &str = "◎ Monitor event · ";
+/// The `monitor` tool's result (reference wording).
+pub const MONITOR_MARKER: &str = "Monitor started (task ";
 /// Tool result text of a command moved to the background (the plugin's
 /// `movedText`); a shell card with it has no exit code yet.
 pub const MOVED_MARKER: &str = "[Command moved to background]";
@@ -116,6 +125,13 @@ pub fn dsh_env(policy: &Policy, headless: bool) -> Vec<(String, String)> {
     vec![("CODSH_BASH_POLICY".to_string(), value.to_string())]
 }
 
+/// The monitor switch (ticket 176). Only the interactive client sets it: a
+/// plain turn, editor ACP and the shared server end before an event could
+/// be delivered, so dsh offers no `monitor` tool there.
+pub fn monitor_env() -> Vec<(String, String)> {
+    vec![("CODSH_MONITOR".to_string(), "1".to_string())]
+}
+
 /// Parse one stderr line. None when it is not a command lifecycle line.
 pub fn parse_line(text: &str) -> Option<Value> {
     let body = text.strip_prefix(MARK)?;
@@ -181,8 +197,17 @@ pub struct Job {
     pub id: String,
     pub session: String,
     pub label: String,
-    /// `explicit` (run_in_background), `auto`, `user` (Ctrl+B), `message`.
+    /// `explicit` (run_in_background), `auto`, `user` (Ctrl+B), `message`,
+    /// or `monitor`.
     pub reason: String,
+    /// A monitor (ticket 176) rather than a command.
+    pub monitor: bool,
+    /// A monitor that runs until it is stopped or its session ends.
+    pub persistent: bool,
+    /// A monitor's deadline (0 when persistent).
+    pub timeout_ms: u64,
+    /// Events a monitor delivered.
+    pub events: u64,
     pub status: Status,
     pub detail: String,
     pub output: String,
@@ -206,6 +231,24 @@ impl Job {
 
     /// One tasks-pane row (without the cursor mark).
     pub fn row(&self) -> String {
+        if self.monitor {
+            return format!(
+                "[{}] {} · monitor · {} · {} · {} event{}",
+                self.status.as_str(),
+                self.label.lines().next().unwrap_or(""),
+                seconds(self.elapsed()),
+                if self.persistent || self.timeout_ms == 0 {
+                    "persistent".to_string()
+                } else {
+                    format!(
+                        "timeout {}",
+                        seconds(Duration::from_millis(self.timeout_ms))
+                    )
+                },
+                self.events,
+                if self.events == 1 { "" } else { "s" }
+            );
+        }
         format!(
             "[{}] {} · command · {} · {}",
             self.status.as_str(),
@@ -221,6 +264,8 @@ impl Job {
 pub enum Signal {
     /// A completion notice reached the model in this session.
     Notice { session: String, summary: String },
+    /// Monitor events reached the model in this session.
+    Monitor { session: String, summary: String },
     /// This session's agent went idle (a wake turn may close).
     Idle { session: String },
     /// This session's agent started a step run.
@@ -269,11 +314,16 @@ impl Jobs {
                     return None;
                 }
                 let reason = text(event, "reason");
+                let monitor = text(event, "kind") == "monitor";
                 let job = Job {
                     id,
                     session,
                     label: text(event, "label"),
                     reason,
+                    monitor,
+                    persistent: event.get("persistent").and_then(Value::as_bool) == Some(true),
+                    timeout_ms: event.get("timeoutMs").and_then(Value::as_u64).unwrap_or(0),
+                    events: 0,
                     status: Status::Running,
                     detail: String::new(),
                     output: tail(&text(event, "output"), OUTPUT_TAIL),
@@ -281,6 +331,10 @@ impl Jobs {
                     elapsed: None,
                 };
                 let hint = match job.reason.as_str() {
+                    _ if job.monitor => Some(format!(
+                        "monitor started: \"{}\" · events reach this session · Ctrl+G or /tasks",
+                        job.label.lines().next().unwrap_or("")
+                    )),
                     "explicit" => None,
                     "auto" => Some(format!(
                         "command moved to the background after the foreground budget: \"{}\" · Ctrl+G or /tasks",
@@ -299,6 +353,9 @@ impl Jobs {
                 let job = self.find_mut(&session, &id)?;
                 job.output.push_str(&text(event, "text"));
                 job.output = tail(&job.output, OUTPUT_TAIL);
+                if job.monitor {
+                    job.events += 1;
+                }
                 None
             }
             "end" => {
@@ -318,7 +375,22 @@ impl Jobs {
                     .and_then(Value::as_u64)
                     .map(Duration::from_millis)
                     .or_else(|| Some(job.started.elapsed()));
-                None
+                // A monitor's end (and why) shows at once, failure or not.
+                job.monitor.then(|| {
+                    let why = job
+                        .detail
+                        .strip_prefix("monitor ended: ")
+                        .unwrap_or(&job.detail);
+                    Signal::Hint(format!(
+                        "monitor \"{}\" ended: {}",
+                        job.label.lines().next().unwrap_or(""),
+                        if why.is_empty() {
+                            job.status.as_str()
+                        } else {
+                            why
+                        }
+                    ))
+                })
             }
             "wait" => {
                 if event.get("on").and_then(Value::as_bool) == Some(true) {
@@ -332,6 +404,14 @@ impl Jobs {
                 session,
                 summary: text(event, "summary"),
             }),
+            "monitor" => Some(Signal::Monitor {
+                session,
+                summary: text(event, "summary"),
+            }),
+            "hint" => {
+                let line = text(event, "text");
+                (!line.is_empty()).then_some(Signal::Hint(line))
+            }
             // A workflow completion notice names the run (`what`) instead of a job.
             "requeued" => Some(Signal::Hint(
                 match event.get("what").and_then(Value::as_str) {
@@ -405,6 +485,26 @@ impl Jobs {
             .count()
     }
 
+    /// Running commands (not monitors).
+    pub fn running_commands(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|job| job.status == Status::Running && !job.monitor)
+            .count()
+    }
+
+    /// Running monitors.
+    pub fn running_monitors(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|job| job.status == Status::Running && job.monitor)
+            .count()
+    }
+
+    pub fn has_monitors(&self) -> bool {
+        self.entries.iter().any(|job| job.monitor)
+    }
+
     pub fn is_waiting(&self, session: Option<&str>) -> bool {
         session.is_some() && self.waiting.as_deref() == session
     }
@@ -428,17 +528,42 @@ pub fn notice_line(summary: &str) -> String {
     }
 }
 
-pub fn is_notice_line(text: &str) -> bool {
-    text.starts_with(NOTICE_PREFIX.trim_end_matches(" · "))
+/// The hint when commands and monitors were stopped (`when`: "with the
+/// previous session", "when dsh exited").
+pub fn ended_hint(commands: usize, monitors: usize, when: &str) -> String {
+    let what = match (commands, monitors) {
+        (0, m) => format!("{m} monitor(s)"),
+        (c, 0) => format!("{c} background command(s)"),
+        (c, m) => format!("{c} background command(s) and {m} monitor(s)"),
+    };
+    format!("{what} stopped {when}")
 }
 
-/// A restored tool result that describes a background command.
+/// The transcript line for monitor events that reached the model
+/// (`summary` is the plugin's `<description>: <first line>`).
+pub fn monitor_line(summary: &str) -> String {
+    let summary = summary.trim();
+    if summary.is_empty() {
+        MONITOR_PREFIX.trim_end_matches(" · ").to_string()
+    } else {
+        format!("{MONITOR_PREFIX}{summary}")
+    }
+}
+
+pub fn is_notice_line(text: &str) -> bool {
+    text.starts_with(NOTICE_PREFIX.trim_end_matches(" · "))
+        || text.starts_with(MONITOR_PREFIX.trim_end_matches(" · "))
+}
+
+/// A restored tool result that describes a background command or monitor.
 pub fn mentions_background(result: &str) -> bool {
-    result.contains(MOVED_MARKER) || result.starts_with(STARTED_MARKER)
+    result.contains(MOVED_MARKER)
+        || result.starts_with(STARTED_MARKER)
+        || result.starts_with(MONITOR_MARKER)
 }
 
 /// The notice for a resumed history that started background commands.
-pub const RESTORED_HINT: &str = "Background commands in this history are not running: dsh stopped them when their previous process or session ended. Rerun a command to start it again.";
+pub const RESTORED_HINT: &str = "Background commands and monitors in this history are not running: dsh stopped them when their previous process or session ended. Rerun a command or monitor to start it again.";
 
 #[cfg(test)]
 mod tests {
@@ -629,6 +754,104 @@ mod tests {
             Some(Signal::Hint(
                 "workflow triage [complete] finished during the cancelled turn; the model sees it with your next message".into()
             ))
+        );
+    }
+
+    #[test]
+    fn monitors_share_the_board_with_their_own_rows_and_hints() {
+        let mut jobs = Jobs::default();
+        assert_eq!(
+            monitor_env(),
+            vec![("CODSH_MONITOR".to_string(), "1".to_string())]
+        );
+        let hint = jobs.apply(&json!({"event":"start","id":"monitor-1","session":"s1","kind":"monitor","label":"ci main","reason":"monitor","persistent":false,"timeoutMs":90000,"output":""}));
+        assert!(
+            matches!(hint, Some(Signal::Hint(text)) if text.starts_with("monitor started: \"ci main\""))
+        );
+        jobs.apply(&json!({"event":"start","id":"monitor-2","session":"s1","kind":"monitor","label":"pr","reason":"monitor","persistent":true,"timeoutMs":0,"output":""}));
+        start(&mut jobs, "bash-1", "s1", "explicit");
+        assert_eq!(jobs.running(), 3);
+        assert_eq!(jobs.running_commands(), 1);
+        assert_eq!(jobs.running_monitors(), 2);
+        assert!(jobs.has_monitors());
+        jobs.apply(
+            &json!({"event":"output","id":"monitor-1","session":"s1","text":"FAILED build\n"}),
+        );
+        let job = jobs.get("monitor-1").unwrap();
+        assert_eq!(job.events, 1);
+        assert!(
+            job.row().starts_with("[running] ci main · monitor · "),
+            "{}",
+            job.row()
+        );
+        assert!(
+            job.row().ends_with(" · timeout 90s · 1 event"),
+            "{}",
+            job.row()
+        );
+        assert!(
+            jobs.get("monitor-2")
+                .unwrap()
+                .row()
+                .ends_with(" · persistent · 0 events")
+        );
+        assert_eq!(
+            jobs.apply(&json!({"event":"monitor","session":"s1","id":"monitor-1","count":1,"summary":"ci main: FAILED build","text":"FAILED build"})),
+            Some(Signal::Monitor {
+                session: "s1".into(),
+                summary: "ci main: FAILED build".into()
+            })
+        );
+        assert_eq!(
+            jobs.apply(&json!({"event":"hint","session":"s1","text":"monitor \"x\" stopped: its script produced too much output"})),
+            Some(Signal::Hint(
+                "monitor \"x\" stopped: its script produced too much output".into()
+            ))
+        );
+        assert_eq!(
+            jobs.apply(&json!({"event":"hint","session":"s1","text":""})),
+            None
+        );
+        assert_eq!(
+            jobs.apply(&json!({"event":"end","id":"monitor-1","session":"s1","kind":"monitor","status":"completed","detail":"monitor ended: exited (code 4)","elapsedMs":1500})),
+            Some(Signal::Hint("monitor \"ci main\" ended: exited (code 4)".into()))
+        );
+        // A command's end stays quiet, as before.
+        assert_eq!(
+            jobs.apply(&json!({"event":"end","id":"bash-1","session":"s1","status":"completed","detail":"exit code: 0"})),
+            None
+        );
+        assert_eq!(jobs.running_monitors(), 1);
+        assert_eq!(
+            jobs.end_session("s1", "stopped when its dsh session closed"),
+            1
+        );
+        assert_eq!(jobs.get("monitor-2").unwrap().status, Status::Ended);
+        assert_eq!(
+            monitor_line("ci main: FAILED build"),
+            "◎ Monitor event · ci main: FAILED build"
+        );
+        assert_eq!(monitor_line(" "), "◎ Monitor event");
+        assert!(is_notice_line("◎ Monitor event · x"));
+        assert!(mentions_background(
+            "Monitor started (task monitor-1, timeout 5000ms).\nYou will be notified"
+        ));
+        assert!(RESTORED_HINT.contains("monitors"));
+    }
+
+    #[test]
+    fn session_end_hint_names_commands_and_monitors() {
+        assert_eq!(
+            ended_hint(2, 0, "with the previous session"),
+            "2 background command(s) stopped with the previous session"
+        );
+        assert_eq!(
+            ended_hint(0, 1, "when dsh exited"),
+            "1 monitor(s) stopped when dsh exited"
+        );
+        assert_eq!(
+            ended_hint(1, 1, "with the previous session"),
+            "1 background command(s) and 1 monitor(s) stopped with the previous session"
         );
     }
 

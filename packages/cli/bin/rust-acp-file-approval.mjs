@@ -86,7 +86,8 @@ export function accessFromTool(name, args = {}) {
   }
   if (name === 'grep' || name === 'glob') return { kind: 'grep', path }
   if (name === 'write' || name === 'edit' || name === 'search_replace') return { kind: 'edit', path }
-  if (name === 'bash' || name === 'run_terminal_cmd' || name === 'run_terminal_command') {
+  // A monitor (ticket 176) runs its script through dsh's bash executor.
+  if (name === 'bash' || name === 'run_terminal_cmd' || name === 'run_terminal_command' || name === 'monitor') {
     return { kind: 'bash', command: stringField(args, ['command']) }
   }
   if (name === 'web_fetch') return { kind: 'webfetch', url: stringField(args, ['url']) }

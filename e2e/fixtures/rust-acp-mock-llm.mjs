@@ -13,7 +13,8 @@
  * interaction (ticket 179: ASK_ONE, ASK_MULTI, PLAN_ENTER, PLAN_EXIT, PLAN_EMPTY,
  * PLAN_EDIT_OTHER, PLAN_EDIT_FILE, TODOS, STATUS keywords in the prompt),
  * background (ticket 175 background commands; see backgroundTurn), scheduler
- * (ticket 177 scheduled prompts; see schedulerTurn). A side question
+ * (ticket 177 scheduled prompts; see schedulerTurn), monitor (ticket 176
+ * monitors; see monitorTurn). A side question
  * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
  * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
  * DSH_CODE_CLI_MOCK_DELAY_MS delays the first chunk so session/cancel can win
@@ -669,6 +670,103 @@ function * backgroundTurn(options) {
   yield* mockText(`${label} job=${jobIdOf(first)} ${resultSummary(resultText(since.at(-1)))}`)
 }
 
+// Monitors (ticket 176). Every provider call in this mode is appended to
+// CODSH_MOCK_MONITOR_TRACE (one JSON line with the latest user text), so a
+// test counts the model requests monitor events caused.
+//   MON_CALL <json>   calls monitor with that input, then reports the result.
+//   MON_BUSY <json>   calls monitor, runs a 1.6 s foreground command, then
+//                     reports how many monitor events reached this turn.
+//   MON_KILL <id>     job_kill; MON_OUTPUT <id> job_output; MON_LIST job_list
+//                     (the reply ends told=N: user-kill notices seen so far).
+// A monitor event (`<monitor-event …>` or a grouped `N monitor events …`)
+// is answered RUST_MON_EVENT, a dsh completion notice RUST_MON_ENDED.
+function monitorTexts(options) {
+  return rawUserTexts(options)
+    .filter(text => !/Current runtime context|This snapshot supersedes/i.test(text))
+    .filter(text => !text.startsWith('<system-reminder>'))
+}
+
+function monitorSince(options, text) {
+  let start = -1
+  options.messages.forEach((message, index) => {
+    if (message.role === 'user' && message.content.some(block => block.type === 'text' && block.text === text)) start = index
+  })
+  return options.messages.slice(start + 1)
+}
+
+function * monitorTurn(options) {
+  const texts = monitorTexts(options)
+  const latest = texts.at(-1) ?? ''
+  if (process.env.CODSH_MOCK_MONITOR_TRACE) {
+    try {
+      appendFileSync(process.env.CODSH_MOCK_MONITOR_TRACE, `${JSON.stringify({ latest: oneLine(latest).slice(0, 300) })}\n`)
+    } catch {}
+  }
+  const typed = [...texts].reverse().find(text => /^MON_[A-Z]+/.test(text)) ?? ''
+  const since = monitorSince(options, typed)
+  const results = since.flatMap(message => message.content.filter(block => block.type === 'tool-result'))
+  const isEvent = text => text.startsWith('<monitor-event') || /^\d+ monitor events from /.test(text)
+  if (typed.startsWith('MON_BUSY ') && results.length >= 2) {
+    const seen = since
+      .filter(message => message.role === 'user')
+      .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
+    const events = seen.filter(isEvent)
+    const notices = seen.filter(text => /^background job (\S+) /.test(text))
+    yield* mockText(`RUST_MON_BUSY saw=${events.length} notices=${notices.length} ${oneLine(events.join(' | ')).slice(0, 300)}`)
+    return
+  }
+  if (isEvent(latest) && latest !== typed) {
+    yield* mockText(`RUST_MON_EVENT ${oneLine(latest).slice(0, 300)}`)
+    return
+  }
+  if (/^background job (\S+) /.test(latest)) {
+    yield* mockText(`RUST_MON_ENDED ${oneLine(latest).slice(0, 300)}`)
+    return
+  }
+  if (latest.startsWith('Monitor "') && latest.includes('was stopped by the user')) {
+    yield* mockText(`RUST_MON_STOPPED ${oneLine(latest).slice(0, 200)}`)
+    return
+  }
+  const [word, ...rest] = typed.split(' ')
+  const arg = rest.join(' ')
+  if (latest !== typed || word === '') {
+    yield* mockText(`RUST_MON_REPLY ${oneLine(latest).slice(0, 200)}`)
+    return
+  }
+  const stamp = Date.now().toString(36)
+  if (word === 'MON_CALL' || word === 'MON_BUSY') {
+    if (results.length === 0) {
+      let input
+      try {
+        input = JSON.parse(arg)
+      } catch {
+        input = { command: arg, description: 'probe' }
+      }
+      yield* mockToolCall(`rust-mon-call-${stamp}`, 'monitor', input)
+      return
+    }
+    if (word === 'MON_BUSY' && results.length === 1 && !results[0].isError) {
+      yield* mockToolCall(`rust-mon-busy-${stamp}`, 'bash', { command: 'sleep 1.6; echo BUSY_DONE', description: 'busy probe' })
+      return
+    }
+    const first = results[0]
+    yield* mockText(`${first.isError ? 'RUST_MON_ERROR' : 'RUST_MON_STARTED'} ${oneLine(resultText(first)).slice(0, 300)}`)
+    return
+  }
+  const control = { MON_KILL: 'job_kill', MON_OUTPUT: 'job_output', MON_LIST: 'job_list' }[word]
+  if (control !== undefined) {
+    if (results.length === 0) {
+      yield* mockToolCall(`rust-mon-${control}-${stamp}`, control, control === 'job_list' ? {} : { job_id: arg })
+      return
+    }
+    // told=N: user-kill notices (reference wording) the model has seen.
+    const told = rawUserTexts(options).filter(text => text.includes('This task was killed by the user')).length
+    yield* mockText(`RUST_MON_${word.slice(4)} ${oneLine(resultText(results[0])).slice(0, 300)} told=${told}`)
+    return
+  }
+  yield* mockText(`RUST_MON_REPLY ${oneLine(latest).slice(0, 200)}`)
+}
+
 // Goal rounds (ticket 180). The objective's markers pick the behavior.
 //   Round turns (`<goal_round>` prompts from dsh's round driver):
 //     CLAIM_FROM_<k>  from round k on, read the goal and claim completion
@@ -1266,6 +1364,10 @@ class RustAcpMockAdapter extends LlmAdapter {
     }
     if (MODE === 'scheduler') {
       yield* schedulerTurn(options)
+      return
+    }
+    if (MODE === 'monitor') {
+      yield* monitorTurn(options)
       return
     }
     if (MODE === 'goal') {

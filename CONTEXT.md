@@ -412,6 +412,26 @@ through the control channel), and wake turns started by dsh's tool-jobs
 completion notice. Closing a dsh session disposes its owner and stops its
 commands; the client waits briefly for that before it kills the process group.
 A restored history never shows a command as running.
+Monitors stay dsh jobs too (`rust-acp-monitor.mjs`, registered by the
+background plugin only when the interactive client sets `CODSH_MONITOR=1`):
+the parent gets the reference `monitor` tool (`command`, `description`,
+`timeout_ms` default and cap 36,000,000, `persistent`), never a child. The
+script starts through dsh's bash executor with the session's sandbox, working
+directory, and managed environment (stderr merged), is gated like a bash call,
+and is a `ctx.jobs` job of kind `monitor`, so `job_output`, `job_list`, and
+`job_kill` work on it and it stops with its session. Output follows the
+reference pipeline (200 ms polls, trimmed lines, 500-byte line and 3000-byte
+batch caps, a 10-event bucket refilled every 2 s, auto-stop after 30 s of
+suppression, which here also kills the script). Each event is a
+`<monitor-event>` user message for the owning agent: an idle agent is woken
+within dsh's budget of three wakes without a user message; a running agent
+gets it at its next step only while a tool call runs or another message
+extends the turn, and otherwise it is held and sent as one grouped wake when
+the agent goes idle (after a cancel it waits for the next message), so an
+event never adds an unbudgeted model step. The exit is dsh's own completion
+notice. The client shows `◎ Monitor event · …` turns (messages claimed at one
+step share a turn), counts monitors in the status line, and lists them in the
+tasks pane, where `x` stops one and the model is told not to restart it.
 Scheduled prompts stay dsh subagents (`rust-acp-scheduler.mjs`, registered by
 the subagent plugin only when the interactive client sets `CODSH_SCHEDULER=1`):
 dsh offers the parent the reference `scheduler_create`, `scheduler_delete`, and

@@ -254,7 +254,7 @@ def main():
                           extra=[*extra, '--resume', results['session_id']], cols=150, rows=46)
         try:
             resumed.wait_visible('resumed', 30)
-            shown = resumed.wait_visible('Background commands in this history are not running', 15)
+            shown = resumed.wait_visible('Background commands and monitors in this history are not running', 15)
             assert 'command still running' not in shown and 'commands still running' not in shown, shown
             assert not alive('sleep 42.175')
             prompt(resumed, 'BG_FAST')

@@ -28,6 +28,10 @@
  * same path: it is announced when the model claims it and put back when a
  * cancel discards it.
  *
+ * Monitors (ticket 176, rust-acp-monitor.mjs) register here as well: a
+ * monitor is a dsh job of kind `monitor` on the same lifecycle channel, and
+ * the tasks pane stops it through the same control request.
+ *
  * Lifecycle lines go to stderr as `\u241ejob\u241e{json}` for the client's task
  * board, status line, and transcript. Jobs die with the dsh process and are
  * cancelled by dsh when their owner agent is disposed; nothing here revives
@@ -35,6 +39,7 @@
  */
 import { HarnessError, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
+import { registerMonitor } from './rust-acp-monitor.mjs'
 
 export const name = 'rust-acp-background'
 export const inject = ['tools']
@@ -417,8 +422,10 @@ export function createBackground(deps) {
       }
       return count
     },
-    /** Stop a moved job from the client's task pane. */
+    /** Stop a moved job (or a monitor) from the client's task pane. */
     kill(agent, jobId) {
+      const monitors = deps.monitors?.()
+      if (monitors?.has(jobId)) return monitors.kill(agent, jobId)
       const jobs = deps.jobs()
       if (jobs === undefined) throw new Error('dsh jobs are unavailable')
       if (!tracked.has(jobId)) throw new Error(`unknown background command ${jobId}`)
@@ -443,9 +450,11 @@ export function apply(ctx) {
   const emit = (event) => {
     process.stderr.write(`${MARK}${JSON.stringify(event)}\n`)
   }
+  let monitors
   const background = createBackground({
     emit,
     policy,
+    monitors: () => monitors,
     jobs: () => ctx.get('jobs'),
     shellConfig: () => {
       const config = ctx.get('shell')?.config
@@ -460,6 +469,11 @@ export function apply(ctx) {
     live: agent => ctx.get('agents')?.get?.(agent.id ?? agent.session?.id) === agent,
   })
   globalThis[REGISTRY] = background
+  monitors = registerMonitor(ctx, {
+    emit,
+    isChildAgent,
+    live: agent => ctx.get('agents')?.get?.(agent.id ?? agent.session?.id) === agent,
+  })
   ctx.on('tools/execute', (exec, next) => background.execute(exec, next))
   ctx.on('tools/post-execute', (exec, result, next) => background.postExecute(exec, result, next))
   ctx.on('tools/result', (exec, result) => background.onResult(exec, result))

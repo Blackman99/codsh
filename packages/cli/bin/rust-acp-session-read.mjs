@@ -226,11 +226,9 @@ function isDirectUser(event) {
 /** The line a background completion notice shows as (ticket 175). */
 export const JOB_NOTICE_PREFIX = '◎ Task completed'
 
-/**
- * A dsh tool-jobs completion notice: the model read it as a user message
- * that nobody typed. The transcript shows it as its own marked turn, the way
- * the live client does, and never as a prompt.
- */
+/** The line a monitor event the model received shows as (ticket 176). */
+export const MONITOR_NOTICE_PREFIX = '◎ Monitor event'
+
 /** The line a goal round shows as (ticket 180). */
 export const GOAL_ROUND_PREFIX = '◎ Goal round'
 
@@ -245,14 +243,28 @@ function goalRound(event, source) {
   return `${GOAL_ROUND_PREFIX} ${source.round}${max ? `/${max}` : ''}`
 }
 
+/**
+ * A dsh tool-jobs completion notice: the model read it as a user message
+ * that nobody typed. The transcript shows it as its own marked turn, the way
+ * the live client does, and never as a prompt.
+ */
 function jobNotice(event) {
   if (event?.type !== 'user/message') return undefined
   const source = eventSource(event)
   const round = goalRound(event, source)
   if (round !== undefined) return round
+  if (source?.kind === 'plugin' && source?.plugin === 'rust-acp-monitor' && source?.form === 'notice') {
+    const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
+    return summary === '' ? MONITOR_NOTICE_PREFIX : `${MONITOR_NOTICE_PREFIX} · ${summary}`
+  }
   if (source?.kind !== 'plugin' || source?.plugin !== 'tool-jobs') return undefined
   const summary = typeof source.summary === 'string' ? source.summary.trim() : ''
   return summary === '' ? JOB_NOTICE_PREFIX : `${JOB_NOTICE_PREFIX} · ${summary}`
+}
+
+/** A command completion or monitor event line (not a goal round). */
+function isJobNotice(line) {
+  return line.startsWith(JOB_NOTICE_PREFIX) || line.startsWith(MONITOR_NOTICE_PREFIX)
 }
 
 function summarizePrompt(event) {
@@ -459,9 +471,13 @@ export function projectTurns(events, options = {}) {
     if (notice !== undefined) {
       // A wake turn starts with its notice; a notice taken mid-turn opens a
       // new transcript turn for the answer that follows it.
-      const empty = current !== null && current.user === '' && current.answer === ''
-        && current.thought === '' && current.tools.length === 0
-      if (!empty) openTurn()
+      const blank = current !== null && current.answer === '' && current.thought === '' && current.tools.length === 0
+      if (blank && isJobNotice(current.user) && isJobNotice(notice)) {
+        // Notices dsh handed over at the same step boundary share one turn.
+        current.user = `${current.user}\n${notice}`
+        continue
+      }
+      if (!(blank && current.user === '')) openTurn()
       current.user = notice
       continue
     }

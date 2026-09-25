@@ -962,7 +962,8 @@ impl Board {
     /// still running`, or empty. While the model is blocked waiting on a
     /// command, a message interrupts the wait, and the line says so.
     pub fn status_text(&self) -> String {
-        let commands = self.jobs.running();
+        let commands = self.jobs.running_commands();
+        let monitors = self.jobs.running_monitors();
         // A paused loop does not run; it is listed in the pane only.
         let loops = self.schedules.firing(self.session.as_deref());
         let children = self.running();
@@ -971,6 +972,11 @@ impl Board {
             0 => {}
             1 => parts.push("1 command".to_string()),
             count => parts.push(format!("{count} commands")),
+        }
+        match monitors {
+            0 => {}
+            1 => parts.push("1 monitor".to_string()),
+            count => parts.push(format!("{count} monitors")),
         }
         match loops {
             0 => {}
@@ -1129,7 +1135,12 @@ pub fn list_lines(board: &Board, modal: &TasksModal) -> Vec<String> {
     }
     if !board.jobs.entries.is_empty() {
         lines.push(format!(
-            "Commands ({} running, {} total)",
+            "{} ({} running, {} total)",
+            if board.jobs.has_monitors() {
+                "Commands and monitors"
+            } else {
+                "Commands"
+            },
             board.jobs.running(),
             board.jobs.entries.len()
         ));
