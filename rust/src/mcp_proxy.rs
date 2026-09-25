@@ -7,9 +7,12 @@
 //! stderr in `<dir>/<name>.stderr.log`, stops a server that does not answer
 //! `initialize` within its startup timeout, and answers a `tools/call` that
 //! outlives its per-tool timeout with a JSON-RPC error while sending the
-//! server `notifications/cancelled`.
+//! server `notifications/cancelled`. It also carries the parts of MCP dsh
+//! does not implement (elicitation, resources and prompts for the front,
+//! non-text tool content) through [`crate::mcp_bridge::Interposer`].
 
 use crate::mcp::{self, CliOutcome, DiscoverInput, Discovery, Entry, State, Transport};
+use crate::mcp_bridge::{Interposer, ProxyBridge, Sender};
 use serde_json::{Value as JsonValue, json};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
@@ -30,6 +33,8 @@ struct ProxyArgs {
     tool_ms: u64,
     tool_timeouts: HashMap<String, u64>,
     cwd: Option<PathBuf>,
+    mount: Option<String>,
+    expose_image_base64: bool,
     program: String,
     args: Vec<String>,
 }
@@ -49,11 +54,17 @@ fn parse_proxy(args: &[String]) -> Result<ProxyArgs, String> {
             parsed.args = rest.collect();
             break;
         }
+        if flag == "--expose-image-base64" {
+            parsed.expose_image_base64 = true;
+            index += 1;
+            continue;
+        }
         index += 1;
         let value = args
             .get(index)
             .ok_or_else(|| format!("missing value for {flag}"))?;
         match flag {
+            "--mount" => parsed.mount = Some(value.clone()),
             "--name" => parsed.name = value.clone(),
             "--dir" => parsed.dir = PathBuf::from(value),
             "--startup-timeout-ms" => {
@@ -178,6 +189,20 @@ pub fn run_proxy(args: &[String]) -> i32 {
     let stdout = Arc::new(Mutex::new(io::stdout()));
     let child_stdin = Arc::new(Mutex::new(child.stdin.take()));
     let child_stdout = child.stdout.take();
+    let interposer = Arc::new(Interposer::new(
+        Some(ProxyBridge::new(
+            &parsed.dir,
+            &parsed.name,
+            parsed.mount.as_deref(),
+        )),
+        parsed.expose_image_base64,
+    ));
+    let reply: Sender = {
+        let child_stdin = Arc::clone(&child_stdin);
+        Arc::new(move |message: JsonValue| {
+            let _ = write_child(&child_stdin, &message.to_string());
+        })
+    };
 
     // dsh -> server
     {
@@ -185,11 +210,16 @@ pub fn run_proxy(args: &[String]) -> i32 {
         let child_stdin = Arc::clone(&child_stdin);
         let tool_ms = parsed.tool_ms;
         let tool_timeouts = parsed.tool_timeouts.clone();
+        let interposer = Arc::clone(&interposer);
         thread::spawn(move || {
             let reader = BufReader::new(io::stdin());
             for line in reader.lines() {
-                let Ok(line) = line else { break };
-                if let Ok(message) = serde_json::from_str::<JsonValue>(&line) {
+                let Ok(mut line) = line else { break };
+                if let Ok(mut message) = serde_json::from_str::<JsonValue>(&line) {
+                    interposer.outbound(&mut message);
+                    if message.get("method").and_then(JsonValue::as_str) == Some("initialize") {
+                        line = message.to_string();
+                    }
                     let method = message.get("method").and_then(JsonValue::as_str);
                     let id = message.get("id").filter(|id| !id.is_null());
                     let mut state = shared.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -240,11 +270,14 @@ pub fn run_proxy(args: &[String]) -> i32 {
     let reader_thread = child_stdout.map(|pipe| {
         let shared = Arc::clone(&shared);
         let stdout = Arc::clone(&stdout);
+        let interposer = Arc::clone(&interposer);
+        let reply = Arc::clone(&reply);
         thread::spawn(move || {
             let reader = BufReader::new(pipe);
             for line in reader.lines() {
-                let Ok(line) = line else { break };
-                if let Ok(message) = serde_json::from_str::<JsonValue>(&line)
+                let Ok(mut line) = line else { break };
+                let parsed = serde_json::from_str::<JsonValue>(&line).ok();
+                if let Some(message) = &parsed
                     && message.get("method").is_none()
                     && let Some(id) = message.get("id").filter(|id| !id.is_null())
                 {
@@ -268,10 +301,20 @@ pub fn run_proxy(args: &[String]) -> i32 {
                         }
                     }
                 }
+                if let Some(message) = parsed {
+                    let original = message.clone();
+                    match interposer.inbound(message, &reply) {
+                        None => continue,
+                        Some(out) if out != original => line = out.to_string(),
+                        Some(_) => {}
+                    }
+                }
                 if write_line(&stdout, &line).is_err() {
                     break;
                 }
             }
+            interposer.abandon();
+            interposer.fail_controls("the MCP server stopped");
         })
     });
 
@@ -353,7 +396,11 @@ pub fn run_proxy(args: &[String]) -> i32 {
             stop(&mut child);
             return 124;
         }
+        for request in interposer.control_requests() {
+            let _ = write_child(&child_stdin, &request.to_string());
+        }
         for (tool, id) in expired {
+            interposer.call_ended(&crate::mcp_bridge::id_key(&id));
             let limit = parsed
                 .tool_timeouts
                 .get(&tool)
@@ -731,143 +778,78 @@ fn probe_stdio(
     checks
 }
 
-fn http_call(
-    agent: &ureq::Agent,
-    url: &str,
-    headers: &BTreeMap<String, String>,
-    session: Option<&str>,
-    body: &JsonValue,
-    id: Option<u64>,
-) -> Result<(Option<JsonValue>, Option<String>), String> {
-    let mut request = agent
-        .post(url)
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json, text/event-stream")
-        .set(
-            "User-Agent",
-            concat!("codsh-rust/", env!("CARGO_PKG_VERSION")),
-        );
-    for (name, value) in headers {
-        request = request.set(name, value);
-    }
-    if let Some(session) = session {
-        request = request.set("Mcp-Session-Id", session);
-    }
-    let response = match request.send_string(&body.to_string()) {
-        Ok(response) => response,
-        Err(ureq::Error::Status(code, response)) => {
-            let text = response.into_string().unwrap_or_default();
-            let clipped: String = text.chars().take(200).collect();
-            return Err(format!("HTTP {code}: {clipped}"));
-        }
-        Err(error) => return Err(error.to_string()),
-    };
-    let session = response.header("mcp-session-id").map(str::to_string);
-    let content_type = response.content_type().to_string();
-    let Some(id) = id else {
-        return Ok((None, session));
-    };
-    let text = response.into_string().map_err(|error| error.to_string())?;
-    let candidates: Vec<String> = if content_type.contains("event-stream") {
-        text.lines()
-            .filter_map(|line| line.strip_prefix("data:"))
-            .map(|data| data.trim().to_string())
-            .collect()
-    } else {
-        vec![text]
-    };
-    for candidate in candidates {
-        if let Ok(message) = serde_json::from_str::<JsonValue>(&candidate)
-            && message.get("id").and_then(JsonValue::as_u64) == Some(id)
-        {
-            return Ok((Some(message), session));
-        }
-    }
-    Err("no JSON-RPC response in the HTTP reply".into())
-}
-
-fn probe_http(
-    name: &str,
-    url: &str,
-    headers: &BTreeMap<String, String>,
+/// Probe a remote server through the same `__mcp-remote-proxy` a session
+/// uses, so the doctor sees the transport, headers, and OAuth token exactly
+/// as dsh would.
+fn probe_remote(
+    entry: &Entry,
+    discovery: &Discovery,
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
     startup: Duration,
 ) -> Vec<Check> {
-    let mut checks = Vec::new();
-    let agent = ureq::AgentBuilder::new()
-        .timeout(startup)
-        .redirects(0)
-        .build();
-    let started = Instant::now();
-    let (message, session) =
-        match http_call(&agent, url, headers, None, &initialize_request(), Some(1)) {
-            Ok((Some(message), session)) => (message, session),
-            Ok((None, _)) => unreachable!("initialize has an id"),
-            Err(reason) => {
-                checks.push(Check::fail(
-                    "server failed to start",
-                    reason,
-                    "check the URL, headers, and network",
-                ));
-                return checks;
-            }
-        };
-    checks.push(Check::pass(
-        "server started",
-        format!("{:.1}s", started.elapsed().as_secs_f64()),
-    ));
-    if let Some(error) = message.get("error") {
-        checks.push(Check::fail(
-            "handshake failed",
-            error
-                .get("message")
-                .and_then(JsonValue::as_str)
-                .unwrap_or("error")
-                .to_string(),
-            "check server logs",
-        ));
-        return checks;
+    let name = &entry.def.name;
+    let (Ok(exe), Ok(dir)) = (
+        std::env::current_exe(),
+        tempfile::Builder::new()
+            .prefix("codsh-mcp-doctor-")
+            .tempdir(),
+    ) else {
+        return vec![Check::fail(
+            "probe unavailable",
+            "cannot start the remote proxy",
+            "check the temp directory",
+        )];
+    };
+    let config_path = mcp::remote_config_path(dir.path(), name);
+    let config = mcp::remote_config(&entry.def, env, &discovery.grok_home);
+    if let Err(error) =
+        crate::mcp_bridge::ensure_private_dir(dir.path()).and_then(|()| config.write(&config_path))
+    {
+        return vec![Check::fail(
+            "probe unavailable",
+            error.to_string(),
+            "check the temp directory",
+        )];
     }
-    let protocol = message
-        .pointer("/result/protocolVersion")
-        .and_then(JsonValue::as_str)
-        .unwrap_or("unknown");
-    checks.push(Check::pass("handshake OK", format!("protocol {protocol}")));
-    let _ = http_call(
-        &agent,
-        url,
-        headers,
-        session.as_deref(),
-        &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+    let args = vec![
+        crate::mcp_remote::SUBCOMMAND.to_string(),
+        "--name".into(),
+        name.clone(),
+        "--dir".into(),
+        dir.path().display().to_string(),
+        "--config".into(),
+        config_path.display().to_string(),
+        "--startup-timeout-ms".into(),
+        startup.as_millis().to_string(),
+    ];
+    let mut checks = probe_stdio(
+        name,
+        &exe.display().to_string(),
+        &args,
+        &BTreeMap::new(),
         None,
+        cwd,
+        env,
+        startup + Duration::from_secs(2),
     );
-    match http_call(
-        &agent,
-        url,
-        headers,
-        session.as_deref(),
-        &json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
-        Some(2),
-    ) {
-        Ok((Some(message), _)) => {
-            let tools: Vec<String> = message
-                .pointer("/result/tools")
-                .and_then(JsonValue::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|tool| {
-                    tool.get("name")
-                        .and_then(JsonValue::as_str)
-                        .map(str::to_string)
-                })
-                .collect();
-            checks.push(tools_check(name, &tools));
+    checks.retain(|check| check.label != "command found");
+    if checks.iter().any(|check| !check.passed)
+        && let Ok(status) = fs::read_to_string(dir.path().join(format!("{name}.status")))
+        && status.contains("authentication required")
+    {
+        for check in checks.iter_mut().filter(|check| !check.passed) {
+            check.hint = Some(format!(
+                "run `codsh --rust mcp login {name}` or /mcps auth {name}"
+            ));
         }
-        Ok((None, _)) => {}
-        Err(reason) => checks.push(Check::fail(
-            "tools/list failed",
-            reason,
-            "check server logs",
-        )),
+    }
+    if let Some(state) = crate::mcp_auth::describe_state(&crate::mcp_auth::auth_state(
+        &discovery.grok_home,
+        name,
+        &config.url,
+    )) {
+        checks.push(Check::pass("oauth", state));
     }
     checks
 }
@@ -932,12 +914,9 @@ pub fn check_entry(
             env,
             startup,
         ),
-        Transport::Http { url, headers } => probe_http(&entry.def.name, url, headers, startup),
-        Transport::Sse { .. } => vec![Check::fail(
-            "sse unsupported",
-            "dsh has no SSE transport",
-            "use the server's streamable HTTP endpoint",
-        )],
+        Transport::Http { .. } | Transport::Sse { .. } => {
+            probe_remote(entry, discovery, cwd, env, startup)
+        }
     };
     let tool_secs = entry.def.tool_timeout_sec.unwrap_or(0.0);
     let longest = entry

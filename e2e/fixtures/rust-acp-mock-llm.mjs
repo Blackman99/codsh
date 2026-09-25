@@ -2047,7 +2047,12 @@ class RustAcpMockAdapter extends LlmAdapter {
         yield* mockToolCall(`rust-acp-mcp-${done.length + 1}`, name, args)
         return
       }
-      const summary = turnDone.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${resultText(result).slice(0, 400)}`).join(' | ')
+      // Non-text blocks (MCP images, ticket 168) are named so a test sees
+      // what reached the model.
+      const blocksText = result => (result?.content ?? [])
+        .map(block => block.type === 'text' ? block.text : `[${block.type} ${block.attachment?.mediaType ?? block.mediaType ?? block.mimeType ?? '?'} ${block.attachment ? `${block.attachment.width}x${block.attachment.height}` : String(block.data ?? '').length}]`)
+        .join('\n')
+      const summary = turnDone.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${blocksText(result).slice(0, 400)}`).join(' | ')
       yield* mockText(`RUST_ACP_MCP_DONE ${summary || '(no calls)'}`)
       return
     }

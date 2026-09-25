@@ -231,14 +231,55 @@ editor's `mcpServers` on `session/new` or `session/resume` are mounted after
 the configured ones. Known limits: dsh renders only the text part of a result
 (`structuredContent` is returned by `use_tool` only when there is no text),
 tool names longer than 64 characters are hashed by dsh, the direct
-`mcp__*` tools stay visible next to `search_tool`/`use_tool`, SSE servers are
-listed but not started (dsh has no SSE transport), OAuth is not handled here,
+`mcp__*` tools stay visible next to `search_tool`/`use_tool`,
 and managed allow/deny MCP policy (`allowedMcpServers`/`deniedMcpServers`) and
 `disabled_mcp_tools` are not applied. Servers from enabled plugins join the
 same list (see Plugins). Through `codsh --rust` only
-the listed MCP variables and `*_API_KEY` pass from the host environment, so put
-other values in the server's `env` table. Checked on Linux with a real stdio
-fixture server; not on macOS or Windows.
+the listed MCP variables, `BROWSER`, and `*_API_KEY` pass from the host
+environment, so put other values in the server's `env` table. Checked on Linux
+with a real stdio fixture server; not on macOS or Windows.
+
+Remote servers (`url`, type `http`, or `sse`; a URL ending in `/sse` with no
+type is SSE) run through codsh's remote proxy, which dsh sees as a stdio
+server: streamable HTTP (JSON or SSE replies, `Mcp-Session-Id`, the negotiated
+`MCP-Protocol-Version`, a 404 re-initializes once) and the legacy HTTP+SSE
+transport (message endpoint must be same-origin). Static `headers` and
+`bearer_token_env_var` go to an owner-only
+`<run>/<name>.remote.json`, never into the plan or argv; `${session_id}` in a
+header value becomes the session id. Redirects are refused (a token must not
+follow them); a request whose connection breaks mid-flight is reported, never
+resent. A server that answers 401 is signed in with OAuth:
+`codsh --rust mcp login <name>` (or `/mcps auth <name>` in a session, or
+editor `x.ai/mcp/auth_trigger`) discovers the authorization server (RFC 9728 /
+RFC 8414, OpenID fallback), registers a public client dynamically (RFC 7591)
+unless `oauth_client_id` (plus optional `oauth_client_secret_env_var`,
+`oauth_scopes`, or an `oauth` table with `callback_port`) is set, and runs authorization code +
+PKCE S256 with the `resource` indicator (RFC 8707) through `$BROWSER` or the
+system opener and a loopback `http://127.0.0.1:<port>/callback`; the URL is
+also printed. Tokens live in `$GROK_HOME/mcp_credentials.json` (0600, keyed by
+server name and URL) and are refreshed once on expiry or a 401;
+`mcp logout <name>` / `/mcps logout <name>` revoke (RFC 7009, when offered)
+and forget them, and `mcp remove` forgets them too. `mcp login`/`logout` and
+`/mcps auth|logout` are codsh extensions; the reference signs in from its
+extensions modal and ACP `auth_trigger`. Tool results keep image blocks for
+dsh (a model without image input gets dsh's placeholder;
+`expose_image_base64 = true` also appends the base64 as text); audio becomes a
+short note, embedded text resources become text. MCP elicitation
+(`elicitation/create`, form and URL modes) is advertised only when someone can
+answer: the TUI opens an MCP card (↑/↓ or Tab move, Enter/Space edit or
+toggle, ←/→ pick an option or button, Enter on Accept validates and submits,
+`d` declines, Esc parks the keyboard, Ctrl+C cancels, `o` opens a URL), an
+editor gets `x.ai/mcp/elicit` (and `x.ai/mcp/elicit_complete`, and
+`$/cancel_request` when the request is answered elsewhere or withdrawn);
+headless `-p` does not advertise it. Answers are re-checked against the
+requested schema; an invalid answer or an editor error declines. dsh's 60 s
+per-call limit includes the time the user takes to answer. Editors also get
+`x.ai/mcp/auth_status` and `x.ai/mcp/read_resource`. Not handled: the
+`-32042` URL-elicitation-required error (its message reaches the model as a
+tool error). Checked on Linux against a keyless loopback fixture (OAuth
+authorization server included) and the MCP TypeScript SDK 1.30.0 example
+server with its demo OAuth server; not against hosted providers, macOS, or
+Windows.
 
 Streamed answers, provider
 thoughts, empty replies, and failures are shown as dsh reports them; a protocol

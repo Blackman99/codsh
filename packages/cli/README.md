@@ -169,8 +169,11 @@ in place of the reference Grove lazy clone once `GROK_CLONE`, `GROK_GROVE`, or
 Grove's `[clone] enabled` turns it on: depth 1 of one branch with blobs on
 demand, a missing or empty target only, nothing left after a failure or Ctrl-C,
 and `--remote ssh://…` to clone on another host (see the root README).
-`mcp list|add|remove|enable|disable|doctor` and `/mcps` manage local MCP
-servers that dsh starts for each session; `search_tool`/`use_tool` and every
+`mcp list|add|remove|enable|disable|doctor|login|logout` and `/mcps` manage
+local and remote MCP servers that dsh starts for each session (remote http/sse
+servers through codsh's proxy, with OAuth sign-in via `mcp login <name>` or
+`/mcps auth <name>` and MCP elicitation on a TUI card or editor
+`x.ai/mcp/elicit`); `search_tool`/`use_tool` and every
 direct `mcp__*` call go through the same permission, Hook, and cancellation
 path (see the root README). An active plugin's `.mcp.json` (or manifest
 `mcpServers`) servers join that list below every other source, labelled

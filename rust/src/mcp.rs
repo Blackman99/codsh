@@ -62,8 +62,23 @@ impl Transport {
                     format!("{command} {}", args.join(" "))
                 }
             }
-            Transport::Http { url, .. } | Transport::Sse { url, .. } => url.clone(),
+            Transport::Http { url, .. } | Transport::Sse { url, .. } => shown_url(url),
         }
+    }
+}
+
+/// A URL for lists and plans: one with a query or user info (which may
+/// carry a key) is shown without them.
+pub fn shown_url(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(parsed)
+            if parsed.query().is_some()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some() =>
+        {
+            crate::mcp_auth::display_url(url)
+        }
+        _ => url.to_string(),
     }
 }
 
@@ -154,8 +169,14 @@ pub struct ServerDef {
     pub tool_timeout_sec: Option<f64>,
     pub tool_timeouts: BTreeMap<String, f64>,
     pub source: Source,
-    /// Non-fatal notes about this definition (unsupported OAuth fields, unset variables).
+    /// Non-fatal notes about this definition (unset variables and similar).
     pub notes: Vec<String>,
+    /// OAuth client settings for a remote server (`oauth_client_id`, ... or
+    /// the `oauth` table). Without them a remote server that asks for OAuth
+    /// is signed in with dynamic client registration.
+    pub oauth: Option<crate::mcp_auth::OAuthConfig>,
+    /// Also give the model each image as base64 text.
+    pub expose_image_base64: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -197,6 +218,8 @@ pub struct Discovery {
     pub disabled: BTreeSet<String>,
     pub max_output_bytes: u64,
     pub max_output_source: String,
+    /// `$GROK_HOME`, where remote servers' OAuth logins are stored.
+    pub grok_home: PathBuf,
 }
 
 impl Discovery {
@@ -396,9 +419,14 @@ fn finish_transport(
         Transport::Http { url, headers } | Transport::Sse { url, headers } => {
             let sse = matches!(transport_kind, "sse");
             let url = expand_vars(&url, env, &mut missing);
+            // `${session_id}` is the per-session placeholder the remote proxy
+            // fills, not an environment variable.
             let headers: BTreeMap<String, String> = headers
                 .iter()
-                .map(|(key, value)| (key.clone(), expand_vars(value, env, &mut missing)))
+                .map(|(key, value)| {
+                    let value = value.replace("${session_id}", "{{session_id}}");
+                    (key.clone(), expand_vars(&value, env, &mut missing))
+                })
                 .collect();
             for (name, value) in &headers {
                 if !valid_header_name(name) || value.contains(['\r', '\n', '\0']) {
@@ -429,6 +457,77 @@ fn finish_transport(
     Ok(transport)
 }
 
+/// OAuth settings: flat `oauth_client_id` / `oauth_client_secret_env_var` /
+/// `oauth_scopes`, or an `oauth` table (`client_id` or `clientId`,
+/// `client_secret_env_var`, `scopes`, `callback_port`).
+fn oauth_settings(entry: &JsonValue) -> Result<Option<crate::mcp_auth::OAuthConfig>, String> {
+    fn text(value: Option<&JsonValue>, key: &str) -> Result<Option<String>, String> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(None),
+            Some(JsonValue::String(text)) if !text.trim().is_empty() => Ok(Some(text.clone())),
+            Some(_) => Err(format!("`{key}` must be a non-empty string")),
+        }
+    }
+    fn scopes(value: Option<&JsonValue>, key: &str) -> Result<Vec<String>, String> {
+        match value {
+            None | Some(JsonValue::Null) => Ok(Vec::new()),
+            Some(JsonValue::String(text)) => {
+                Ok(text.split_whitespace().map(str::to_string).collect())
+            }
+            Some(JsonValue::Array(items)) => items
+                .iter()
+                .map(|item| {
+                    item.as_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| format!("`{key}` must be a list of strings"))
+                })
+                .collect(),
+            Some(_) => Err(format!("`{key}` must be a list of strings")),
+        }
+    }
+    let mut config = crate::mcp_auth::OAuthConfig::default();
+    let mut any = false;
+    if let Some(block) = entry.get("oauth").filter(|value| !value.is_null()) {
+        let Some(block) = block.as_object() else {
+            return Err("`oauth` must be a table".into());
+        };
+        let pick = |a: &str, b: &str| block.get(a).or_else(|| block.get(b));
+        config.client_id = text(pick("client_id", "clientId"), "oauth.client_id")?;
+        config.client_secret_env = text(
+            pick("client_secret_env_var", "clientSecretEnvVar"),
+            "oauth.client_secret_env_var",
+        )?;
+        config.scopes = scopes(pick("scopes", "scope"), "oauth.scopes")?;
+        config.callback_port = match pick("callback_port", "callbackPort") {
+            None | Some(JsonValue::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .and_then(|port| u16::try_from(port).ok())
+                    .ok_or("`oauth.callback_port` must be a port number")?,
+            ),
+        };
+        any = true;
+    }
+    if let Some(id) = text(entry.get("oauth_client_id"), "oauth_client_id")? {
+        config.client_id = Some(id);
+        any = true;
+    }
+    if let Some(var) = text(
+        entry.get("oauth_client_secret_env_var"),
+        "oauth_client_secret_env_var",
+    )? {
+        config.client_secret_env = Some(var);
+        any = true;
+    }
+    let flat = scopes(entry.get("oauth_scopes"), "oauth_scopes")?;
+    if !flat.is_empty() {
+        config.scopes = flat;
+        any = true;
+    }
+    Ok(any.then_some(config))
+}
+
 /// One `[mcp_servers.<name>]` table.
 pub fn parse_toml_server(
     name: &str,
@@ -450,6 +549,8 @@ pub fn parse_toml_server(
         tool_timeouts: BTreeMap::new(),
         source,
         notes: Vec::new(),
+        oauth: None,
+        expose_image_base64: false,
     };
     let Some(table) = value.as_table() else {
         return Err(Box::new((
@@ -527,7 +628,11 @@ pub fn parse_toml_server(
                 .get("transport_type")
                 .or_else(|| table.get("type"))
                 .and_then(TomlValue::as_str)
-                .unwrap_or("http");
+                .unwrap_or(if url.trim_end_matches('/').ends_with("/sse") {
+                    "sse"
+                } else {
+                    "http"
+                });
             if kind.eq_ignore_ascii_case("sse") {
                 Transport::Sse {
                     url: url.to_string(),
@@ -541,19 +646,16 @@ pub fn parse_toml_server(
             }
         }
     };
-    for key in [
-        "oauth",
-        "oauth_client_id",
-        "oauth_client_secret_env_var",
-        "oauth_scopes",
-    ] {
-        if table.contains_key(key) {
-            notes.push(format!(
-                "`{key}` is not used: MCP OAuth is not available in this client"
-            ));
-            break;
-        }
-    }
+    let as_json = serde_json::to_value(table).unwrap_or(JsonValue::Null);
+    let oauth = match oauth_settings(&as_json) {
+        Ok(oauth) => oauth,
+        Err(reason) => return fail(reason),
+    };
+    let expose_image_base64 = match table.get("expose_image_base64") {
+        None => false,
+        Some(TomlValue::Boolean(flag)) => *flag,
+        Some(_) => return fail("`expose_image_base64` must be true or false".into()),
+    };
     let mut tool_timeouts = BTreeMap::new();
     if let Some(value) = table.get("tool_timeouts") {
         let Some(map) = value.as_table() else {
@@ -591,6 +693,8 @@ pub fn parse_toml_server(
         tool_timeouts,
         source,
         notes,
+        oauth,
+        expose_image_base64,
     })
 }
 
@@ -615,6 +719,8 @@ pub fn parse_json_server(
         tool_timeouts: BTreeMap::new(),
         source: source.clone(),
         notes: Vec::new(),
+        oauth: None,
+        expose_image_base64: false,
     };
     let fail = |reason: String| Err(Box::new((placeholder.clone(), reason)));
     let Some(object) = value.as_object() else {
@@ -634,7 +740,9 @@ pub fn parse_json_server(
             Ok(map) => map,
             Err(reason) => return fail(reason),
         };
-        if kind.eq_ignore_ascii_case("sse") {
+        let sse = kind.eq_ignore_ascii_case("sse")
+            || (kind.is_empty() && url.trim_end_matches('/').ends_with("/sse"));
+        if sse {
             Transport::Sse {
                 url: url.to_string(),
                 headers,
@@ -683,6 +791,10 @@ pub fn parse_json_server(
         .get("disabled")
         .and_then(JsonValue::as_bool)
         .unwrap_or(false);
+    let oauth = match oauth_settings(value) {
+        Ok(oauth) => oauth,
+        Err(reason) => return fail(reason),
+    };
     let transport = match finish_transport(transport, env, &mut notes) {
         Ok(transport) => transport,
         Err(reason) => return fail(reason),
@@ -696,6 +808,12 @@ pub fn parse_json_server(
         tool_timeouts: BTreeMap::new(),
         source,
         notes,
+        oauth,
+        expose_image_base64: object
+            .get("expose_image_base64")
+            .or_else(|| object.get("exposeImageBase64"))
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false),
     })
 }
 
@@ -969,7 +1087,10 @@ fn plugin_candidates(input: &DiscoverInput<'_>, discovery: &mut Discovery) -> Ve
 
 pub fn discover(input: &DiscoverInput<'_>) -> Discovery {
     let env = input.env;
-    let mut discovery = Discovery::default();
+    let mut discovery = Discovery {
+        grok_home: input.grok_home.to_path_buf(),
+        ..Discovery::default()
+    };
     let user_root = read_toml(input.config_path);
     let managed_root = read_toml(&input.grok_home.join("managed_config.toml"));
     let requirements_root = read_toml(&input.grok_home.join("requirements.toml"));
@@ -1171,12 +1292,8 @@ pub fn discover(input: &DiscoverInput<'_>) -> Discovery {
             Some(reason) => State::Invalid(reason),
             None => match validate_server_name(&name) {
                 Err(reason) => State::Invalid(reason),
-                Ok(()) => match &def.transport {
-                    Transport::Sse { .. } => State::Invalid(
-                        "sse transport is not supported by dsh; use the server's streamable HTTP endpoint".into(),
-                    ),
-                    _ => State::Ready,
-                },
+                // SSE runs through codsh's remote proxy (ticket 168).
+                Ok(()) => State::Ready,
             },
         };
         winners.insert(name, Entry { def, state });
@@ -1514,6 +1631,9 @@ pub fn build_plan(
                             proxy_args.push("--cwd".into());
                             proxy_args.push(run_cwd.display().to_string());
                         }
+                        if entry.def.expose_image_base64 {
+                            proxy_args.push("--expose-image-base64".into());
+                        }
                         proxy_args.push("--".into());
                         proxy_args.push(program.display().to_string());
                         proxy_args.extend(args.iter().cloned());
@@ -1532,15 +1652,51 @@ pub fn build_plan(
                     }),
                 }
             }
-            Transport::Http { url, headers } => json!({
-                "type": "http",
-                "name": entry.def.name,
-                "url": url,
-                "headers": pairs(headers),
-            }),
-            Transport::Sse { .. } => continue,
+            Transport::Http { url, headers } | Transport::Sse { url, headers } => match proxy {
+                Some(exe) => {
+                    let mut proxy_args = vec![
+                        crate::mcp_remote::SUBCOMMAND.to_string(),
+                        "--name".into(),
+                        entry.def.name.clone(),
+                        "--dir".into(),
+                        dir.display().to_string(),
+                        "--config".into(),
+                        remote_config_path(dir, &entry.def.name)
+                            .display()
+                            .to_string(),
+                        "--startup-timeout-ms".into(),
+                        startup.to_string(),
+                        "--tool-timeout-ms".into(),
+                        tool_ms.to_string(),
+                    ];
+                    for (tool, secs) in &entry.def.tool_timeouts {
+                        proxy_args.push("--tool-timeout".into());
+                        proxy_args.push(format!("{tool}={}", (secs * 1000.0) as u64));
+                    }
+                    json!({
+                        "name": entry.def.name,
+                        "command": exe.display().to_string(),
+                        "args": proxy_args,
+                        "env": [],
+                    })
+                }
+                // Without the proxy only dsh's own streamable HTTP client is
+                // left: static headers, no SSE, no OAuth.
+                None if matches!(entry.def.transport, Transport::Http { .. }) => json!({
+                    "type": "http",
+                    "name": entry.def.name,
+                    "url": url,
+                    "headers": pairs(headers),
+                }),
+                None => continue,
+            },
         };
         budget = budget.saturating_add(startup);
+        if let Some(state) = auth_note(discovery, &entry.def) {
+            // Without the countdown, so the plan stays comparable over time.
+            let stable = state.split(" (token expires").next().unwrap_or(&state);
+            object.insert("auth".into(), json!(stable));
+        }
         object.insert("acp".into(), acp);
         servers.push(JsonValue::Object(object));
     }
@@ -1603,7 +1759,8 @@ pub fn write_plan(
 ) -> io::Result<PathBuf> {
     prune_runs(dsh_home);
     let dir = run_dir(dsh_home, tag);
-    fs::create_dir_all(&dir)?;
+    // Owner-only: the remote servers' settings files hold their headers.
+    crate::mcp_bridge::ensure_private_dir(&dir)?;
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -1625,11 +1782,65 @@ pub fn write_plan(
             let _ = fs::create_dir_all(data);
         }
     }
+    for entry in &discovery.entries {
+        if matches!(
+            entry.def.transport,
+            Transport::Http { .. } | Transport::Sse { .. }
+        ) && plan_mounts(&plan, &entry.def.name)
+            && proxy.is_some()
+        {
+            remote_config(&entry.def, env, &discovery.grok_home)
+                .write(&remote_config_path(&dir, &entry.def.name))?;
+        }
+    }
     let path = dir.join("plan.json");
-    let tmp = dir.join("plan.json.tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&plan).unwrap_or_default())?;
-    fs::rename(&tmp, &path)?;
+    crate::mcp_auth::write_private(&path, &serde_json::to_vec_pretty(&plan).unwrap_or_default())?;
     Ok(path)
+}
+
+fn plan_mounts(plan: &JsonValue, name: &str) -> bool {
+    plan.get("servers")
+        .and_then(JsonValue::as_array)
+        .into_iter()
+        .flatten()
+        .any(|server| server.get("name").and_then(JsonValue::as_str) == Some(name))
+}
+
+/// Where the remote proxy for `name` reads its settings.
+pub fn remote_config_path(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{}.remote.json", crate::mcp_bridge::sanitize(name)))
+}
+
+/// The settings the remote proxy needs: the URL and headers (secrets
+/// included, so they stay out of the plan and the process list), the
+/// credential store, a configured client's secret, and the extra CA bundle.
+pub fn remote_config(
+    def: &ServerDef,
+    env: &BTreeMap<String, String>,
+    grok_home: &Path,
+) -> crate::mcp_remote::RemoteConfig {
+    let (url, headers, sse) = match &def.transport {
+        Transport::Http { url, headers } => (url.clone(), headers.clone(), false),
+        Transport::Sse { url, headers } => (url.clone(), headers.clone(), true),
+        Transport::Stdio { .. } => (String::new(), BTreeMap::new(), false),
+    };
+    let client_secret = def
+        .oauth
+        .as_ref()
+        .and_then(|oauth| oauth.client_secret_env.as_deref())
+        .and_then(|var| env.get(var))
+        .filter(|value| !value.is_empty())
+        .cloned();
+    crate::mcp_remote::RemoteConfig {
+        url,
+        sse,
+        headers,
+        credentials: (!grok_home.as_os_str().is_empty())
+            .then(|| crate::mcp_auth::credentials_path(grok_home)),
+        client_secret,
+        extra_ca: crate::extra_ca::configured_bundle(env).map(|(_, path)| path),
+        expose_image_base64: def.expose_image_base64,
+    }
 }
 
 pub fn read_plan(path: &Path) -> Option<JsonValue> {
@@ -1650,6 +1861,21 @@ pub fn plan_servers(plan: &JsonValue, failed: &BTreeMap<String, String>) -> Vec<
         })
         .filter_map(|server| server.get("acp").cloned())
         .collect()
+}
+
+/// Give a proxied server entry its mount nonce (`--mount`, before `--`).
+pub fn add_mount(server: &mut JsonValue, mount: &str) {
+    let proxied = server
+        .pointer("/args/0")
+        .and_then(JsonValue::as_str)
+        .is_some_and(|first| first == PROXY_SUBCOMMAND || first == crate::mcp_remote::SUBCOMMAND);
+    if let (true, Some(args)) = (
+        proxied,
+        server.get_mut("args").and_then(JsonValue::as_array_mut),
+    ) {
+        args.insert(1, json!("--mount"));
+        args.insert(2, json!(mount));
+    }
 }
 
 /// Server named by dsh's startup error `mcp-client(<name>): ...`.
@@ -1742,7 +1968,14 @@ pub fn server_rows(
         let name = str_field(server, "name");
         let (state, reason, tools) = match failed.get(&name) {
             Some(reason) => ("failed".to_string(), Some(reason.clone()), Vec::new()),
-            None => ("connected".to_string(), None, tools_of(&name)),
+            None => (
+                "connected".to_string(),
+                server
+                    .get("auth")
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_string),
+                tools_of(&name),
+            ),
         };
         rows.push(ServerRow {
             scope: str_field(server, "scope"),
@@ -1839,7 +2072,9 @@ pub fn render_rows(rows: &[ServerRow], max_output: Option<u64>) -> String {
     if let Some(bytes) = max_output {
         lines.push(format!("  output limit {bytes} bytes per call"));
     }
-    lines.push("  /mcps enable|disable|restart <name> · /mcps refresh".into());
+    lines.push(
+        "  /mcps enable|disable|restart <name> · /mcps auth|logout <name> · /mcps refresh".into(),
+    );
     lines.join("\n")
 }
 
@@ -1868,6 +2103,9 @@ pub enum Slash {
     Enable(String),
     Disable(String),
     Restart(Option<String>),
+    /// Sign in to a remote server (OAuth).
+    Auth(String),
+    Logout(String),
 }
 
 /// `/mcps` (alias `/mcp`) with an optional action.
@@ -1879,12 +2117,15 @@ pub fn parse_slash(text: &str) -> Option<Result<Slash, String>> {
             .filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
     })?;
     let words: Vec<&str> = rest.split_whitespace().collect();
-    let usage = || Err("usage: /mcps [enable|disable|restart <name> | refresh]".to_string());
+    let usage =
+        || Err("usage: /mcps [enable|disable|restart|auth|logout <name> | refresh]".to_string());
     Some(match words.as_slice() {
         [] | ["list"] => Ok(Slash::List),
         ["enable", name] => Ok(Slash::Enable((*name).to_string())),
         ["disable", name] => Ok(Slash::Disable((*name).to_string())),
         ["restart", name] => Ok(Slash::Restart(Some((*name).to_string()))),
+        ["auth" | "login", name] => Ok(Slash::Auth((*name).to_string())),
+        ["logout", name] => Ok(Slash::Logout((*name).to_string())),
         ["restart"] | ["refresh"] | ["reload"] => Ok(Slash::Restart(None)),
         _ => usage(),
     })
@@ -2330,6 +2571,8 @@ pub enum McpCommand {
     Enable { name: String },
     Disable { name: String },
     Doctor { json: bool, name: Option<String> },
+    Login { name: String },
+    Logout { name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2350,7 +2593,7 @@ pub fn help(topic: &str) -> String {
             "List configured MCP servers\n\nUsage: codsh --rust mcp list [OPTIONS]\n\nOptions:\n      --json                  Emit machine-readable JSON output\n{COMMON_OPTIONS}"
         ),
         "add" => format!(
-            "Add or update an MCP server\n\nUsage: codsh --rust mcp add [OPTIONS] <NAME> [COMMAND_OR_URL] [ARGS]...\n\nArguments:\n  <NAME>            Server name\n  [COMMAND_OR_URL]  Command to launch (stdio) or URL to connect to (http, sse)\n  [ARGS]...         Arguments passed to the server command. Place them after `--` so flags such as `-y` are passed to the server instead of codsh\n\nOptions:\n  -t, --transport <TRANSPORT>  Transport type. Defaults to stdio, or to http when the positional argument is an http(s):// URL [possible values: stdio, http, sse]\n  -s, --scope <SCOPE>          Config to write to: user ($GROK_HOME/config.toml) or project (./.grok/config.toml) [default: user]\n  -e, --env <KEY=value>        Environment variable for the server process (repeatable)\n  -H, --header <NAME: VALUE>   HTTP header for remote servers (repeatable)\n{COMMON_OPTIONS}\n\nsse is written to config but not started: dsh has no SSE transport.\n\nExamples:\n  # Add a stdio server (everything after -- is the server command)\n  codsh --rust mcp add xcode -- xcrun mcpbridge\n\n  # Add a stdio server with environment variables\n  codsh --rust mcp add postgres -e DATABASE_URL=postgres://localhost/mydb -- npx -y @modelcontextprotocol/server-postgres\n\n  # Add a remote HTTP server\n  codsh --rust mcp add --transport http sentry https://mcp.sentry.dev/mcp\n\n  # Add a remote server with an authentication header\n  codsh --rust mcp add --transport http api https://mcp.example.com/mcp --header \"Authorization: Bearer YOUR_TOKEN\"\n\n  # Add to the project config (./.grok/config.toml) instead of $GROK_HOME/config.toml\n  codsh --rust mcp add --scope project github -- npx -y @modelcontextprotocol/server-github"
+            "Add or update an MCP server\n\nUsage: codsh --rust mcp add [OPTIONS] <NAME> [COMMAND_OR_URL] [ARGS]...\n\nArguments:\n  <NAME>            Server name\n  [COMMAND_OR_URL]  Command to launch (stdio) or URL to connect to (http, sse)\n  [ARGS]...         Arguments passed to the server command. Place them after `--` so flags such as `-y` are passed to the server instead of codsh\n\nOptions:\n  -t, --transport <TRANSPORT>  Transport type. Defaults to stdio, or to http when the positional argument is an http(s):// URL [possible values: stdio, http, sse]\n  -s, --scope <SCOPE>          Config to write to: user ($GROK_HOME/config.toml) or project (./.grok/config.toml) [default: user]\n  -e, --env <KEY=value>        Environment variable for the server process (repeatable)\n  -H, --header <NAME: VALUE>   HTTP header for remote servers (repeatable)\n{COMMON_OPTIONS}\n\nRemote servers (http, sse) run through codsh's remote proxy: headers stay out of the process list, `{{{{session_id}}}}` in a header value becomes the session id, and a server that asks for OAuth is signed in with `codsh --rust mcp login <name>` or /mcps auth <name>.\n\nExamples:\n  # Add a stdio server (everything after -- is the server command)\n  codsh --rust mcp add xcode -- xcrun mcpbridge\n\n  # Add a stdio server with environment variables\n  codsh --rust mcp add postgres -e DATABASE_URL=postgres://localhost/mydb -- npx -y @modelcontextprotocol/server-postgres\n\n  # Add a remote HTTP server\n  codsh --rust mcp add --transport http sentry https://mcp.sentry.dev/mcp\n\n  # Add a remote server with an authentication header\n  codsh --rust mcp add --transport http api https://mcp.example.com/mcp --header \"Authorization: Bearer YOUR_TOKEN\"\n\n  # Add to the project config (./.grok/config.toml) instead of $GROK_HOME/config.toml\n  codsh --rust mcp add --scope project github -- npx -y @modelcontextprotocol/server-github"
         ),
         "remove" => format!(
             "Remove an MCP server\n\nUsage: codsh --rust mcp remove [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Server name to remove\n\nOptions:\n  -s, --scope <SCOPE>         Config to remove from. When omitted, all scopes are searched [possible values: user, project]\n{COMMON_OPTIONS}"
@@ -2362,10 +2605,16 @@ pub fn help(topic: &str) -> String {
             "Disable an MCP server\n\nUsage: codsh --rust mcp disable [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Server name\n\nOptions:\n{COMMON_OPTIONS}"
         ),
         "doctor" => format!(
-            "Diagnose MCP server configuration and connectivity\n\nUsage: codsh --rust mcp doctor [OPTIONS] [NAME]\n\nArguments:\n  [NAME]  Server name to check\n\nOptions:\n      --json                  Emit machine-readable JSON output\n{COMMON_OPTIONS}\n\nDoctor starts each enabled, trusted server once with its own short-lived MCP handshake (initialize, tools/list) and stops it. It does not create a dsh session."
+            "Diagnose MCP server configuration and connectivity\n\nUsage: codsh --rust mcp doctor [OPTIONS] [NAME]\n\nArguments:\n  [NAME]  Server name to check\n\nOptions:\n      --json                  Emit machine-readable JSON output\n{COMMON_OPTIONS}\n\nDoctor starts each enabled, trusted server once with its own short-lived MCP handshake (initialize, tools/list) and stops it; a remote server is probed through the same proxy a session uses, with its stored OAuth login. It does not create a dsh session."
+        ),
+        "login" => format!(
+            "Sign in to a remote MCP server with OAuth\n\nUsage: codsh --rust mcp login [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Server name\n\nOptions:\n{COMMON_OPTIONS}\n\nDiscovers the server's authorization server (RFC 9728 / RFC 8414), registers a client dynamically unless oauth_client_id is set, and opens the browser ($BROWSER, else the system opener) for an authorization-code + PKCE login with a loopback redirect (http://127.0.0.1:<port>/callback; oauth.callback_port pins the port). The URL is also printed. Tokens are stored owner-only in $GROK_HOME/mcp_credentials.json and refreshed by the session when they expire. The same login is /mcps auth <name> in a session."
+        ),
+        "logout" => format!(
+            "Sign out of a remote MCP server\n\nUsage: codsh --rust mcp logout [OPTIONS] <NAME>\n\nArguments:\n  <NAME>  Server name\n\nOptions:\n{COMMON_OPTIONS}\n\nRevokes the stored tokens at the authorization server when it offers revocation (RFC 7009) and deletes them from $GROK_HOME/mcp_credentials.json. `mcp remove` also deletes a removed server's stored login."
         ),
         _ => format!(
-            "Manage MCP server configurations\n\nUsage: codsh --rust mcp [OPTIONS] <COMMAND>\n\nCommands:\n  list     List configured MCP servers\n  add      Add or update an MCP server\n  remove   Remove an MCP server\n  enable   Enable an MCP server\n  disable  Disable an MCP server\n  doctor   Diagnose MCP server configuration and connectivity\n  help     Print this message or the help of the given subcommand(s)\n\nOptions:\n{COMMON_OPTIONS}\n\nServers come from [mcp_servers.<name>] in $GROK_HOME/config.toml and, in a trusted folder, .grok/config.toml (cwd to git root), .mcp.json, and project .cursor/mcp.json; ~/.claude.json and ~/.cursor/mcp.json follow [compat.claude|cursor] mcps. dsh mounts them per session and executes every call; the model reaches them as search_tool / use_tool and as the direct mcp__<server>__<tool> tools. /mcps lists status and tools in a session."
+            "Manage MCP server configurations\n\nUsage: codsh --rust mcp [OPTIONS] <COMMAND>\n\nCommands:\n  list     List configured MCP servers\n  add      Add or update an MCP server\n  remove   Remove an MCP server\n  enable   Enable an MCP server\n  disable  Disable an MCP server\n  doctor   Diagnose MCP server configuration and connectivity\n  login    Sign in to a remote MCP server with OAuth\n  logout   Sign out of a remote MCP server\n  help     Print this message or the help of the given subcommand(s)\n\nOptions:\n{COMMON_OPTIONS}\n\nServers come from [mcp_servers.<name>] in $GROK_HOME/config.toml and, in a trusted folder, .grok/config.toml (cwd to git root), .mcp.json, and project .cursor/mcp.json; ~/.claude.json and ~/.cursor/mcp.json follow [compat.claude|cursor] mcps. dsh mounts them per session and executes every call; the model reaches them as search_tool / use_tool and as the direct mcp__<server>__<tool> tools. /mcps lists status and tools in a session."
         ),
     }
 }
@@ -2378,6 +2627,8 @@ fn topic_name(sub: &str) -> Option<&'static str> {
         "enable" => Some("enable"),
         "disable" => Some("disable"),
         "doctor" => Some("doctor"),
+        "login" => Some("login"),
+        "logout" => Some("logout"),
         _ => None,
     }
 }
@@ -2470,6 +2721,27 @@ pub fn parse(args: &[&str]) -> Result<McpInvocation, String> {
                 }
             }
             McpCommand::Doctor { json, name }
+        }
+        [sub @ ("login" | "logout"), tail @ ..] => {
+            let mut name = None;
+            for item in tail {
+                if item.starts_with('-') || name.is_some() {
+                    return Err(format!(
+                        "unexpected argument '{item}' found\n\nUsage: codsh --rust mcp {sub} [OPTIONS] <NAME>"
+                    ));
+                }
+                name = Some(item.to_string());
+            }
+            let Some(name) = name else {
+                return Err(format!(
+                    "the following required arguments were not provided:\n  <NAME>\n\nUsage: codsh --rust mcp {sub} [OPTIONS] <NAME>"
+                ));
+            };
+            if *sub == "login" {
+                McpCommand::Login { name }
+            } else {
+                McpCommand::Logout { name }
+            }
         }
         [sub @ ("enable" | "disable"), tail @ ..] => {
             let mut name = None;
@@ -2742,10 +3014,6 @@ pub fn resolve_add(args: &AddArgs) -> Result<(Transport, Vec<String>), String> {
         ));
     }
     if kind == "sse" {
-        warnings.push(
-            "Note: dsh has no SSE transport, so this server is saved but will show as invalid until it offers streamable HTTP."
-                .into(),
-        );
         return Ok((
             Transport::Sse {
                 url: url.to_string(),
@@ -2809,7 +3077,7 @@ fn list_json(entry: &Entry, disabled: &BTreeSet<String>) -> JsonValue {
             }
         }
         Transport::Http { url, headers } | Transport::Sse { url, headers } => {
-            object.insert("url".into(), json!(url));
+            object.insert("url".into(), json!(shown_url(url)));
             if matches!(entry.def.transport, Transport::Sse { .. }) {
                 object.insert("transport_type".into(), json!("sse"));
             }
@@ -2851,6 +3119,190 @@ fn list_json(entry: &Entry, disabled: &BTreeSet<String>) -> JsonValue {
     JsonValue::Object(object)
 }
 
+/// The stored OAuth state of a remote server, for lists.
+pub fn auth_note(discovery: &Discovery, def: &ServerDef) -> Option<String> {
+    let (Transport::Http { url, .. } | Transport::Sse { url, .. }) = &def.transport else {
+        return None;
+    };
+    if discovery.grok_home.as_os_str().is_empty() {
+        return None;
+    }
+    crate::mcp_auth::describe_state(&crate::mcp_auth::auth_state(
+        &discovery.grok_home,
+        &def.name,
+        url,
+    ))
+}
+
+/// `x.ai/mcp/auth_status` rows for the ready remote servers that use OAuth:
+/// `needs_auth` when the run recorded "authentication required" or the login
+/// is unfinished or expired without a refresh token, else `authenticated`.
+/// Servers with a configured Authorization header or no stored login that
+/// never asked for one are left out.
+pub fn auth_statuses(discovery: &Discovery, run_dir: Option<&Path>) -> Vec<JsonValue> {
+    use crate::mcp_auth::AuthState;
+    let mut rows = Vec::new();
+    for entry in &discovery.entries {
+        if entry.state != State::Ready {
+            continue;
+        }
+        let (Transport::Http { url, headers } | Transport::Sse { url, headers }) =
+            &entry.def.transport
+        else {
+            continue;
+        };
+        if headers
+            .keys()
+            .any(|header| header.eq_ignore_ascii_case("authorization"))
+        {
+            continue;
+        }
+        let name = &entry.def.name;
+        let asked = run_dir
+            .and_then(|dir| fs::read_to_string(dir.join(format!("{name}.status"))).ok())
+            .is_some_and(|status| status.contains("authentication required"));
+        let status = match crate::mcp_auth::auth_state(&discovery.grok_home, name, url) {
+            _ if asked => "needs_auth",
+            AuthState::Signed { .. } | AuthState::Expired { refreshable: true } => "authenticated",
+            AuthState::NoToken | AuthState::Expired { refreshable: false } => "needs_auth",
+            AuthState::None => continue,
+        };
+        rows.push(json!({ "server_name": name, "status": status }));
+    }
+    rows
+}
+
+/// The remote server `name`, or why it cannot sign in.
+fn remote_entry<'a>(discovery: &'a Discovery, name: &str) -> Result<&'a Entry, String> {
+    let entry = discovery
+        .get(name)
+        .ok_or_else(|| format!("MCP server '{name}' not found."))?;
+    if !matches!(
+        entry.def.transport,
+        Transport::Http { .. } | Transport::Sse { .. }
+    ) {
+        return Err(format!(
+            "MCP server '{name}' is a stdio server; OAuth applies to remote (http, sse) servers."
+        ));
+    }
+    match &entry.state {
+        State::Untrusted => Err(format!(
+            "MCP server '{name}' is repo-local and this folder is not trusted."
+        )),
+        State::Invalid(reason) => Err(format!("MCP server '{name}' is invalid: {reason}")),
+        _ => Ok(entry),
+    }
+}
+
+/// Sign in to `name`. `on_url` hears the authorization URL (and whether a
+/// browser was started) while the login waits for the redirect.
+pub fn login(
+    discovery: &Discovery,
+    name: &str,
+    env: &BTreeMap<String, String>,
+    open_browser: bool,
+    on_url: &mut dyn FnMut(&str, bool),
+    cancel: &dyn Fn() -> bool,
+) -> Result<String, String> {
+    let entry = remote_entry(discovery, name)?;
+    let (url, headers, sse) = match &entry.def.transport {
+        Transport::Http { url, headers } => (url, headers, false),
+        Transport::Sse { url, headers } => (url, headers, true),
+        Transport::Stdio { .. } => unreachable!("checked by remote_entry"),
+    };
+    if headers
+        .keys()
+        .any(|header| header.eq_ignore_ascii_case("authorization"))
+    {
+        return Err(format!(
+            "MCP server '{name}' already sends a configured Authorization header; remove it (or bearer_token_env_var) to use OAuth."
+        ));
+    }
+    let extra_ca = crate::extra_ca::configured_bundle(env).map(|(_, path)| path);
+    let target = crate::mcp_auth::LoginTarget {
+        grok_home: &discovery.grok_home,
+        server: name,
+        url,
+        sse,
+        headers,
+        oauth: entry.def.oauth.as_ref(),
+        env,
+        extra_ca: extra_ca.as_deref(),
+    };
+    let options = crate::mcp_auth::LoginOptions {
+        open_browser,
+        ..Default::default()
+    };
+    crate::mcp_auth::login(
+        &target,
+        &options,
+        &mut |event| match event {
+            crate::mcp_auth::LoginEvent::Browser { url, opened } => on_url(&url, opened),
+        },
+        cancel,
+    )
+}
+
+/// Sign out of `name` (revoking at the authorization server when it can).
+pub fn logout(
+    discovery: &Discovery,
+    name: &str,
+    env: &BTreeMap<String, String>,
+) -> Result<String, String> {
+    let url = discovery
+        .get(name)
+        .and_then(|entry| match &entry.def.transport {
+            Transport::Http { url, .. } | Transport::Sse { url, .. } => Some(url.clone()),
+            Transport::Stdio { .. } => None,
+        });
+    let extra_ca = crate::extra_ca::configured_bundle(env).map(|(_, path)| path);
+    crate::mcp_auth::logout(
+        &discovery.grok_home,
+        name,
+        url.as_deref(),
+        extra_ca.as_deref(),
+    )
+}
+
+pub fn run_login(ctx: &DiscoverInput<'_>, name: &str) -> CliOutcome {
+    let discovery = discover(ctx);
+    let mut outcome = CliOutcome::default();
+    let result = login(
+        &discovery,
+        name,
+        ctx.env,
+        true,
+        &mut |url, opened| {
+            // Printed now, not buffered: the login waits for the browser.
+            if opened {
+                eprintln!("Opened the browser to sign in. If it did not open, visit:\n  {url}");
+            } else {
+                eprintln!("Open this URL to sign in:\n  {url}");
+            }
+        },
+        &|| false,
+    );
+    match result {
+        Ok(message) => {
+            outcome.out(message);
+            outcome
+        }
+        Err(error) => outcome.fail(format!("Error: {error}")),
+    }
+}
+
+pub fn run_logout(ctx: &DiscoverInput<'_>, name: &str) -> CliOutcome {
+    let discovery = discover(ctx);
+    let mut outcome = CliOutcome::default();
+    match logout(&discovery, name, ctx.env) {
+        Ok(message) => {
+            outcome.out(message);
+            outcome
+        }
+        Err(error) => outcome.fail(format!("Error: {error}")),
+    }
+}
+
 pub fn run_list(discovery: &Discovery, json_out: bool) -> CliOutcome {
     let mut outcome = CliOutcome::default();
     for warning in &discovery.warnings {
@@ -2860,7 +3312,13 @@ pub fn run_list(discovery: &Discovery, json_out: bool) -> CliOutcome {
         let items: Vec<JsonValue> = discovery
             .entries
             .iter()
-            .map(|entry| list_json(entry, &discovery.disabled))
+            .map(|entry| {
+                let mut item = list_json(entry, &discovery.disabled);
+                if let Some(state) = auth_note(discovery, &entry.def) {
+                    item["auth"] = json!(state);
+                }
+                item
+            })
             .collect();
         outcome.out(serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".into()));
         return outcome;
@@ -2881,6 +3339,9 @@ pub fn run_list(discovery: &Discovery, json_out: bool) -> CliOutcome {
         }
         if entry.def.source.scope() != "user" {
             notes.push(entry.def.source.display_scope());
+        }
+        if let Some(state) = auth_note(discovery, &entry.def) {
+            notes.push(state);
         }
         let suffix = if notes.is_empty() {
             String::new()
@@ -3037,6 +3498,12 @@ pub fn run_remove(ctx: &DiscoverInput<'_>, name: &str, scope: Option<Scope>) -> 
         scope.label()
     ));
     outcome.out(format!("File modified: {}", path.display()));
+    if !defined_at(ctx.config_path, name)
+        && project_site().is_none()
+        && crate::mcp_auth::forget(ctx.grok_home, name) > 0
+    {
+        outcome.out(format!("Removed stored OAuth credentials for '{name}'"));
+    }
     if defined_at(ctx.config_path, name) {
         outcome.err(format!(
             "note: '{name}' is still defined in {}",
@@ -3349,10 +3816,11 @@ enabled = false
             trusted.get("shared").unwrap().def.transport.target(),
             "repo-cmd"
         );
-        assert!(matches!(
-            trusted.get("legacy").unwrap().state,
-            State::Invalid(_)
-        ));
+        assert_eq!(trusted.get("legacy").unwrap().state, State::Ready);
+        assert_eq!(
+            trusted.get("legacy").unwrap().def.transport.target(),
+            "https://x.test/sse"
+        );
 
         let overridden = discover_in(&root, false, &env(&[("GROK_MAX_MCP_OUTPUT_BYTES", "99")]));
         assert_eq!(overridden.max_output_bytes, 99);
@@ -3411,8 +3879,28 @@ enabled = false
             .iter()
             .find(|server| server["name"] == "web")
             .unwrap();
-        assert_eq!(web["acp"]["type"], "http");
-        assert_eq!(web["acp"]["headers"][0]["name"], "Authorization");
+        // Remote servers run through the remote proxy; the headers stay in
+        // the owner-only config file, never in the plan or argv.
+        assert_eq!(web["acp"]["command"], "/bin/codsh-rust");
+        let web_args: Vec<&str> = web["acp"]["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .collect();
+        assert_eq!(web_args[0], crate::mcp_remote::SUBCOMMAND);
+        assert!(web_args.contains(&"--config"));
+        assert!(!web["acp"].to_string().contains("Bearer t"));
+        // Without the proxy executable dsh's own HTTP client is the fallback.
+        let direct = build_plan(&discovery, &root.join("repo"), &vars, &dir, None);
+        let direct_web = direct["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|server| server["name"] == "web")
+            .unwrap();
+        assert_eq!(direct_web["acp"]["type"], "http");
+        assert_eq!(direct_web["acp"]["headers"][0]["name"], "Authorization");
         let skipped = plan["skipped"].as_array().unwrap();
         let gone = skipped
             .iter()

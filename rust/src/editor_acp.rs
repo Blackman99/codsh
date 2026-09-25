@@ -2,8 +2,9 @@
 //! durable writer. Standard methods are forwarded. `session/load` is the
 //! editor name for dsh `session/resume` plus a read-only history replay or,
 //! for a session this process already runs, an attach that re-executes
-//! nothing. Proprietary `x.ai/*` methods and unadvertised standard methods
-//! return method-not-found.
+//! nothing. Proprietary `x.ai/*` methods return method-not-found, except the
+//! MCP auth, resource and elicitation methods listed as supported in
+//! [`extension_inventory`]; unadvertised standard methods do too.
 //!
 //! One hub serves `agent stdio` (one client), `agent serve` (WebSocket
 //! clients), and `agent leader` (local socket clients). One dsh process owns
@@ -11,6 +12,7 @@
 
 use crate::acp::{self, AcpClient, AcpEvent, PROTOCOL_VERSION};
 use crate::config::{self, EffectiveConfig};
+use crate::mcp_bridge::{Elicitation, SurfaceEvent, SurfaceWatch};
 use crate::models;
 use crate::permission::{self, PermissionMode};
 use crate::session_history::{self, RestoredTurn};
@@ -149,6 +151,31 @@ pub fn extension_inventory() -> Vec<ExtensionEntry> {
             reason: "model and reasoning_effort go to dsh; permission_mode updates this session's policy; other attached clients get config_option_update",
         },
         ExtensionEntry {
+            method: MCP_AUTH_STATUS.into(),
+            status: "supported",
+            reason: "remote MCP servers of the session that need an OAuth login (needs_auth) or hold one (authenticated)",
+        },
+        ExtensionEntry {
+            method: MCP_AUTH_TRIGGER.into(),
+            status: "supported",
+            reason: "OAuth authorization-code + PKCE login in the browser ($BROWSER or the system opener); answered when it ends, then the session's MCP servers restart",
+        },
+        ExtensionEntry {
+            method: MCP_READ_RESOURCE.into(),
+            status: "supported",
+            reason: "resources/read on a server the session mounted, through codsh's MCP proxy",
+        },
+        ExtensionEntry {
+            method: ELICIT_METHOD.into(),
+            status: "supported",
+            reason: "agent to client: form or URL elicitations of the session's MCP servers go to attached clients; no client or an error declines; answer within dsh's 60s tool-call limit",
+        },
+        ExtensionEntry {
+            method: ELICIT_COMPLETE.into(),
+            status: "supported",
+            reason: "agent to client: an accepted URL elicitation finished on the server",
+        },
+        ExtensionEntry {
             method: LEADER_INFO.into(),
             status: "supported",
             reason: "read-only state of this process: clients, live sessions, dsh pids, running turns",
@@ -276,6 +303,16 @@ pub const PROMPT_COMPLETE: &str = "_codsh/prompt_complete";
 pub const PERMISSION_RESOLVED: &str = "_codsh/permission_resolved";
 pub const STALE_RESPONSE: &str = "_codsh/stale_response";
 pub const RUNTIME_EXITED: &str = "_codsh/runtime_exited";
+pub const MCP_AUTH_STATUS: &str = "x.ai/mcp/auth_status";
+pub const MCP_AUTH_TRIGGER: &str = "x.ai/mcp/auth_trigger";
+pub const MCP_READ_RESOURCE: &str = "x.ai/mcp/read_resource";
+/// Agent to client: an MCP server asks the user (form or URL).
+pub const ELICIT_METHOD: &str = "x.ai/mcp/elicit";
+/// Agent to client: a URL elicitation finished on the server.
+pub const ELICIT_COMPLETE: &str = "x.ai/mcp/elicit_complete";
+/// Agent to client: a request it was sent is gone (answered elsewhere or
+/// withdrawn by the server).
+pub const CANCEL_REQUEST: &str = "$/cancel_request";
 pub const LEADER_INFO: &str = "_codsh/leader/info";
 pub const LEADER_SHUTDOWN: &str = "_codsh/leader/shutdown";
 
@@ -318,6 +355,67 @@ struct Live {
     /// Updates of the running turn, for a client that attaches mid-turn.
     live_log: Vec<Value>,
     live_log_truncated: bool,
+    /// A sign-in finished mid-turn: restart MCP servers before the next prompt.
+    mcp_restart: bool,
+}
+
+/// An `x.ai/mcp/elicit` request sent to the clients of one session.
+struct PendingElicit {
+    public_id: Value,
+    bridge_id: String,
+    session_id: String,
+    server: String,
+    elicitation_id: Option<String>,
+}
+
+/// A request answered off the hub thread (an OAuth login, a resource read).
+struct Deferred {
+    client: ClientId,
+    id: Value,
+    rx: Receiver<Result<Value, String>>,
+    /// Sign-in succeeded here: restart this session's MCP servers.
+    remount: Option<String>,
+    cancel: Arc<AtomicBool>,
+}
+
+const RESOURCE_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn param_str<'a>(params: &'a Value, names: &[&str]) -> Option<&'a str> {
+    names
+        .iter()
+        .find_map(|name| params.get(*name).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+}
+
+/// The client's answer to `x.ai/mcp/elicit` as an MCP `ElicitResult`. An
+/// error or an unknown outcome declines.
+fn elicit_answer(message: &Value) -> Value {
+    let result = message.get("result").cloned().unwrap_or(Value::Null);
+    let outcome = result
+        .get("outcome")
+        .or_else(|| result.get("action"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    match (message.get("error"), outcome) {
+        (None, "accept") => match result.get("content") {
+            Some(content) if content.is_object() => {
+                json!({ "action": "accept", "content": content })
+            }
+            _ => json!({ "action": "accept" }),
+        },
+        (None, "cancel") => json!({ "action": "cancel" }),
+        _ => json!({ "action": "decline" }),
+    }
+}
+
+fn auth_trigger_result(result: Result<String, String>) -> Value {
+    match result {
+        Ok(_) => json!({ "status": "authenticated" }),
+        Err(error) if error.contains("oauth_client_id") => {
+            json!({ "status": "setup_required", "error": error })
+        }
+        Err(error) => json!({ "status": "failed", "error": error }),
+    }
 }
 
 struct Client {
@@ -345,6 +443,12 @@ struct Hub {
     idle_since: Instant,
     started: Instant,
     started_unix: u64,
+    bridge: SurfaceWatch,
+    elicits: Vec<PendingElicit>,
+    /// Accepted URL elicitations by bridge id: (session, elicitationId, server).
+    url_elicits: BTreeMap<String, (String, String, String)>,
+    next_elicit: u64,
+    deferred: Vec<Deferred>,
 }
 
 static RUNTIME_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -408,6 +512,11 @@ pub fn run_hub(
         idle_since: Instant::now(),
         started: Instant::now(),
         started_unix,
+        bridge: SurfaceWatch::new(),
+        elicits: Vec::new(),
+        url_elicits: BTreeMap::new(),
+        next_elicit: 1,
+        deferred: Vec::new(),
     };
     let result = hub.run();
     hub.shutdown_all();
@@ -459,6 +568,8 @@ impl Hub {
                 }
             }
             self.pump_all();
+            self.pump_elicitations();
+            self.poll_deferred();
             self.reap_dead();
             if self.should_exit() {
                 break;
@@ -468,9 +579,11 @@ impl Hub {
     }
 
     fn busy(&self) -> bool {
-        self.live
-            .values()
-            .any(|live| live.turn.is_some() || live.approval.is_some())
+        !self.deferred.is_empty()
+            || self
+                .live
+                .values()
+                .any(|live| live.turn.is_some() || live.approval.is_some())
     }
 
     fn should_exit(&self) -> bool {
@@ -546,6 +659,10 @@ impl Hub {
     }
 
     fn shutdown_all(&mut self) {
+        for deferred in &self.deferred {
+            deferred.cancel.store(true, Ordering::Relaxed);
+        }
+        self.bridge.decline_all();
         let ids: Vec<String> = self.live.keys().cloned().collect();
         for id in ids {
             if let Some(live) = self.live.remove(&id) {
@@ -625,6 +742,344 @@ impl Hub {
         }));
     }
 
+    /// The live session a request names (`sessionId`/`session_id`), or the
+    /// caller's attached session.
+    fn named_session(&self, params: &Value) -> Result<String, String> {
+        let session_id = param_str(params, &["sessionId", "session_id"])
+            .map(str::to_string)
+            .or_else(|| self.current_session())
+            .ok_or("sessionId is required")?;
+        if !self.live.contains_key(&session_id) {
+            return Err(format!("unknown session: {session_id}"));
+        }
+        Ok(session_id)
+    }
+
+    /// `x.ai/mcp/auth_status`: remote servers that need an OAuth login, and
+    /// those holding one.
+    fn mcp_auth_status(&mut self, id: &Value, params: &Value) {
+        let session_id = match self.named_session(params) {
+            Ok(session_id) => session_id,
+            Err(error) => return self.error(id, -32602, &error),
+        };
+        let Some(live) = self.live.get(&session_id) else {
+            return self.error(id, -32602, &format!("unknown session: {session_id}"));
+        };
+        let env: BTreeMap<String, String> = std::env::vars().collect();
+        let discovery = crate::mcp::discover_for(&live.rt.effective, &env);
+        let run_dir = live.rt.client.mcp_run_dir();
+        let servers = crate::mcp::auth_statuses(&discovery, run_dir.as_deref());
+        self.result(id, json!({ "servers": servers }));
+    }
+
+    /// `x.ai/mcp/auth_trigger`: OAuth login for one server of a session, in
+    /// the browser (`$BROWSER` or the system opener). Answered when the login
+    /// ends; on success the session's MCP servers restart with the token.
+    fn mcp_auth_trigger(&mut self, id: &Value, params: &Value) {
+        let session_id = match self.named_session(params) {
+            Ok(session_id) => session_id,
+            Err(error) => return self.error(id, -32602, &error),
+        };
+        let Some(server) = param_str(params, &["server_name", "serverName"]).map(str::to_string)
+        else {
+            return self.error(id, -32602, "server_name is required");
+        };
+        let Some(live) = self.live.get(&session_id) else {
+            return self.error(id, -32602, &format!("unknown session: {session_id}"));
+        };
+        let env: BTreeMap<String, String> = std::env::vars().collect();
+        let discovery = crate::mcp::discover_for(&live.rt.effective, &env);
+        let (tx, rx) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancel);
+        let log = self.config.log.clone();
+        let name = server.clone();
+        thread::spawn(move || {
+            let result = crate::mcp::login(
+                &discovery,
+                &name,
+                &env,
+                true,
+                &mut |url, opened| {
+                    if let Some(log) = &log {
+                        log(&format!(
+                            "MCP server '{name}' sign-in{}: {url}",
+                            if opened { " opened in the browser" } else { "" }
+                        ));
+                    }
+                },
+                &|| flag.load(Ordering::Relaxed),
+            );
+            let _ = tx.send(Ok(auth_trigger_result(result)));
+        });
+        self.log(&format!(
+            "MCP server '{server}': OAuth sign-in started for session {session_id}"
+        ));
+        self.deferred.push(Deferred {
+            client: self.current,
+            id: id.clone(),
+            rx,
+            remount: Some(session_id),
+            cancel,
+        });
+    }
+
+    /// `x.ai/mcp/read_resource`: `resources/read` on one server the session
+    /// mounted, through its proxy.
+    fn mcp_read_resource(&mut self, id: &Value, params: &Value) {
+        let session_id = match self.named_session(params) {
+            Ok(session_id) => session_id,
+            Err(error) => return self.error(id, -32602, &error),
+        };
+        let (Some(server), Some(uri)) = (
+            param_str(params, &["server", "serverName", "server_name"]).map(str::to_string),
+            param_str(params, &["uri"]).map(str::to_string),
+        ) else {
+            return self.error(id, -32602, "server and uri are required");
+        };
+        let Some(live) = self.live.get(&session_id) else {
+            return self.error(id, -32602, &format!("unknown session: {session_id}"));
+        };
+        let mounted = live
+            .rt
+            .client
+            .mounted_mcp_plan()
+            .and_then(|plan| plan.get("servers"))
+            .and_then(Value::as_array)
+            .is_some_and(|servers| {
+                servers
+                    .iter()
+                    .any(|entry| entry.get("name").and_then(Value::as_str) == Some(&server))
+            });
+        let Some(run_dir) = live.rt.client.mcp_run_dir().filter(|_| mounted) else {
+            return self.error(
+                id,
+                -32602,
+                &format!("MCP server '{server}' is not mounted in session {session_id}"),
+            );
+        };
+        let mount = live.rt.client.mcp_mount().map(str::to_string);
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = crate::mcp_bridge::control(
+                &run_dir,
+                mount.as_deref(),
+                &server,
+                "resources/read",
+                &json!({ "uri": uri }),
+                RESOURCE_READ_TIMEOUT,
+            );
+            let _ = tx.send(result);
+        });
+        self.deferred.push(Deferred {
+            client: self.current,
+            id: id.clone(),
+            rx,
+            remount: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+    }
+
+    fn poll_deferred(&mut self) {
+        let mut index = 0;
+        while index < self.deferred.len() {
+            let outcome = match self.deferred[index].rx.try_recv() {
+                Ok(result) => result,
+                Err(mpsc::TryRecvError::Empty) => {
+                    index += 1;
+                    continue;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => Err("the request ended unanswered".into()),
+            };
+            let done = self.deferred.remove(index);
+            let message = match outcome {
+                Ok(result) => {
+                    let signed_in =
+                        result.get("status").and_then(Value::as_str) == Some("authenticated");
+                    if signed_in && let Some(session_id) = &done.remount {
+                        self.restart_mcp(session_id);
+                    }
+                    json!({ "jsonrpc": "2.0", "id": done.id, "result": result })
+                }
+                Err(error) => json!({
+                    "jsonrpc": "2.0",
+                    "id": done.id,
+                    "error": { "code": -32603, "message": error },
+                }),
+            };
+            self.send_to(done.client, &message);
+        }
+    }
+
+    /// Restart a session's MCP servers after a sign-in: now when it is idle,
+    /// else before its next prompt.
+    fn restart_mcp(&mut self, session_id: &str) {
+        let Some(live) = self.live.get_mut(session_id) else {
+            return;
+        };
+        if live.turn.is_some() || live.approval.is_some() {
+            live.mcp_restart = true;
+            return;
+        }
+        if let Err(error) = self.remount(session_id) {
+            self.log(&error);
+        }
+    }
+
+    /// Elicitations from the MCP servers of live sessions go to the clients
+    /// attached to that session as `x.ai/mcp/elicit`.
+    fn pump_elicitations(&mut self) {
+        let runs: Vec<PathBuf> = self
+            .live
+            .values()
+            .filter_map(|live| live.rt.client.mcp_run_dir())
+            .collect();
+        self.bridge.retain_runs(&runs);
+        for run in &runs {
+            self.bridge.watch(run, "editor");
+        }
+        for event in self.bridge.poll() {
+            match event {
+                SurfaceEvent::Opened(elicitation) => self.elicit_opened(elicitation),
+                SurfaceEvent::Withdrawn(bridge_id) => {
+                    if let Some(index) = self.elicits.iter().position(|p| p.bridge_id == bridge_id)
+                    {
+                        let pending = self.elicits.remove(index);
+                        let cancel = json!({
+                            "jsonrpc": "2.0",
+                            "method": CANCEL_REQUEST,
+                            "params": { "requestId": pending.public_id },
+                        });
+                        self.broadcast(&pending.session_id, &cancel, None);
+                    }
+                }
+                SurfaceEvent::Completed(bridge_id) => {
+                    if let Some((session_id, elicitation_id, server)) =
+                        self.url_elicits.remove(&bridge_id)
+                    {
+                        self.notify_all(
+                            &session_id,
+                            ELICIT_COMPLETE,
+                            json!({
+                                "sessionId": session_id,
+                                "elicitationId": elicitation_id,
+                                "serverName": server,
+                            }),
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+        let live = &self.live;
+        self.url_elicits
+            .retain(|_, (session_id, _, _)| live.contains_key(session_id));
+    }
+
+    fn elicit_opened(&mut self, elicitation: Elicitation) {
+        let session_id = self
+            .live
+            .iter()
+            .find(|(_, live)| {
+                live.rt.client.mcp_run_dir().as_deref() == Some(elicitation.run_dir.as_path())
+            })
+            .map(|(session_id, _)| session_id.clone());
+        let targets = session_id
+            .as_deref()
+            .map(|session_id| self.attached(session_id))
+            .unwrap_or_default();
+        let Some(session_id) = session_id.filter(|_| !targets.is_empty()) else {
+            // Nobody can answer: decline rather than hold the tool call.
+            let _ = self
+                .bridge
+                .answer(&elicitation.id, &json!({ "action": "decline" }));
+            return;
+        };
+        let number = self.next_elicit;
+        self.next_elicit += 1;
+        let public_id = json!(format!("codsh-elicit-{number}"));
+        let mut params = json!({
+            "sessionId": session_id,
+            "toolCallId": format!("mcp-elicit-{number}"),
+            "serverName": elicitation.server,
+            "message": elicitation.request.message,
+        });
+        let elicitation_id = match &elicitation.request.mode {
+            crate::elicit_form::Mode::Form { schema, .. } => {
+                params["mode"] = json!("form");
+                params["requestedSchema"] = schema.clone();
+                None
+            }
+            crate::elicit_form::Mode::Url {
+                url,
+                elicitation_id,
+            } => {
+                params["mode"] = json!("url");
+                params["url"] = json!(url);
+                params["elicitationId"] = json!(elicitation_id);
+                Some(elicitation_id.clone())
+            }
+        };
+        let message = json!({
+            "jsonrpc": "2.0",
+            "id": public_id,
+            "method": ELICIT_METHOD,
+            "params": params,
+        });
+        for client in targets {
+            self.send_to(client, &message);
+        }
+        self.elicits.push(PendingElicit {
+            public_id,
+            bridge_id: elicitation.id,
+            session_id,
+            server: elicitation.server,
+            elicitation_id,
+        });
+    }
+
+    /// A client answered `x.ai/mcp/elicit`. The first answer wins; the other
+    /// attached clients are told the request is gone.
+    fn elicit_response(&mut self, id: &Value, message: &Value) -> bool {
+        let current = self.current;
+        let Some(index) = self.elicits.iter().position(|pending| {
+            &pending.public_id == id
+                && self
+                    .clients
+                    .get(&current)
+                    .is_some_and(|client| client.session.as_deref() == Some(&pending.session_id))
+        }) else {
+            return false;
+        };
+        let pending = self.elicits.remove(index);
+        let answer = elicit_answer(message);
+        if answer["action"] == "accept"
+            && let Some(elicitation_id) = &pending.elicitation_id
+        {
+            self.url_elicits.insert(
+                pending.bridge_id.clone(),
+                (
+                    pending.session_id.clone(),
+                    elicitation_id.clone(),
+                    pending.server.clone(),
+                ),
+            );
+        }
+        if let Err(error) = self.bridge.answer(&pending.bridge_id, &answer) {
+            self.log(&format!(
+                "MCP server '{}' elicitation answer dropped: {error}",
+                pending.server
+            ));
+        }
+        let cancel = json!({
+            "jsonrpc": "2.0",
+            "method": CANCEL_REQUEST,
+            "params": { "requestId": pending.public_id },
+        });
+        self.broadcast(&pending.session_id, &cancel, Some(current));
+        true
+    }
+
     fn current_session(&self) -> Option<String> {
         self.clients
             .get(&self.current)
@@ -692,6 +1147,9 @@ impl Hub {
                 Ok(()) => self.result(&id, json!({})),
                 Err(error) => self.error(&id, -32602, &error),
             },
+            MCP_AUTH_STATUS => self.mcp_auth_status(&id, &params),
+            MCP_AUTH_TRIGGER => self.mcp_auth_trigger(&id, &params),
+            MCP_READ_RESOURCE => self.mcp_read_resource(&id, &params),
             other if other.starts_with("x.ai/") || !extension_supported(other) => {
                 let reason = extension_inventory()
                     .into_iter()
@@ -704,10 +1162,13 @@ impl Hub {
         }
     }
 
-    /// A client answered a request the hub sent: today only permission
-    /// prompts. The first answer for a live prompt wins; any other is stale
+    /// A client answered a request the hub sent: a permission prompt or an
+    /// MCP elicitation. The first answer for a live prompt wins; any other is stale
     /// and is told so instead of reaching dsh.
     fn client_response(&mut self, id: Value, message: &Value) {
+        if self.elicit_response(&id, message) {
+            return;
+        }
         let session = self.current_session();
         let found = session.as_ref().and_then(|session| {
             self.live.get(session).and_then(|live| {
@@ -1383,11 +1844,12 @@ impl Hub {
             return self.error(id, -32602, "prompt text is required");
         }
         if live.approval.is_none()
-            && crate::mcp::plugin_mounts_stale(
-                live.rt.client.mounted_mcp_plan(),
-                live.rt.client.mcp_plan_path(),
-                &live.rt.effective,
-            )
+            && (live.mcp_restart
+                || crate::mcp::plugin_mounts_stale(
+                    live.rt.client.mounted_mcp_plan(),
+                    live.rt.client.mcp_plan_path(),
+                    &live.rt.effective,
+                ))
             && let Err(error) = self.remount(&session_id)
         {
             return self.error(id, -32603, &error);
@@ -1990,6 +2452,7 @@ impl Runtime {
                 return Err(error);
             }
         };
+        client.set_elicitation_surface("editor");
         if let Err(error) = client.initialize(REQUEST_TIMEOUT) {
             client.shutdown();
             let _ = std::fs::remove_file(&policy_path);
@@ -2032,6 +2495,7 @@ impl Live {
             approval: None,
             live_log: Vec::new(),
             live_log_truncated: false,
+            mcp_restart: false,
         })
     }
 

@@ -57,7 +57,12 @@ running the same clone on the SSH host. A Grove worktree request
 falls back to a plain git worktree; there is no daemon, projection, or mount. Local MCP servers are
 mounted by dsh's own MCP client from a per-process plan codsh-rust writes
 (`$DSH_HOME/mcp/run-*/plan.json`, `CODSH_MCP_PLAN`); a server that fails to
-start is dropped by name and the session still starts. Grok's `search_tool` and
+start is dropped by name and the session still starts. Remote (http/sse)
+servers reach dsh as stdio through codsh's remote proxy (`__mcp-remote-proxy`),
+which owns the HTTP transport, OAuth tokens (`mcp login`, `/mcps auth`, editor
+`x.ai/mcp/auth_trigger`), result projection, and MCP elicitation; elicitations
+and resource reads cross to the TUI card or editor hub through owner-only
+files under `<run>/bridge/`, so dsh is still the only MCP client and executor. Grok's `search_tool` and
 `use_tool` are a dsh plugin that re-enters dsh's tool pipeline, so permission,
 Hooks, and cancellation see the real `server__tool` once. dsh remains the only
 executing agent core and durable session owner; the Rust process does not link

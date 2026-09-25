@@ -364,6 +364,12 @@ pub struct AcpClient {
     /// The plan the current session was created or resumed with: what dsh
     /// actually mounted, even if the plan file was rewritten since.
     mounted_mcp: Option<Value>,
+    /// The mount nonce the current session's proxied MCP servers carry
+    /// (`--mount`), naming their session in the run's bridge.
+    mcp_mount: Option<String>,
+    /// Set by a surface that answers MCP elicitations (TUI, editor hub):
+    /// the run is marked so the proxies advertise elicitation.
+    elicitation_surface: Option<&'static str>,
     /// Servers dsh could not start for the current session, with the reason.
     pub mcp_failed: std::collections::BTreeMap<String, String>,
     /// Extra ACP `mcpServers` an editor passed on session/new or resume.
@@ -842,6 +848,8 @@ impl AcpClient {
             control_unavailable,
             mcp_plan,
             mounted_mcp: None,
+            mcp_mount: None,
+            elicitation_surface: None,
             mcp_failed: std::collections::BTreeMap::new(),
             editor_mcp: Vec::new(),
             last_error_details: None,
@@ -967,6 +975,24 @@ impl AcpClient {
         self.mcp_plan.as_deref()
     }
 
+    /// Mark this client's runs as answering MCP elicitations.
+    pub fn set_elicitation_surface(&mut self, kind: &'static str) {
+        self.elicitation_surface = Some(kind);
+    }
+
+    /// The run directory of this client's MCP plan (bridge and status files).
+    pub fn mcp_run_dir(&self) -> Option<PathBuf> {
+        self.mcp_plan
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+    }
+
+    /// The current session's mount nonce.
+    pub fn mcp_mount(&self) -> Option<&str> {
+        self.mcp_mount.as_deref()
+    }
+
     /// The plan the current session mounted, once a session exists.
     pub fn mounted_mcp_plan(&self) -> Option<&Value> {
         self.mounted_mcp.as_ref()
@@ -998,8 +1024,28 @@ impl AcpClient {
             .get("startupBudgetMs")
             .and_then(Value::as_u64)
             .unwrap_or(0);
+        if let Some(kind) = self.elicitation_surface
+            && !run_dir.as_os_str().is_empty()
+        {
+            let _ = crate::mcp_bridge::announce_surface(&run_dir, kind);
+        }
+        // Each start of the proxied servers gets a fresh mount nonce, bound
+        // to the session id once it is known.
+        let mount = crate::mcp_bridge::new_mount();
+        let known_session = params
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if let Some(session) = &known_session
+            && !run_dir.as_os_str().is_empty()
+        {
+            crate::mcp_bridge::record_mount(&run_dir, &mount, session);
+        }
         loop {
             let mut servers = crate::mcp::plan_servers(&plan, &self.mcp_failed);
+            for server in &mut servers {
+                crate::mcp::add_mount(server, &mount);
+            }
             for extra in &self.editor_mcp {
                 let name = extra.get("name").and_then(Value::as_str).unwrap_or("");
                 let taken = servers
@@ -1020,6 +1066,13 @@ impl AcpClient {
             match self.wait_result(id, timeout + Duration::from_millis(budget)) {
                 Ok(result) => {
                     self.mounted_mcp = Some(plan);
+                    if known_session.is_none()
+                        && !run_dir.as_os_str().is_empty()
+                        && let Some(session) = result.get("sessionId").and_then(Value::as_str)
+                    {
+                        crate::mcp_bridge::record_mount(&run_dir, &mount, session);
+                    }
+                    self.mcp_mount = Some(mount);
                     return Ok(result);
                 }
                 Err(error) => {

@@ -81,6 +81,7 @@ anstyle.workspace = true
 base64 = "0.22"
 crossterm = { workspace = true, features = ["bracketed-paste"] }
 ed25519-dalek = "2"
+getrandom = "0.3"
 ignore.workspace = true
 jsonschema = { version = "=0.30.0", default-features = false }
 native-tls = "0.2"

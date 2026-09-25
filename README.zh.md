@@ -180,11 +180,36 @@ Hook 看到的 `tool_name` 是 `server__tool` 而不是分发器，Ctrl+C 或 AC
 （轮次运行中会拒绝）。编辑器在 `session/new` 或 `session/resume` 中提供的 `mcpServers`
 会在配置的服务器之后挂载。已知限制：dsh 只渲染结果中的文本部分（`use_tool` 仅在没有文本时
 返回 `structuredContent`）；超过 64 个字符的工具名会被 dsh 哈希；直接的 `mcp__*` 工具与
-`search_tool`/`use_tool` 同时可见；SSE 服务器只列出不启动（dsh 没有 SSE 传输）；这里不处理
-OAuth；托管的 MCP allow/deny 策略（`allowedMcpServers`/`deniedMcpServers`）和
-`disabled_mcp_tools` 尚未生效。已启用插件的服务器会加入同一列表（见插件一节）。经 `codsh --rust` 启动时，只有上面列出的 MCP 变量和 `*_API_KEY` 会从宿主环境传入，
+`search_tool`/`use_tool` 同时可见；托管的 MCP allow/deny 策略（`allowedMcpServers`/`deniedMcpServers`）和
+`disabled_mcp_tools` 尚未生效。已启用插件的服务器会加入同一列表（见插件一节）。经 `codsh --rust` 启动时，只有上面列出的 MCP 变量、`BROWSER` 和 `*_API_KEY` 会从宿主环境传入，
 其他值请写在服务器的 `env` 表中。本次在 Linux 上用真实的 stdio 测试服务器验证，未在 macOS
 或 Windows 上验证。
+
+远端服务器（`url`，类型 `http` 或 `sse`；未写类型且 URL 以 `/sse` 结尾时按 SSE）经 codsh 的
+远端代理运行，dsh 看到的是一个 stdio 服务器：支持 streamable HTTP（JSON 或 SSE 回复、
+`Mcp-Session-Id`、协商出的 `MCP-Protocol-Version`，404 时重新初始化一次）和旧版 HTTP+SSE
+传输（消息端点必须同源）。静态 `headers` 与 `bearer_token_env_var` 写入仅属主可读的
+`<run>/<name>.remote.json`，不进入计划文件或命令行；请求头值里的 `${session_id}` 会替换为会话 id。
+重定向一律拒绝（令牌不能跟随跳转）；请求在途中断开时只报告，不重发。服务器返回 401 时用 OAuth
+登录：`codsh --rust mcp login <name>`（会话内 `/mcps auth <name>`，编辑器用
+`x.ai/mcp/auth_trigger`）会发现授权服务器（RFC 9728 / RFC 8414，OpenID 兜底），在未设置
+`oauth_client_id`（可选 `oauth_client_secret_env_var`、`oauth_scopes`，或带 `callback_port`
+的 `oauth` 表）时动态注册公共客户端（RFC 7591），并经 `$BROWSER` 或系统打开方式、回环地址
+`http://127.0.0.1:<port>/callback` 完成授权码 + PKCE S256 流程并带上 `resource`（RFC 8707）；
+URL 也会打印出来。令牌存于 `$GROK_HOME/mcp_credentials.json`（0600，按服务器名和 URL 区分），
+过期或遇到 401 时刷新一次；`mcp logout <name>` / `/mcps logout <name>` 会撤销（服务器提供
+RFC 7009 时）并删除令牌，`mcp remove` 也会删除。`mcp login`/`logout` 和 `/mcps auth|logout`
+是 codsh 的扩展；参考实现通过扩展面板和 ACP `auth_trigger` 登录。工具结果中的图片块原样交给
+dsh（模型不支持图片输入时由 dsh 显示占位；`expose_image_base64 = true` 会另附 base64 文本）；
+音频变为简短说明，内嵌文本资源变为文本。MCP elicitation（`elicitation/create`，表单和 URL
+两种模式）只在有人能回答时才声明：TUI 弹出 MCP 卡片（↑/↓ 或 Tab 移动，Enter/Space 编辑或切换，
+←/→ 选择选项或按钮，在 Accept 上按 Enter 校验并提交，`d` 拒绝，Esc 暂离键盘，Ctrl+C 取消，
+`o` 打开 URL），编辑器收到 `x.ai/mcp/elicit`（以及 `x.ai/mcp/elicit_complete`，请求在别处被回答
+或被撤回时收到 `$/cancel_request`）；无头 `-p` 不声明该能力。回答会按请求的 schema 再校验；
+校验不通过或编辑器报错都按拒绝处理。dsh 每次调用 60 秒的上限包含用户作答的时间。编辑器还可用
+`x.ai/mcp/auth_status` 和 `x.ai/mcp/read_resource`。尚未处理：`-32042`（需要 URL elicitation）
+错误，其消息作为工具错误交给模型。本次在 Linux 上用无密钥的回环测试服务器（含 OAuth 授权服务器）
+和 MCP TypeScript SDK 1.30.0 示例服务器及其演示 OAuth 服务器验证；未对托管服务、macOS 或 Windows 验证。
 
 流式回答、提供商给出的思考、空回答和失败都按 dsh 的实际结果显示；协议不匹配
 或找不到 dsh 会明确拒绝，不会伪造成功。它复用具有合法许可证的 Grok Rust
