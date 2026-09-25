@@ -8,7 +8,7 @@
  * bash-time-rm, bash-exec-rm, bash-builtin-rm, bash-shell-option-rm, bash-expand-rm,
  * bash-positional-rm, bash-glob-rm, bash-git-long-track,
  * bash-git-cat,
- * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents,
+ * bash-git, shell-echo, shell-fail, shell-long, shell-deny, shell-env, file-secret, sandbox-session, subagents, mcp,
  * steer-probe (three read steps, then reports the latest user text it saw). A side question
  * (/btw, system prompt from rust-acp-control) answers RUST_BTW_ANSWER; CODSH_MOCK_BTW=fail fails it
  * and CODSH_MOCK_BTW_DELAY_MS holds it. Optional
@@ -847,6 +847,35 @@ class RustAcpMockAdapter extends LlmAdapter {
         return
       }
       yield* mockText(`RUST_ACP_WEB_DONE ${text}`)
+      return
+    }
+    if (MODE === 'mcp') {
+      // The prompt names the call: `MCP_CALL <tool> <json args>`, repeated
+      // with ` THEN ` for a sequence. `MCP_TOOLS` lists the MCP-related tool
+      // names dsh offered on this request. Hook notes arrive as later user
+      // text, so the prompt is the latest user message naming MCP_.
+      const isPrompt = message => message.role === 'user'
+        && message.content.some(block => block.type === 'text' && /MCP_(CALL|TOOLS)/.test(block.text))
+      const lastPrompt = options.messages.findLastIndex(isPrompt)
+      const prompt = lastPrompt < 0 ? '' : options.messages[lastPrompt].content
+        .filter(block => block.type === 'text').map(block => block.text).join('\n')
+      const offered = (Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : [])
+        .filter(name => name.startsWith('mcp__') || name === 'search_tool' || name === 'use_tool')
+      if (prompt.includes('MCP_TOOLS')) {
+        yield* mockText(`RUST_ACP_MCP_TOOLS ${offered.sort().join(',') || '(none)'}`)
+        return
+      }
+      const steps = [...prompt.matchAll(/MCP_CALL (\S+) (\{.*?\})(?= THEN |$)/g)].map(match => [match[1], JSON.parse(match[2])])
+      // Only this prompt's results count; earlier turns in the session had their own.
+      const done = toolResults({ messages: options.messages.slice(lastPrompt + 1) })
+      const turnDone = done
+      if (steps.length > 0 && done.length < steps.length) {
+        const [name, args] = steps[done.length]
+        yield* mockToolCall(`rust-acp-mcp-${done.length + 1}`, name, args)
+        return
+      }
+      const summary = turnDone.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${resultText(result).slice(0, 400)}`).join(' | ')
+      yield* mockText(`RUST_ACP_MCP_DONE ${summary || '(no calls)'}`)
       return
     }
     if (MODE === 'empty') {

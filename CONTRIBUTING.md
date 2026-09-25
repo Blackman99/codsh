@@ -549,7 +549,21 @@ an approval followed by a reattach that answers it (the file is edited once),
 config broadcast, a killed dsh reported as `_codsh/runtime_exited`, and leader
 auto-start, `[cli] use_leader`, `leader list|info|kill`, idle exit, and a lost
 leader failing the waiting prompt. It needs Node 22 (dsh's engine) and a built
-`rust/target/debug/codsh-rust`. A GUI editor
+`rust/target/debug/codsh-rust`. Local MCP is checked by
+`scripts/rust-mcp.spec.mjs` with the keyless stdio fixture
+`e2e/fixtures/rust-mcp-fixture.mjs` and real dsh: a configured server's tool
+writes its file exactly once after an ACP approval and not after a reject,
+`use_tool` asks as the real tool, `search_tool` returns `server__tool` names
+and schemas, tool errors stay errors, `session/cancel` reaches the server as
+`notifications/cancelled`, deny rules and PreToolUse Hooks match
+`server__tool` (also through `use_tool`), a missing program, a startup crash,
+and a refused `initialize` are reported while the session starts, a crash
+mid-call errors and dsh reconnects, `tool_timeout_sec` cancels the call,
+oversized output is cut and saved, CLI enable/disable/add/remove change the
+next session's tools, and repo servers start only while the folder is trusted.
+The mock mode is `DSH_CODE_CLI_MOCK_TOOL=mcp` (`MCP_TOOLS`, `MCP_CALL <tool>
+<json> THEN ...`). `/mcps` in the terminal was checked with a Linux PTY by
+hand; the macOS PTY scripts do not cover it yet. A GUI editor
 was not launched. `--restore-code` is refused.
 Fullscreen uses the alternate-screen lifecycle; minimal emits committed turns
 into native history through the official inline renderer. `/rewind` and `/fork`

@@ -28,7 +28,12 @@ several clients on one hub: one dsh process per live session, `session/load`
 attaches to a live session instead of starting a second executor, the first
 approval answer wins, a concurrent prompt is refused, and a dsh exit is reported
 without retrying. Nothing listens unless one of those commands runs, and a
-non-off sandbox profile keeps a session out of the leader. dsh remains the only
+non-off sandbox profile keeps a session out of the leader. Local MCP servers are
+mounted by dsh's own MCP client from a per-process plan codsh-rust writes
+(`$DSH_HOME/mcp/run-*/plan.json`, `CODSH_MCP_PLAN`); a server that fails to
+start is dropped by name and the session still starts. Grok's `search_tool` and
+`use_tool` are a dsh plugin that re-enters dsh's tool pipeline, so permission,
+Hooks, and cancellation see the real `server__tool` once. dsh remains the only
 executing agent core and durable session owner; the Rust process does not link
 the official agent runtime or own tools. Protocol mismatch, empty answers,
 mid-stream failure, disconnect, and cancellation are reported truthfully.

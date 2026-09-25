@@ -93,7 +93,11 @@ export function accessFromTool(name, args = {}) {
     return { kind: 'websearch', query }
   }
   if (name === 'todo_write' || name === 'skill' || name === 'lsp') return { kind: 'read', path: '' }
-  if (name.includes('__')) return { kind: 'mcp', name }
+  // search_tool reads the catalog; use_tool re-enters this gate as the
+  // named MCP tool, so rules and grants apply to the real tool once.
+  if (name === 'search_tool' || name === 'use_tool') return { kind: 'read', path: '' }
+  // dsh publishes `mcp__<server>__<tool>`; rules and grants use `server__tool`.
+  if (name.includes('__')) return { kind: 'mcp', name: name.startsWith('mcp__') ? name.slice(5) : name }
   if (path && (args.old_string || args.new_string || args.content)) return { kind: 'edit', path }
   if (args.command) return { kind: 'bash', command: String(args.command) }
   return { kind: 'tool', name }

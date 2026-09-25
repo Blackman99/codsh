@@ -35,7 +35,11 @@ export function rustAcpControlUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-control.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl()) {
+export function rustAcpMcpUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-mcp.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl(), mcpUrl = rustAcpMcpUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -113,6 +117,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${webUrl}'`,
     '    - id: rust-acp-control',
     `      name: '${controlUrl}'`,
+    '    - id: rust-acp-mcp',
+    `      name: '${mcpUrl}'`,
     '',
   )
   return lines.join('\n')

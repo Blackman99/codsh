@@ -616,6 +616,16 @@ function publish(agent, notes) {
   }))
 }
 
+/**
+ * The tool name hooks see. MCP tools use Grok's `server__tool` rather than
+ * dsh's `mcp__server__tool`; the `use_tool` dispatcher is skipped because
+ * its nested call fires the hooks as the underlying tool.
+ */
+export function hookToolName(name) {
+  if (name === 'use_tool') return null
+  return name.startsWith('mcp__') && name.length > 5 ? name.slice(5) : name
+}
+
 export function apply(ctx) {
   const grokHome = process.env.GROK_HOME ?? ''
   const trusted = process.env.CODSH_WORKSPACE_TRUSTED === '1'
@@ -655,14 +665,16 @@ export function apply(ctx) {
     return next()
   })
   ctx.on('tools/pre-execute', async (exec, next) => {
+    const toolName = hookToolName(exec.name)
+    if (toolName === null) return next()
     const payload = basePayload(exec.agent, 'PreToolUse', loadPolicy())
-    payload.toolName = exec.name
-    payload.tool_name = exec.name
+    payload.toolName = toolName
+    payload.tool_name = toolName
     payload.toolInput = exec.arguments ?? {}
     payload.tool_input = exec.arguments ?? {}
     payload.toolUseId = exec.callId
     payload.tool_use_id = exec.callId
-    const ran = await runMatched(registry, 'PreToolUse', exec.name, payload, exec.signal, cwd)
+    const ran = await runMatched(registry, 'PreToolUse', toolName, payload, exec.signal, cwd)
     publish(exec.agent, ran.notes)
     const deny = ran.decoded.find(item => item.result.decision === 'deny')
     if (deny) {
@@ -683,14 +695,16 @@ export function apply(ctx) {
     return next()
   }, true)
   ctx.on('tools/post-execute', async (exec, result, next) => {
+    const toolName = hookToolName(exec.name)
+    if (toolName === null) return next()
     const event = result?.isError ? 'PostToolUseFailure' : 'PostToolUse'
     const payload = basePayload(exec.agent, event, loadPolicy())
-    payload.toolName = exec.name
-    payload.tool_name = exec.name
+    payload.toolName = toolName
+    payload.tool_name = toolName
     payload.toolInput = exec.arguments ?? {}
     payload.toolResult = textOf(result?.content)
     payload.tool_response = payload.toolResult
-    const ran = await runMatched(registry, event, exec.name, payload, exec.signal, cwd)
+    const ran = await runMatched(registry, event, toolName, payload, exec.signal, cwd)
     publish(exec.agent, ran.notes)
     if (event === 'PostToolUse') {
       const blocked = ran.decoded.filter(item => item.result.decision === 'deny' && item.result.reason)

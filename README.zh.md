@@ -76,6 +76,40 @@ Zed 或其他图形编辑器；可重复检查是外部 ACP 客户端通过标�
 leader。`agent headless`、`--remote`、`--grok-ws-url` 和 Cursor worker 模式依赖官方服务，
 会被拒绝。leader 只支持 Unix；本次在 Linux 上验证，未在 macOS 或 Windows 上验证。
 
+本地 MCP 服务器运行在 dsh 自己的 MCP 客户端里，codsh 不另起一套。
+`codsh --rust mcp list|add|remove|enable|disable|doctor` 编辑并检查
+`$GROK_HOME/config.toml` 中的 `[mcp_servers.<name>]`（stdio 的 `command`、`args`、
+`env`、`cwd`，或 streamable HTTP 的 `url`、`headers`；支持 `${VAR}` 与
+`${VAR:-default}` 展开）。受信任目录中的 `.grok/config.toml` 和 `.mcp.json` 可以新增或
+覆盖服务器；未受信任时它们只显示为 untrusted，不会启动。Claude（`~/.claude.json`）与
+Cursor（`~/.cursor/mcp.json`）的定义从隔离 Home 读取，可用 `[compat.claude] mcps = false`
+或 `GROK_CLAUDE_MCPS_ENABLED=0` 关闭（Cursor 同理）。`disabled_mcp_servers` 或
+`enabled = false` 可阻止服务器启动。每个会话在开始时挂载服务器；程序不存在、在
+`initialize` 前崩溃或拒绝 `initialize` 都会按名称报告：plain 模式写到 stderr，终端界面显示
+在状态行，`/mcps` 中也可见，其余服务器照常启动，会话不受影响。工具以 dsh 的
+`mcp__<server>__<tool>` 出现，同时提供 Grok 的 `search_tool`（关键词搜索，返回
+`server__tool` 名称和输入 schema）与 `use_tool`（`tool_name` 为 `server__tool`，参数放在
+`tool_input`）。无论直接调用还是经 `use_tool`，每次调用只经过 dsh 管线一次：allow/ask/deny
+规则和已记住的授权使用 `server__tool`（规则里写 `mcp__server` 表示该服务器的全部工具），
+Hook 看到的 `tool_name` 是 `server__tool` 而不是分发器，Ctrl+C 或 ACP `session/cancel` 会向
+服务器发送 `notifications/cancelled`。超过 `[mcp] max_output_bytes`（默认 20000，
+`GROK_MAX_MCP_OUTPUT_BYTES` 或 `MAX_MCP_OUTPUT_BYTES` 可覆盖）的文本结果按 UTF-8 边界截断并
+附上 Grok 的 `[MCP output truncated: ...]` 提示，完整内容写入 `$DSH_HOME/mcp/output/`。
+`startup_timeout_sec`（默认 30 秒，`GROK_MCP_STARTUP_TIMEOUT_SECS` / `MCP_TIMEOUT`）以及
+`tool_timeout_sec` / `tool_timeouts` 由 `codsh-rust` 内置的小型 stdio 启动器执行，它也保存
+服务器的 stderr，供 `/mcps` 和 `mcp doctor` 显示；dsh 自身每次调用 60 秒的上限仍然有效。
+服务器在调用中途退出时，dsh 会重新连接，失败的那次调用返回错误。`/mcps`（别名 `/mcp`）
+列出服务器、状态、失败原因和工具；`/mcps enable|disable <name>` 保存修改，
+`/mcps restart [name]` 或 `/mcps refresh` 通过在新的 dsh 中恢复同一会话来重启全部服务器
+（轮次运行中会拒绝）。编辑器在 `session/new` 或 `session/resume` 中提供的 `mcpServers`
+会在配置的服务器之后挂载。已知限制：dsh 只渲染结果中的文本部分（`use_tool` 仅在没有文本时
+返回 `structuredContent`）；超过 64 个字符的工具名会被 dsh 哈希；直接的 `mcp__*` 工具与
+`search_tool`/`use_tool` 同时可见；SSE 服务器只列出不启动（dsh 没有 SSE 传输）；这里不处理
+OAuth；插件提供的服务器属于后续工单；托管的 MCP allow/deny 策略和 `disabled_mcp_tools`
+尚未生效。经 `codsh --rust` 启动时，只有上面列出的 MCP 变量和 `*_API_KEY` 会从宿主环境传入，
+其他值请写在服务器的 `env` 表中。本次在 Linux 上用真实的 stdio 测试服务器验证，未在 macOS
+或 Windows 上验证。
+
 流式回答、提供商给出的思考、空回答和失败都按 dsh 的实际结果显示；协议不匹配
 或找不到 dsh 会明确拒绝，不会伪造成功。它复用具有合法许可证的 Grok Rust
 界面组件，无需官方账号，不启动旧版 Bundle、官方 Agent 核心、更新检查、遥测

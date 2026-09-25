@@ -87,6 +87,52 @@ leaders. `agent headless`, `--remote`, `--grok-ws-url`, and Cursor worker mode
 need official services and are refused. The leader is Unix-only; it was checked
 on Linux, not on macOS or Windows.
 
+Local MCP servers run inside dsh's own MCP client; codsh does not start a
+second one. `codsh --rust mcp list|add|remove|enable|disable|doctor` edits and
+checks `[mcp_servers.<name>]` in `$GROK_HOME/config.toml` (stdio `command`,
+`args`, `env`, `cwd`, or streamable-HTTP `url` and `headers`; `${VAR}` and
+`${VAR:-default}` expand). In a trusted folder `.grok/config.toml` and
+`.mcp.json` add or replace servers; in an untrusted one they are listed as
+untrusted and nothing starts. Claude (`~/.claude.json`) and Cursor
+(`~/.cursor/mcp.json`) definitions are read from the isolated Home and can be
+turned off with `[compat.claude] mcps = false` or
+`GROK_CLAUDE_MCPS_ENABLED=0` (Cursor likewise). `disabled_mcp_servers` or
+`enabled = false` keeps a server from starting. Each session mounts the
+servers at start; a missing program, a crash before `initialize`, or a refused
+`initialize` is reported by name on stderr (plain mode), in the status line
+(terminal), and by `/mcps`, and the session still starts with the others.
+Tools appear as dsh's `mcp__<server>__<tool>`, and Grok's `search_tool`
+(keyword search returning `server__tool` names and input schemas) and
+`use_tool` (`tool_name` = `server__tool`, `tool_input`) are available too.
+Every call, direct or through `use_tool`, runs once through dsh's pipeline:
+allow/ask/deny rules and remembered grants use `server__tool`
+(`mcp__server` in a rule means every tool of that server), Hooks see
+`tool_name = server__tool` and never the dispatcher, and Ctrl+C or ACP
+`session/cancel` sends `notifications/cancelled` to the server. Text results
+over `[mcp] max_output_bytes` (default 20000; `GROK_MAX_MCP_OUTPUT_BYTES` or
+`MAX_MCP_OUTPUT_BYTES` override) are cut on a UTF-8 boundary with Grok's
+`[MCP output truncated: ...]` notice, and the full text is written under
+`$DSH_HOME/mcp/output/`. `startup_timeout_sec` (default 30 s,
+`GROK_MCP_STARTUP_TIMEOUT_SECS` / `MCP_TIMEOUT`) and `tool_timeout_sec` /
+`tool_timeouts` are enforced by a small stdio launcher in `codsh-rust`, which
+also keeps the server's stderr for `/mcps` and `mcp doctor`; dsh's own 60 s
+per-call limit still applies above that. dsh reconnects a server that exits
+mid-call; the failed call returns an error. `/mcps` (alias `/mcp`) lists
+servers, state, failures, and tools; `/mcps enable|disable <name>` saves the
+change and `/mcps restart [name]` or `/mcps refresh` restarts every server by
+resuming the same session in a fresh dsh (refused while a turn runs). An
+editor's `mcpServers` on `session/new` or `session/resume` are mounted after
+the configured ones. Known limits: dsh renders only the text part of a result
+(`structuredContent` is returned by `use_tool` only when there is no text),
+tool names longer than 64 characters are hashed by dsh, the direct
+`mcp__*` tools stay visible next to `search_tool`/`use_tool`, SSE servers are
+listed but not started (dsh has no SSE transport), OAuth is not handled here,
+plugin-provided servers belong to a later ticket, and managed allow/deny MCP
+policy and `disabled_mcp_tools` are not applied. Through `codsh --rust` only
+the listed MCP variables and `*_API_KEY` pass from the host environment, so put
+other values in the server's `env` table. Checked on Linux with a real stdio
+fixture server; not on macOS or Windows.
+
 Streamed answers, provider
 thoughts, empty replies, and failures are shown as dsh reports them; a protocol
 mismatch or missing dsh is refused instead of faked as success. It reuses licensed

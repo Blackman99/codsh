@@ -95,6 +95,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         "Sign out and clear cached identity credentials",
         true,
     ),
+    SlashCommand::new(
+        "mcps",
+        &["mcp"],
+        "Show MCP servers; enable, disable, restart",
+        true,
+    ),
     SlashCommand::new("memory", &["mem"], "Browse local memory notes", true),
     SlashCommand::new("minimal", &[], "Switch to minimal native history", true),
     SlashCommand::new("model", &["m"], "Select a model", false),

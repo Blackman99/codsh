@@ -346,6 +346,14 @@ pub struct AcpClient {
     /// sockets are unavailable; `control_unavailable` says why.
     control: Option<crate::control::ControlChannel>,
     control_unavailable: Option<String>,
+    /// MCP plan file (`CODSH_MCP_PLAN`) read on every session/new and
+    /// session/resume, so a rewritten plan applies to the next session.
+    mcp_plan: Option<PathBuf>,
+    /// Servers dsh could not start for the current session, with the reason.
+    pub mcp_failed: std::collections::BTreeMap<String, String>,
+    /// Extra ACP `mcpServers` an editor passed on session/new or resume.
+    pub editor_mcp: Vec<Value>,
+    last_error_details: Option<String>,
 }
 
 enum Line {
@@ -564,6 +572,11 @@ impl AcpClient {
             }
             Err(error) => (None, Some(error.to_string())),
         };
+        let mcp_plan = spec
+            .env
+            .iter()
+            .find(|(key, _)| key == crate::mcp::PLAN_ENV)
+            .map(|(_, value)| PathBuf::from(value));
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
         let stdout = child
@@ -619,6 +632,10 @@ impl AcpClient {
             prepared_resume: None,
             control,
             control_unavailable,
+            mcp_plan,
+            mcp_failed: std::collections::BTreeMap::new(),
+            editor_mcp: Vec::new(),
+            last_error_details: None,
         })
     }
 
@@ -679,6 +696,80 @@ impl AcpClient {
         let _ = self.control_send(&crate::control::btw_cancel_message(id));
     }
 
+    pub fn mcp_plan_path(&self) -> Option<&Path> {
+        self.mcp_plan.as_deref()
+    }
+
+    /// Send session/new or session/resume with the MCP plan. A server dsh
+    /// reports as `mcp-client(<name>)` during startup is recorded with its
+    /// reason and the request is retried without it, so one broken server
+    /// does not stop the session.
+    fn session_request(
+        &mut self,
+        method: &str,
+        mut params: Value,
+        kind: fn() -> PendingKind,
+        timeout: Duration,
+    ) -> Result<Value, AcpError> {
+        self.mcp_failed.clear();
+        let plan = self
+            .mcp_plan
+            .as_deref()
+            .and_then(crate::mcp::read_plan)
+            .unwrap_or(Value::Null);
+        let run_dir = plan
+            .get("runDir")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let budget = plan
+            .get("startupBudgetMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        loop {
+            let mut servers = crate::mcp::plan_servers(&plan, &self.mcp_failed);
+            for extra in &self.editor_mcp {
+                let name = extra.get("name").and_then(Value::as_str).unwrap_or("");
+                let taken = servers
+                    .iter()
+                    .any(|server| server.get("name").and_then(Value::as_str) == Some(name));
+                if !taken && !self.mcp_failed.contains_key(name) {
+                    servers.push(extra.clone());
+                }
+            }
+            let names: Vec<String> = servers
+                .iter()
+                .filter_map(|server| server.get("name").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            params["mcpServers"] = Value::Array(servers);
+            self.last_error_details = None;
+            let id = self.request(method, params.clone(), kind())?;
+            match self.wait_result(id, timeout + Duration::from_millis(budget)) {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    let details = self.last_error_details.take().unwrap_or_default();
+                    let failed = crate::mcp::failed_server(&details)
+                        .or_else(|| crate::mcp::failed_server(&error.message));
+                    match failed {
+                        Some(name)
+                            if names.contains(&name) && !self.mcp_failed.contains_key(&name) =>
+                        {
+                            let fallback = if details.is_empty() {
+                                error.message.clone()
+                            } else {
+                                details.clone()
+                            };
+                            let reason = crate::mcp::failure_reason(&run_dir, &name, &fallback);
+                            self.mcp_failed.insert(name, reason);
+                        }
+                        _ => return Err(error),
+                    }
+                }
+            }
+        }
+    }
+
     pub fn initialize(&mut self, timeout: Duration) -> Result<Value, AcpError> {
         let id = self.request(
             "initialize",
@@ -717,12 +808,12 @@ impl AcpClient {
             .unwrap_or_else(|_| cwd.to_path_buf())
             .to_string_lossy()
             .into_owned();
-        let id = self.request(
+        let result = self.session_request(
             "session/new",
             json!({ "cwd": cwd, "mcpServers": [] }),
-            PendingKind::SessionNew,
+            || PendingKind::SessionNew,
+            timeout,
         )?;
-        let result = self.wait_result(id, timeout)?;
         let session_id = result
             .get("sessionId")
             .and_then(Value::as_str)
@@ -865,12 +956,12 @@ impl AcpClient {
             .unwrap_or_else(|_| cwd.to_path_buf())
             .to_string_lossy()
             .into_owned();
-        let id = self.request(
+        let result = self.session_request(
             "session/resume",
             json!({ "sessionId": session_id, "cwd": cwd, "mcpServers": [] }),
-            PendingKind::SessionResume,
+            || PendingKind::SessionResume,
+            timeout,
         )?;
-        let result = self.wait_result(id, timeout)?;
         self.session_id = Some(session_id.to_string());
         self.prepared_resume = None;
         self.config_options =
@@ -1451,6 +1542,16 @@ impl AcpClient {
     fn handle_response(&mut self, id: u64, value: Value) -> Vec<AcpEvent> {
         let kind = self.pending.remove(&id);
         if let Some(error) = value.get("error") {
+            self.last_error_details = error
+                .pointer("/data/details")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    error
+                        .get("data")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                });
             let code = error.get("code").and_then(Value::as_i64).unwrap_or(0);
             let message = error
                 .get("message")

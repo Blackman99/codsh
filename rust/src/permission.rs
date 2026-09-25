@@ -639,7 +639,14 @@ pub fn access_from_tool(name: &str, args: &JsonValue) -> AccessKind {
                 .unwrap_or_default(),
         ),
         "todo_write" | "skill" => AccessKind::Read(None),
-        other if other.contains("__") => AccessKind::Mcp { name: other.into() },
+        // search_tool only reads the catalog; use_tool re-enters the pipeline
+        // as the named MCP tool, which is what the rules and grants see.
+        "search_tool" | "use_tool" => AccessKind::Read(None),
+        // dsh names MCP tools `mcp__<server>__<tool>`; rules and grants use
+        // Grok's `server__tool`, so the dsh prefix is dropped here.
+        other if other.contains("__") => AccessKind::Mcp {
+            name: other.strip_prefix("mcp__").unwrap_or(other).into(),
+        },
         other => {
             if path.is_some()
                 && (args.get("old_string").is_some()
@@ -3909,6 +3916,14 @@ mod tests {
         assert!(matches!(
             access_from_tool("linear__save_issue", &json!({})),
             AccessKind::Mcp { .. }
+        ));
+        match access_from_tool("mcp__linear__save_issue", &json!({})) {
+            AccessKind::Mcp { name } => assert_eq!(name, "linear__save_issue"),
+            other => panic!("expected MCP access, got {other:?}"),
+        }
+        assert!(matches!(
+            access_from_tool("use_tool", &json!({ "tool_name": "linear__save_issue" })),
+            AccessKind::Read(None)
         ));
         assert!(matches!(
             access_from_tool("web_fetch", &json!({ "url": "https://example.com" })),

@@ -978,6 +978,7 @@ impl Hub {
                 );
             }
         };
+        runtime.client.editor_mcp = editor_mcp_servers(params);
         let session_id = match runtime.client.new_session(Path::new(&cwd), REQUEST_TIMEOUT) {
             Ok(session_id) => session_id,
             Err(error) => {
@@ -1067,6 +1068,7 @@ impl Hub {
                 return self.error(id, -32602, &error);
             }
         };
+        live.rt.client.editor_mcp = editor_mcp_servers(params);
         if let Err(error) =
             live.rt
                 .client
@@ -1801,6 +1803,16 @@ impl Hub {
     }
 }
 
+/// MCP servers the editor declared on session/new or session/resume. They
+/// are mounted after configured servers; a configured name wins.
+fn editor_mcp_servers(params: &Value) -> Vec<Value> {
+    params
+        .get("mcpServers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
 impl Runtime {
     fn connect(
         launch: &EditorLaunch,
@@ -1863,6 +1875,10 @@ impl Runtime {
             "CODSH_PERMISSION_POLICY".into(),
             policy_path.display().to_string(),
         ));
+        let mcp_tag = format!("editor{}", RUNTIME_SEQ.fetch_add(1, Ordering::Relaxed));
+        if let Ok(pair) = crate::mcp::plan_env(&effective, &env, &mcp_tag) {
+            extra.push(pair);
+        }
         let spawned = acp::dsh_spawn_spec(cwd.clone(), &effective.dsh_home, &extra, applied)
             .map_err(|error| error.message)
             .and_then(|spec| AcpClient::spawn(spec).map_err(|error| error.to_string()));
