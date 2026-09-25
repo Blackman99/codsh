@@ -2000,7 +2000,9 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             .env
             .iter()
             .filter(|(key, _)| {
-                key.starts_with("GROK_SUBAGENT") || key.as_str() == "GROK_MAX_CONCURRENT_SUBAGENTS"
+                key.starts_with("GROK_SUBAGENT")
+                    || key.as_str() == "GROK_MAX_CONCURRENT_SUBAGENTS"
+                    || key.as_str() == "GROK_WORKFLOW_MAX_CONCURRENT_AGENTS"
             })
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),

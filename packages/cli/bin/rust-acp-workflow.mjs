@@ -1,6 +1,12 @@
 /**
  * The model-facing `workflow` tool for the Rust client (ticket 181).
  *
+ * Ticket 182 adds the reference `output_schema` contract (one correction
+ * turn in the same child), scratch files, `git_diff_since`, and a configurable
+ * live-child cap per run ([subagents] workflow_max_concurrent or
+ * GROK_WORKFLOW_MAX_CONCURRENT_AGENTS, default 32, clamped to
+ * max(2, available parallelism)) that is independent of the agent budget.
+ *
  * A workflow is a Rhai script in the reference format: its first statement is
  * `let meta = #{ name, description, ... }`, the tool call's `args` are bound
  * to the script's `args`, and `agent(prompt, opts)` / `parallel([...])` start
@@ -18,16 +24,19 @@
  *   those sources are refused. Cancelling the turn cancels the run.
  * - Registered names (built-in, project, user or plugin catalogs) are not
  *   available; pass an inline `script` or a `script_path`.
- * - `output_schema`, `resume_from`, scratch files and `git_diff_since` are
- *   refused by the engine with an explicit error.
+ * - `resume_from` is refused by the engine with an explicit error: dsh
+ *   children are disposed when their call ends, so there is no finished
+ *   child session to resume from a later agent() call.
  *
  * The engine is a separate process with Rhai operation and size limits. It
  * is not a security sandbox.
  */
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
+import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { planFilePath } from './rust-acp-plan.mjs'
 
 export const WORKFLOW_TOOL = 'workflow'
 export const ENGINE_SUBCOMMAND = '__workflow-engine'
@@ -54,9 +63,21 @@ export class WorkflowToolError extends Error {
   }
 }
 
-export function concurrencyCap(parallelism = safeParallelism()) {
+/**
+ * Reference `workflow_max_concurrent_agents`: the configured cap (default 32,
+ * at least 1) clamped to max(2, available parallelism).
+ */
+export function concurrencyCap(parallelism = safeParallelism(), configured = DEFAULT_MAX_CONCURRENT_AGENTS) {
   const clamp = Math.max(2, Number.isSafeInteger(parallelism) ? parallelism : DEFAULT_MAX_CONCURRENT_AGENTS)
-  return Math.min(DEFAULT_MAX_CONCURRENT_AGENTS, clamp)
+  const requested = Math.max(1, Number.isSafeInteger(configured) ? configured : DEFAULT_MAX_CONCURRENT_AGENTS)
+  return Math.min(requested, clamp)
+}
+
+/** This run's scratch directory beside the session's plan.md (reference layout). */
+export function scratchDir(sessionId, runId, env = process.env, cwd = process.cwd()) {
+  if (!sessionId) return null
+  const safeRun = String(runId).replace(/[^A-Za-z0-9_.-]/g, '_').replace(/^\.+/, '_') || 'run'
+  return join(dirname(planFilePath(sessionId, env, cwd)), 'workflows', safeRun, 'scratch')
 }
 
 function safeParallelism() {
@@ -175,7 +196,8 @@ function clipOutput(text) {
 
 function engineEnv() {
   const env = {}
-  for (const key of ['SystemRoot', 'WINDIR', 'LANG', 'LC_ALL']) {
+  // PATH and the home directory are for git_diff_since's `git diff`.
+  for (const key of ['SystemRoot', 'WINDIR', 'LANG', 'LC_ALL', 'PATH', 'HOME', 'USERPROFILE', 'XDG_CONFIG_HOME']) {
     if (process.env[key]) env[key] = process.env[key]
   }
   return env
@@ -267,20 +289,25 @@ export function runEngine({ enginePath, start, onRequest, onEvent = () => {}, si
   })
 }
 
-const DESCRIPTION = `Run a workflow: a Rhai script that orchestrates subagents. Provide exactly one \`source\`: an inline \`script\` or a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot; default 128, at most 1024. The host also caps live children per run (32, clamped to the machine) — larger parallel() panels are queued and still act as a barrier. This call waits for the run to finish and returns its result; cancelling the turn cancels the run and its children. Registered workflow names, resume, pause and stop are not available in this build. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
+const DESCRIPTION = `Run a workflow: a Rhai script that orchestrates subagents. Provide exactly one \`source\`: an inline \`script\` or a \`script_path\` (a .rhai file named after its meta.name, inside this project or $GROK_HOME/workflows). Optionally pass \`args\` (bound to the script's \`args\`) and \`agent_budget\`, an absolute cap on cumulative child-agent calls: every agent() and parallel() item consumes one slot; default 128, at most 1024. The host also caps live children per run (32 by default, configurable, clamped to the machine); this cap is separate from the budget — larger parallel() panels are queued in order and still act as a barrier. This call waits for the run to finish and returns its result; cancelling the turn cancels the run and its children. Registered workflow names, resume, pause and stop are not available in this build. \`validate_only: true\` runs a path-specific smoke check (metadata, compile, one canned-host path) without starting agents.
 
 Script format: the first statement must be a pure-literal \`let meta = #{ name: "kebab-name", description: "..." };\` (optional when_to_use and phases: [#{ title, detail }]). Host functions:
-- agent(prompt) / agent(prompt, #{ label, phase, model, effort, agent_type, capability_mode, isolation_worktree }) runs one subagent to completion and returns #{ agent_id, success, output, cancelled, tokens_used, duration_ms }; output is the child's final text (or its error when success is false). effort is one of none, minimal, low, medium, high, xhigh, max and must be offered by the model; capability_mode (read-only, read-write, execute, all) can only narrow the agent type.
-- parallel([#{ prompt, ...same options }, ...]) runs a panel concurrently and returns results in order; a child the host refuses becomes ().
+- agent(prompt) / agent(prompt, #{ label, phase, model, effort, agent_type, capability_mode, isolation_worktree, output_schema }) runs one subagent to completion and returns #{ agent_id, success, output, cancelled, tokens_used, duration_ms }; output is the child's final text (or its error when success is false). effort is one of none, minimal, low, medium, high, xhigh, max and must be offered by the model; capability_mode (read-only, read-write, execute, all) can only narrow the agent type. With output_schema (a self-contained JSON Schema map) the child is asked to end with a \`\`\`json block; output is the parsed value, and a reply that does not match gets one correction turn in the same child before success becomes false with "structured output validation failed: ...". resume_from is not available in this build.
+- parallel([#{ prompt, ...same options }, ...]) runs a panel concurrently and returns results in order; a failed child is a result with success false, and a child the host refuses becomes ().
 - phase(title), log(message), budget() -> #{ total, spent, reserved, remaining }, complete(value), pause(kind, message), json_encode(value), fingerprint(text).
-The last expression (or complete(value)) is the result. There is no filesystem, network, clock or process access in the script; agents do the work. Children cannot start workflows.`
+- write_scratch_file(name, text) -> "scratch/<name>" and read_scratch_file(name) keep run-local notes (one plain file name, at most 10 MiB each, 64 files, 64 MiB); git_diff_since(commit_hash) returns \`git diff <hash>\` in the session directory (20 s, 256 KiB).
+The last expression (or complete(value)) is the result. There is no other filesystem, network, clock or process access in the script; agents do the work. Children cannot start workflows.`
 
 /**
  * Register the tool. `deps` comes from the subagents plugin:
  *   isChildAgent(agent)  — whether an agent is a subagent (any depth).
  *   spawnChild(spec)     — start one dsh child and wait for it; resolves
- *                          { status, text, cancelled } or throws a refusal.
+ *                          { status, text, childId, session? } or throws a
+ *                          refusal. With spec.keepOpen a child that
+ *                          completed stays open as `session`
+ *                          ({ resume(prompt, signal), close(verdict) }).
  *   refusal              — a policy refusal that blocks every run, or null.
+ *   maxConcurrent        — the configured live-child cap per run.
  */
 export function registerWorkflow(ctx, deps) {
   const { isChildAgent, spawnChild, emit = () => {} } = deps
@@ -344,6 +371,7 @@ export function registerWorkflow(ctx, deps) {
         trusted: process.env.CODSH_WORKSPACE_TRUSTED === '1',
         args: input.args,
         agentBudget: input.agentBudget ?? null,
+        scratchDir: scratchDir(parent.session?.id ?? parent.session?.header?.id, callId, process.env, cwd),
       }
       const run = {
         id: callId,
@@ -354,12 +382,104 @@ export function registerWorkflow(ctx, deps) {
         started: 0,
         running: 0,
         children: new Set(),
+        // Contract children held open between attempts, by request id.
+        open: new Map(),
+        peak: 0,
         controller: new AbortController(),
       }
-      const slots = new RunSlots(concurrencyCap())
-      const status = state => emit({ event: 'workflow', id: callId, name: run.name, status: state, phase: run.phase, agents: run.started, running: run.running })
+      const slots = new RunSlots(concurrencyCap(undefined, deps.maxConcurrent))
+      const status = state => emit({ event: 'workflow', id: callId, name: run.name, status: state, phase: run.phase, agents: run.started, running: run.running, limit: slots.limit, peak: run.peak })
       const onParentAbort = () => run.controller.abort(exec.signal.reason ?? new Error('parent turn cancelled'))
       exec.signal.addEventListener('abort', onParentAbort, { once: true })
+      const track = promise => {
+        run.children.add(promise)
+        promise.finally(() => run.children.delete(promise)).catch(() => {})
+        return promise
+      }
+      // A slot and the running count are held from admission until the
+      // child is finished for good: after its reply, or after `close` for a
+      // contract child the engine may still resume.
+      const releaseSlot = () => {
+        run.running -= 1
+        slots.release()
+        status('running')
+      }
+      const result = (outcome, seq, startedAt) => ({
+        agent_id: outcome.childId ?? `${callId}:agent-${seq}`,
+        success: outcome.status === 'completed',
+        output: clipOutput(outcome.text ?? ''),
+        cancelled: outcome.status === 'cancelled',
+        tokens_used: 0,
+        duration_ms: Date.now() - startedAt,
+      })
+      const spawnOne = async (request, signal) => {
+        const opts = request.opts ?? {}
+        const seq = ++run.started
+        try {
+          await slots.acquire(signal)
+        } catch {
+          return { error: { kind: 'cancelled' } }
+        }
+        const startedAt = Date.now()
+        run.running += 1
+        run.peak = Math.max(run.peak, run.running)
+        status('running')
+        let held
+        try {
+          const outcome = await spawnChild({
+            parent,
+            id: `${callId}:agent-${seq}`,
+            prompt: String(opts.prompt ?? ''),
+            label: opts.label ?? `${run.name || 'workflow'} #${seq}`,
+            typeName: opts.agentType ?? undefined,
+            model: opts.model ?? undefined,
+            effort: opts.effort ?? undefined,
+            capability: opts.capabilityMode ?? undefined,
+            isolation: opts.isolationWorktree === true ? 'worktree' : null,
+            keepOpen: opts.contract === true,
+            signal,
+            workflow: { run: callId, name: run.name, phase: opts.phase ?? run.phase ?? '' },
+          })
+          if (signal.aborted) {
+            if (outcome.session) track(outcome.session.close({ status: 'cancelled' }))
+            return { error: { kind: 'cancelled' } }
+          }
+          if (outcome.session) {
+            held = { seq, close: verdict => outcome.session.close(verdict).finally(releaseSlot), session: outcome.session }
+            run.open.set(request.id, held)
+            return { ok: result(outcome, seq, startedAt), open: true }
+          }
+          return { ok: result(outcome, seq, startedAt) }
+        } catch (cause) {
+          if (signal.aborted) return { error: { kind: 'cancelled' } }
+          return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
+        } finally {
+          if (!held) releaseSlot()
+        }
+      }
+      const resumeHeld = async (request, signal) => {
+        const held = run.open.get(request.agent)
+        if (!held) return { error: { kind: 'failed', message: 'the workflow child to resume is no longer open' } }
+        const startedAt = Date.now()
+        try {
+          const outcome = await held.session.resume(String(request.prompt ?? ''), signal)
+          if (signal.aborted) {
+            run.open.delete(request.agent)
+            track(held.close({ status: 'cancelled' }))
+            return { error: { kind: 'cancelled' } }
+          }
+          if (outcome.status === 'completed') return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt), open: true }
+          // resume() closed a child whose follow-up turn did not complete.
+          run.open.delete(request.agent)
+          track(held.close({ status: outcome.status }))
+          return { ok: result({ ...outcome, childId: held.session.childId }, held.seq, startedAt) }
+        } catch (cause) {
+          run.open.delete(request.agent)
+          track(held.close({ status: 'failed', detail: cause instanceof Error ? cause.message : String(cause) }))
+          if (signal.aborted) return { error: { kind: 'cancelled' } }
+          return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
+        }
+      }
       let final
       try {
         final = await runEngine({
@@ -378,64 +498,30 @@ export function registerWorkflow(ctx, deps) {
             } else if (line.type === 'log') {
               run.logs.push(String(line.message))
               if (run.logs.length > MAX_LOG_LINES) run.logs.shift()
+            } else if (line.type === 'close') {
+              const held = run.open.get(line.agent)
+              if (held) {
+                run.open.delete(line.agent)
+                track(held.close({ status: line.status, detail: line.detail }))
+              }
             }
           },
           onRequest: async request => {
-            if (request.kind !== 'spawn_agent') return { error: { kind: 'unsupported', message: `unknown host request ${request.kind}` } }
             const signal = run.controller.signal
             if (signal.aborted) return { error: { kind: 'cancelled' } }
-            const opts = request.opts ?? {}
-            const seq = ++run.started
-            const startedAt = Date.now()
-            const task = (async () => {
-              try {
-                await slots.acquire(signal)
-              } catch {
-                return { error: { kind: 'cancelled' } }
-              }
-              run.running += 1
-              status('running')
-              try {
-                const outcome = await spawnChild({
-                  parent,
-                  id: `${callId}:agent-${seq}`,
-                  prompt: String(opts.prompt ?? ''),
-                  label: opts.label ?? `${run.name || 'workflow'} #${seq}`,
-                  typeName: opts.agentType ?? undefined,
-                  model: opts.model ?? undefined,
-                  effort: opts.effort ?? undefined,
-                  capability: opts.capabilityMode ?? undefined,
-                  isolation: opts.isolationWorktree === true ? 'worktree' : null,
-                  signal,
-                  workflow: { run: callId, name: run.name, phase: opts.phase ?? run.phase ?? '' },
-                })
-                if (signal.aborted) return { error: { kind: 'cancelled' } }
-                return {
-                  ok: {
-                    agent_id: outcome.childId ?? `${callId}:agent-${seq}`,
-                    success: outcome.status === 'completed',
-                    output: clipOutput(outcome.text ?? ''),
-                    cancelled: outcome.status === 'cancelled',
-                    tokens_used: 0,
-                    duration_ms: Date.now() - startedAt,
-                  },
-                }
-              } catch (cause) {
-                if (signal.aborted) return { error: { kind: 'cancelled' } }
-                return { error: { kind: 'failed', message: cause instanceof Error ? cause.message : String(cause) } }
-              } finally {
-                run.running -= 1
-                slots.release()
-                status('running')
-              }
-            })()
-            run.children.add(task)
-            task.finally(() => run.children.delete(task))
-            return task
+            if (request.kind === 'resume_agent') return track(resumeHeld(request, signal))
+            if (request.kind !== 'spawn_agent') return { error: { kind: 'unsupported', message: `unknown host request ${request.kind}` } }
+            return track(spawnOne(request, signal))
           },
         })
       } finally {
         exec.signal.removeEventListener('abort', onParentAbort)
+        // Contract children the engine never closed (a cancelled or failed
+        // run) are closed now, so none outlives this call.
+        for (const [id, held] of run.open) {
+          run.open.delete(id)
+          track(held.close({ status: run.controller.signal.aborted ? 'cancelled' : 'failed', detail: 'the workflow run ended' }))
+        }
         // A cancelled run's children are aborted with it; wait (bounded) for
         // them to settle so none outlives this call.
         if (run.children.size > 0) {

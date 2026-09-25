@@ -89,6 +89,19 @@ size limits are not a security sandbox. rhai_codegen 3.2.0 ships no license
 file, so its MIT and Apache-2.0 texts come from the rhai repository at the
 crate's VCS revision recorded in import.json.
 
+Ticket 50 (#182) adds local `src/workflow_host.rs` with the reference host's
+workflow contracts: the output-contract prompt and correction prompt, the
+schema compile limits (256 KB, no external `$ref`, bounded regexes) and the
+answer parsing order, the scratch-file limits and messages, and the
+`git_diff_since` commit check, timeout, and cap. It is written against the
+reference host_service.rs and schema_contract.rs behaviour, not copied, and
+imports no reference crate. Schema validation adds the MIT `jsonschema` crate
+at the reference version (=0.30.0, default features off) with its dependency
+closure; `tempfile` becomes a normal dependency for atomic scratch writes.
+uuid-simd 0.8.0 and vsimd 0.8.0 (pulled in by jsonschema's format checks) ship
+no license file, so their MIT text comes from the Nugine/simd repository at the
+crate VCS revision recorded in import.json.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

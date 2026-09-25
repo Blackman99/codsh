@@ -10,7 +10,11 @@ phase and agent count, the children's answers in the reply, the /tasks
 rows tagged with the workflow, Ctrl+C cancelling a running workflow and
 its child (no engine process left behind), a syntax error, and the
 headless (-p) path, including a personal script under $GROK_HOME/workflows
-and --no-subagents.
+and --no-subagents. Ticket 182 adds a headless panel under the configured
+concurrency cap ([subagents] workflow_max_concurrent in config.toml, then
+GROK_WORKFLOW_MAX_CONCURRENT_AGENTS over it), an output_schema answer
+corrected by one retry of the same child, and a scratch file kept under the
+session directory.
 
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first); the binary is also the workflow
@@ -74,6 +78,17 @@ phase("Wait");
 agent("CHILD_SLOW wait", #{ label: "waiter" }).output
 '''
 
+PANEL = '''let meta = #{ name: "panel", description: "Held children under the concurrency cap, a schema answer and a scratch note" };
+let held = parallel([1, 2, 3, 4, 5, 6].map(|n| #{ prompt: "CHILD_HOLD 600 item " + n, label: "hold-" + n }));
+let peaks = held.map(|r| r.output);
+let counted = agent("CHILD_JSON FIRST<<counted them>> RETRY<<```json {\\"held\\": 6} ```>>", #{
+    label: "count",
+    output_schema: #{ type: "object", required: ["held"], properties: #{ held: #{ type: "integer" } } },
+});
+let note = write_scratch_file("panel.md", "held " + counted.output.held.to_string());
+#{ peaks: peaks, held: counted.output.held, note: note }
+'''
+
 BROKEN = '''let meta = #{ name: "broken", description: "A script with a syntax error" };
 let x = ;
 '''
@@ -134,6 +149,7 @@ def main():
         (cwd / 'triage.rhai').write_text(TRIAGE)
         (cwd / 'slow.rhai').write_text(SLOW)
         (cwd / 'broken.rhai').write_text(BROKEN)
+        (cwd / 'panel.rhai').write_text(PANEL)
         patch = work / 'overlay.yml'
         patch.write_text(overlay)
         env = {
@@ -231,6 +247,29 @@ def main():
         assert 'PARENT_WORKFLOW error:' in off.stdout and 'subagents are disabled' in off.stdout, off.stdout
         assert 'CHILD_SAID' not in off.stdout, off.stdout
         results['headless'] = True
+
+        # 6. Ticket 182: six held children under a cap of 2 from config.toml,
+        #    then 3 from the environment over it; a schema answer fixed by one
+        #    retry; the scratch note under the session directory.
+        grok_home = home / '.codsh-rust' / '.grok'
+        (grok_home / 'config.toml').write_text('[subagents]\nworkflow_max_concurrent = 2\n')
+
+        def panel(extra_env=None):
+            ran = subprocess.run([NODE, str(LAUNCHER), '--rust', '--always-approve', '-p', call({'script_path': 'panel.rhai', 'agent_budget': 7})],
+                                 cwd=cwd, env={**env, **(extra_env or {})}, capture_output=True, text=True, timeout=120)
+            assert ran.returncode == 0, ran.stderr
+            assert "PARENT_WORKFLOW ok: Workflow 'panel' completed (7 agent calls of budget 7)." in ran.stdout, ran.stdout
+            body = ran.stdout[ran.stdout.index('Result:') + len('Result:'):].strip().splitlines()[0]
+            return json.loads(body)
+        capped = panel()
+        peaks = [int(text.split('peak=')[1]) for text in capped['peaks']]
+        assert max(peaks) == 2, capped
+        assert capped['held'] == 6 and capped['note'] == 'scratch/panel.md', capped
+        notes = list((grok_home / 'sessions').glob('*/*/workflows/*/scratch/panel.md'))
+        assert len(notes) == 1 and notes[0].read_text() == 'held 6', notes
+        wider = panel({'GROK_WORKFLOW_MAX_CONCURRENT_AGENTS': '3'})
+        assert max(int(text.split('peak=')[1]) for text in wider['peaks']) == 3, wider
+        results['cap'] = {'config': max(peaks), 'env': 3}
     print(json.dumps({'ok': True, 'output': str(output), **results}))
 
 

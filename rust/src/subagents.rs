@@ -26,6 +26,9 @@ use toml::Value as TomlValue;
 pub const MARK: &str = "\u{241e}subagent\u{241e}";
 pub const DEFAULT_MAX_CONCURRENT: u64 = 32;
 pub const DEFAULT_MAX_DEPTH: u64 = 1;
+/// Reference `DEFAULT_WORKFLOW_MAX_CONCURRENT_AGENTS`: live children per
+/// workflow run. The plugin clamps it to max(2, available parallelism).
+pub const DEFAULT_WORKFLOW_MAX_CONCURRENT: u64 = 32;
 pub const CAPABILITIES: &[&str] = &["read-only", "read-write", "execute", "all"];
 
 /// Process flags that shape the policy.
@@ -56,6 +59,9 @@ pub struct Policy {
     pub max_concurrent: u64,
     pub limit_behavior: String,
     pub max_depth: u64,
+    /// Live children per workflow run (ticket 182); separate from the run's
+    /// agent budget and from `max_concurrent`.
+    pub workflow_max_concurrent: u64,
     pub types: Vec<SubagentType>,
     /// A fatal policy error. The plugin refuses every spawn with it.
     pub error: Option<String>,
@@ -205,6 +211,17 @@ pub fn resolve(
             warnings.push(format!(
                 "GROK_SUBAGENT_LIMIT_BEHAVIOR={raw} is not queue or fail; keeping {limit_behavior}"
             ));
+        }
+    }
+    let mut workflow_max_concurrent = config_int("workflow_max_concurrent")
+        .map(|value| value.max(1) as u64)
+        .unwrap_or(DEFAULT_WORKFLOW_MAX_CONCURRENT);
+    if let Some(raw) = env.get("GROK_WORKFLOW_MAX_CONCURRENT_AGENTS") {
+        match positive_digits(raw) {
+            Some(value) => workflow_max_concurrent = value,
+            None => warnings.push(format!(
+                "GROK_WORKFLOW_MAX_CONCURRENT_AGENTS={raw} is not a positive whole number; ignored"
+            )),
         }
     }
     let mut max_depth = config_int("max_depth")
@@ -364,6 +381,7 @@ pub fn resolve(
         max_concurrent,
         limit_behavior,
         max_depth,
+        workflow_max_concurrent,
         types,
         error,
         warnings,
@@ -377,6 +395,7 @@ impl Policy {
             "maxConcurrent": self.max_concurrent,
             "limitBehavior": self.limit_behavior,
             "maxDepth": self.max_depth,
+            "workflowMaxConcurrent": self.workflow_max_concurrent,
             "error": self.error,
             "types": self.types.iter().map(|item| json!({
                 "name": item.name,
@@ -393,7 +412,7 @@ impl Policy {
     /// `inspect` rows: key, value, source-free summary.
     pub fn inspect_lines(&self) -> Vec<String> {
         let mut lines = vec![format!(
-            "Subagents: {} · max_concurrent {} ({}) · max_depth {} · types {}",
+            "Subagents: {} · max_concurrent {} ({}) · max_depth {} · workflow_max_concurrent {} · types {}",
             if self.enabled {
                 "on".to_string()
             } else {
@@ -405,6 +424,7 @@ impl Policy {
             self.max_concurrent,
             self.limit_behavior,
             self.max_depth,
+            self.workflow_max_concurrent,
             self.types
                 .iter()
                 .map(|item| format!("{}[{}]", item.name, item.capability))
@@ -1192,6 +1212,8 @@ mod tests {
         assert_eq!(policy.max_concurrent, 32);
         assert_eq!(policy.limit_behavior, "queue");
         assert_eq!(policy.max_depth, 1);
+        assert_eq!(policy.workflow_max_concurrent, 32);
+        assert_eq!(policy.to_json()["workflowMaxConcurrent"], 32);
         let names: Vec<_> = policy.types.iter().map(|item| item.name.as_str()).collect();
         assert_eq!(names, ["general-purpose", "explore", "plan"]);
         assert!(policy.error.is_none());
@@ -1242,6 +1264,50 @@ mod tests {
         assert_eq!(invalid.max_concurrent, 1);
         assert_eq!(invalid.limit_behavior, "fail");
         assert_eq!(invalid.warnings.len(), 2);
+    }
+
+    #[test]
+    fn workflow_concurrency_is_its_own_knob() {
+        let config = table("[subagents]\nmax_concurrent = 4\nworkflow_max_concurrent = 8\n");
+        let policy = resolve(
+            &config,
+            &env(&[]),
+            &CliSubagents::default(),
+            &[],
+            Path::new("/g"),
+        );
+        assert_eq!(policy.workflow_max_concurrent, 8);
+        assert_eq!(policy.max_concurrent, 4);
+        let zero = resolve(
+            &table("[subagents]\nworkflow_max_concurrent = 0\n"),
+            &env(&[]),
+            &CliSubagents::default(),
+            &[],
+            Path::new("/g"),
+        );
+        assert_eq!(zero.workflow_max_concurrent, 1, "0 clamps to 1");
+        let from_env = resolve(
+            &config,
+            &env(&[("GROK_WORKFLOW_MAX_CONCURRENT_AGENTS", "3")]),
+            &CliSubagents::default(),
+            &[],
+            Path::new("/g"),
+        );
+        assert_eq!(from_env.workflow_max_concurrent, 3);
+        assert_eq!(from_env.to_json()["workflowMaxConcurrent"], 3);
+        assert!(from_env.inspect_lines()[0].contains("workflow_max_concurrent 3"));
+        let invalid = resolve(
+            &config,
+            &env(&[("GROK_WORKFLOW_MAX_CONCURRENT_AGENTS", "many")]),
+            &CliSubagents::default(),
+            &[],
+            Path::new("/g"),
+        );
+        assert_eq!(invalid.workflow_max_concurrent, 8);
+        assert_eq!(
+            invalid.warnings,
+            ["GROK_WORKFLOW_MAX_CONCURRENT_AGENTS=many is not a positive whole number; ignored"]
+        );
     }
 
     #[test]

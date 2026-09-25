@@ -10,6 +10,7 @@
  * The policy is resolved by the Rust client and passed as JSON in
  * CODSH_SUBAGENT_POLICY:
  *   { enabled, maxConcurrent, limitBehavior: 'queue'|'fail', maxDepth,
+ *     workflowMaxConcurrent,
  *     types: [{ name, description, capability, model?, provider?, instructions?, tools? }] }
  * A missing variable keeps the built-in types with the reference defaults.
  * A malformed one refuses every spawn with the parse error.
@@ -44,9 +45,10 @@ export const inject = ['tools', 'subagents']
 
 import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { changedPaths, createWorktree, poolDir, removeWorktree, workAtRisk } from './rust-worktree.mjs'
-import { DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
+import { DEFAULT_MAX_CONCURRENT_AGENTS, DEPTH_MESSAGE, WORKFLOW_TOOL, registerWorkflow } from './rust-acp-workflow.mjs'
 
 export const MARK = '\u241esubagent\u241e'
 export const DEFAULT_MAX_CONCURRENT = 32
@@ -112,6 +114,7 @@ export function readPolicy(raw) {
     maxConcurrent: DEFAULT_MAX_CONCURRENT,
     limitBehavior: 'queue',
     maxDepth: 1,
+    workflowMaxConcurrent: DEFAULT_MAX_CONCURRENT_AGENTS,
     types: BUILTIN_TYPES.map(type => ({ ...type })),
   }
   if (raw === undefined || String(raw).trim() === '') return { policy: base }
@@ -156,6 +159,7 @@ export function readPolicy(raw) {
       maxConcurrent: positiveInt(value.maxConcurrent, DEFAULT_MAX_CONCURRENT),
       limitBehavior: value.limitBehavior === 'fail' ? 'fail' : 'queue',
       maxDepth: positiveInt(value.maxDepth, 1),
+      workflowMaxConcurrent: positiveInt(value.workflowMaxConcurrent, DEFAULT_MAX_CONCURRENT_AGENTS),
       types: Array.isArray(value.types) ? types : base.types,
     },
   }
@@ -220,6 +224,51 @@ function outputText(output) {
     .filter(block => block && block.type === 'text' && typeof block.text === 'string')
     .map(block => block.text)
     .join('')
+}
+
+/** dsh's turn outcome in the subagent seam's vocabulary (in-process driver). */
+function turnStopReason(reason) {
+  switch (reason?.kind) {
+    case 'completed': return 'completed'
+    case 'max-tokens': return 'max-tokens'
+    case 'aborted': return 'aborted'
+    case 'blocked': return 'refusal'
+    default: return 'error'
+  }
+}
+
+/**
+ * Send one more user message to a finished, still-published child and wait
+ * for that turn (ticket 182: the workflow output-contract retry resumes the
+ * same child with its whole context, as the reference resumes the child
+ * session). Reads the turn's last non-empty assistant message and its stop
+ * reason from the events after the boundary, like dsh's in-process driver.
+ */
+export async function continueChild(child, prompt, signal) {
+  const boundary = child.session.snapshotEvents().length
+  let cancelled = false
+  const onAbort = () => {
+    cancelled = true
+    child.cancel({ kind: 'parent' })
+  }
+  signal?.addEventListener('abort', onAbort, { once: true })
+  try {
+    if (signal?.aborted) onAbort()
+    else {
+      child.followup(createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }))
+      await child.whenIdle()
+    }
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+  }
+  let output = []
+  let end
+  for (const event of child.session.snapshotEvents(boundary)) {
+    if (event.type === 'assistant/message' && event.data?.message?.content?.length > 0) output = event.data.message.content
+    if (event.type === 'turn/end') end = event
+  }
+  const recorded = end ? turnStopReason(end.data?.reason) : 'error'
+  return { output, stopReason: cancelled && recorded !== 'completed' ? 'aborted' : recorded }
 }
 
 function emit(event) {
@@ -554,7 +603,7 @@ export function apply(ctx) {
    * settlement). `admit` is { acquire(signal, onQueued), release(), count(),
    * limit }.
    */
-  function childRun(plan, admit) {
+  function childRun(plan, admit, { keepOpen = false } = {}) {
     const { request, base, isolation, type } = plan
     const id = base.id
     const parent = request.parent
@@ -595,6 +644,12 @@ export function apply(ctx) {
         }
         emit({ ...base, event: 'start', child: record.childId ?? started.id })
         const result = await started.result
+        if (keepOpen && result.stopReason === 'completed' && !signal.aborted) {
+          // Held for a follow-up turn; the holder disposes it (ticket 182).
+          const held = started
+          started = undefined
+          return { result, startedAt, held }
+        }
         return { result, startedAt }
       } catch (cause) {
         if (signal.aborted) return { result: { stopReason: 'aborted', output: [] }, startedAt }
@@ -608,11 +663,14 @@ export function apply(ctx) {
         }
       }
     }
-    const finish = (outcome, startedAt, failure) => {
+    const finish = (outcome, startedAt, failure, override) => {
       const elapsedMs = Date.now() - (startedAt ?? Date.now())
       let status
       let detail = ''
-      if (failure !== undefined) {
+      if (override) {
+        status = override.status
+        detail = override.detail ?? ''
+      } else if (failure !== undefined) {
         status = controller.signal.aborted ? 'cancelled' : 'failed'
         detail = failure instanceof Error ? failure.message : String(failure)
       } else if (outcome.stopReason === 'completed') {
@@ -638,6 +696,56 @@ export function apply(ctx) {
     return { record, controller, run, finish, withWorktree }
   }
 
+  /**
+   * A finished child kept open for one more turn (the workflow output
+   * contract, ticket 182). `resume(prompt, signal)` runs that turn;
+   * `close({ status, detail })` disposes the child and ends its board row
+   * with the holder's verdict. Cancelling the child's own controller
+   * (/tasks) or `signal` cancels a running follow-up turn.
+   */
+  function holdSession(child, held, startedAt) {
+    const { record, controller, finish, withWorktree } = child
+    let closed
+    const close = async (verdict = {}) => {
+      if (closed) return closed
+      closed = (async () => {
+        try {
+          await held.dispose()
+        } catch {}
+        const aborted = controller.signal.aborted
+        const status = verdict.status === 'completed' && !aborted ? 'completed' : verdict.status === 'cancelled' || aborted ? 'cancelled' : 'failed'
+        finish(undefined, startedAt, undefined, { status, detail: String(verdict.detail ?? '').slice(0, 400) })
+        return status
+      })()
+      return closed
+    }
+    return {
+      childId: record.childId,
+      async resume(prompt, signal) {
+        if (closed) throw new Error('the subagent was already closed')
+        const both = new AbortController()
+        const relay = () => both.abort()
+        for (const source of [signal, controller.signal]) {
+          if (source?.aborted) both.abort()
+          else source?.addEventListener('abort', relay, { once: true })
+        }
+        try {
+          const result = await continueChild(held.localAgent, prompt, both.signal)
+          if (result.stopReason === 'completed') return { status: 'completed', text: outputText(result.output) }
+          const status = result.stopReason === 'aborted' ? 'cancelled' : 'failed'
+          const headline = record.cancelRequested ? 'subagent run was cancelled by the user' : stopReasonError(result.stopReason)
+          const partial = outputText(result.output)
+          await close({ status, detail: headline })
+          return { status, text: withWorktree(`${headline}${partial ? `\nPartial output before the run ended:\n${partial}` : ''}`) }
+        } finally {
+          for (const source of [signal, controller.signal]) source?.removeEventListener('abort', relay)
+        }
+      },
+      close,
+      withWorktree,
+    }
+  }
+
   /** Wait for a foreground child; `signal` is the caller's (parent turn or run). */
   async function runForeground(child, signal) {
     const { record, controller, run, finish, withWorktree } = child
@@ -653,7 +761,8 @@ export function apply(ctx) {
         const text = withWorktree(failure instanceof Error ? failure.message : String(failure))
         return { status, text, failure, record }
       }
-      const { result, startedAt } = settled
+      const { result, startedAt, held } = settled
+      if (held) return { status: 'completed', text: outputText(result.output), record, session: holdSession(child, held, startedAt) }
       const status = finish(result, startedAt)
       if (status === 'completed') return { status, text: withWorktree(outputText(result.output)), record }
       const headline = record.cancelRequested && !signal.aborted
@@ -771,6 +880,7 @@ export function apply(ctx) {
     isChildAgent: agent => isChildAgent(agent),
     emit,
     refusal: error ? `subagent policy refused: ${error}` : null,
+    maxConcurrent: policy?.workflowMaxConcurrent,
     spawnChild: async spec => {
       const plan = await planChild(spec)
       const child = childRun(plan, {
@@ -778,13 +888,13 @@ export function apply(ctx) {
         release: () => {},
         count: () => 0,
         limit: 0,
-      })
+      }, { keepOpen: spec.keepOpen === true })
       const settled = await runForeground(child, spec.signal)
       if (settled.failure !== undefined && settled.status === 'failed' && !settled.record.childId && !settled.record.worktree) {
         // Nothing started (for example worktree creation failed): a host error.
         throw settled.failure
       }
-      return { status: settled.status, text: settled.text, childId: settled.record.childId }
+      return { status: settled.status, text: settled.text, childId: settled.record.childId, session: settled.session }
     },
   })
 }

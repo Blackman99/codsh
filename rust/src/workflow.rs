@@ -1,4 +1,4 @@
-//! Rhai workflow engine process (ticket 181).
+//! Rhai workflow engine process (tickets 181 and 182).
 //!
 //! `codsh-rust __workflow-engine` runs one workflow script with the vendored
 //! reference engine (`rust/upstream/xai-workflow`, Rhai 1.25). The dsh plugin
@@ -7,18 +7,31 @@
 //!
 //! * host -> engine, first line: `{"op":"run"|"validate", "source":
 //!   {"type":"script","script"} | {"type":"script_path","script_path"},
-//!   "cwd", "grokHome", "trusted", "args", "agentBudget"}`.
+//!   "cwd", "grokHome", "trusted", "args", "agentBudget", "scratchDir"}`.
 //! * engine -> host: `rejected`, `validated`, `started`, `request`
-//!   (`spawn_agent` with normalized options), `phase`, `log`, `outcome`.
-//! * host -> engine afterwards: `{"type":"reply","id","ok"|"error"}` and
-//!   `{"type":"cancel"}`. End of input cancels too.
+//!   (`spawn_agent` with normalized options, `resume_agent` with the
+//!   `agent` request id and a prompt), `close` (`agent`, `status`,
+//!   `detail`), `phase`, `log`, `outcome`.
+//! * host -> engine afterwards: `{"type":"reply","id","ok"|"error","open"}`
+//!   and `{"type":"cancel"}`. End of input cancels too.
 //!
 //! The engine answers the reference host calls it can decide alone: agent
 //! budget reservation and queries (reference tracker semantics), templates
-//! (none are registered, as in a host without built-in workflows), and the
-//! per-agent option checks of the reference host (prompt/label/phase size,
-//! effort, capability mode, `fork_context`). Only valid `spawn_agent`
-//! requests reach the dsh side, which starts real dsh children.
+//! (none are registered, as in a host without built-in workflows), scratch
+//! files and `git_diff_since` (`workflow_host.rs`), and the per-agent option
+//! checks of the reference host (prompt/label/phase size, effort, capability
+//! mode, `fork_context`, `output_schema` compilation). Only valid
+//! `spawn_agent` requests reach the dsh side, which starts real dsh
+//! children.
+//!
+//! `output_schema` (ticket 182) follows the reference attempt loop: the
+//! prompt carries the output contract, a `spawn_agent` request is marked
+//! `contract`, and the host keeps a child that finished successfully open
+//! (`"open": true`). The engine validates the final text; on a miss it sends
+//! one `resume_agent` with the reference correction prompt to the same
+//! child, then `close`s it with the final status. Every attempt counts
+//! toward the reference agent-run quota (2048); the budget charges one
+//! logical call.
 //!
 //! This is a separate process with Rhai operation, depth and size limits and
 //! no filesystem, network or process functions registered. It is not a
@@ -36,6 +49,11 @@ use tokio_util::sync::CancellationToken;
 use xai_workflow::{
     AgentOpts, AgentResult, BudgetState, HostError, Journal, WorkflowHostRequest, WorkflowMeta,
     WorkflowOutcome, WorkflowRunParams, extract_meta, run_workflow,
+};
+
+use crate::workflow_host::{
+    SCHEMA_CONTRACT_RETRIES, Scratch, WORKFLOW_MAX_AGENT_RUNS, compile_contract_schema,
+    contract_prompt, retry_prompt, validate_contract_output,
 };
 
 pub const SUBCOMMAND: &str = "__workflow-engine";
@@ -269,9 +287,16 @@ impl Budget {
     }
 }
 
+/// A checked `spawn_agent`: the request the dsh side receives and, for an
+/// `output_schema` agent, the compiled contract.
+pub struct Checked {
+    pub request: Value,
+    pub validator: Option<jsonschema::Validator>,
+}
+
 /// The reference host's option checks, in its order. `Ok` is the request the
 /// dsh side receives; `Err` is the host error the script sees.
-pub fn check_agent_opts(opts: &AgentOpts) -> Result<Value, HostError> {
+pub fn check_agent_opts(opts: &AgentOpts) -> Result<Checked, HostError> {
     if opts.prompt.len() > MAX_AGENT_PROMPT_BYTES {
         return Err(HostError::Failed(format!(
             "agent prompt exceeds {MAX_AGENT_PROMPT_BYTES} bytes"
@@ -321,12 +346,14 @@ pub fn check_agent_opts(opts: &AgentOpts) -> Result<Value, HostError> {
                 .into(),
         ));
     }
-    if opts.output_schema.is_some() {
-        return Err(HostError::Unsupported(
-            "output_schema is not supported by this host yet: agent() returns the child's final text"
-                .into(),
-        ));
-    }
+    let validator = match &opts.output_schema {
+        None => None,
+        Some(schema) => Some(compile_contract_schema(schema).map_err(HostError::Failed)?),
+    };
+    let prompt = match &opts.output_schema {
+        None => opts.prompt.clone(),
+        Some(schema) => contract_prompt(&opts.prompt, schema),
+    };
     let text = |value: &Option<String>| {
         value
             .as_deref()
@@ -334,8 +361,9 @@ pub fn check_agent_opts(opts: &AgentOpts) -> Result<Value, HostError> {
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
-    Ok(json!({
-        "prompt": opts.prompt,
+    let request = json!({
+        "prompt": prompt,
+        "contract": validator.is_some(),
         "label": text(&opts.label),
         "model": text(&opts.model),
         "effort": effort,
@@ -343,7 +371,8 @@ pub fn check_agent_opts(opts: &AgentOpts) -> Result<Value, HostError> {
         "capabilityMode": opts.capability_mode,
         "isolationWorktree": opts.isolation_worktree,
         "phase": text(&opts.phase),
-    }))
+    });
+    Ok(Checked { request, validator })
 }
 
 fn host_error_from_json(value: &Value) -> HostError {
@@ -379,6 +408,8 @@ pub struct Start {
     pub scope: Scope,
     pub args: Value,
     pub agent_budget: u64,
+    /// This run's scratch directory; `None` refuses scratch files.
+    pub scratch_dir: Option<PathBuf>,
 }
 
 pub fn parse_start(line: &str) -> Result<Start, String> {
@@ -449,6 +480,11 @@ pub fn parse_start(line: &str) -> Result<Start, String> {
             Some(args) => args.clone(),
         },
         agent_budget,
+        scratch_dir: value
+            .get("scratchDir")
+            .and_then(Value::as_str)
+            .filter(|dir| Path::new(dir).is_absolute())
+            .map(PathBuf::from),
     })
 }
 
@@ -497,8 +533,35 @@ fn meta_json(meta: &WorkflowMeta) -> Value {
     })
 }
 
+/// One live agent call: the script's reply and, for an `output_schema`
+/// agent, the reference attempt state.
+struct Call {
+    reply: oneshot::Sender<Result<AgentResult, HostError>>,
+    validator: Option<jsonschema::Validator>,
+    /// The `spawn_agent` request id; the host knows the child by it.
+    agent: u64,
+    attempts: u32,
+    agent_id: Option<String>,
+    duration_ms: u64,
+}
+
+fn no_scratch() -> HostError {
+    HostError::Unsupported(
+        "scratch files need a session directory, and this run was started without one".into(),
+    )
+}
+
 /// Serve one engine session. Returns the process exit code.
-pub fn serve<R, W>(mut input: R, mut output: W, max_ops: u64) -> i32
+pub fn serve<R, W>(input: R, output: W, max_ops: u64) -> i32
+where
+    R: BufRead + Send + 'static,
+    W: Write,
+{
+    serve_with(input, output, max_ops, WORKFLOW_MAX_AGENT_RUNS)
+}
+
+/// [`serve`] with an explicit agent-run quota (tests lower it).
+fn serve_with<R, W>(mut input: R, mut output: W, max_ops: u64, max_agent_runs: u64) -> i32
 where
     R: BufRead + Send + 'static,
     W: Write,
@@ -655,20 +718,26 @@ where
     }
     drop(events);
 
-    let mut pending: HashMap<u64, oneshot::Sender<Result<AgentResult, HostError>>> = HashMap::new();
+    let scratch = start.scratch_dir.clone().map(|dir| Scratch { dir });
+    let cwd = start.scope.cwd.clone();
+    let mut pending: HashMap<u64, Call> = HashMap::new();
     let mut next_id = 0u64;
+    let mut agent_runs = 0u64;
     let mut cancelled = false;
     let mut outcome: Option<WorkflowOutcome> = None;
     let mut host_closed = false;
-    let cancel_all =
-        |pending: &mut HashMap<u64, oneshot::Sender<Result<AgentResult, HostError>>>,
-         cancelled: &mut bool| {
-            *cancelled = true;
-            cancel.cancel();
-            for (_, reply) in pending.drain() {
-                let _ = reply.send(Err(HostError::Cancelled));
-            }
-        };
+    let cancel_all = |pending: &mut HashMap<u64, Call>, cancelled: &mut bool| {
+        *cancelled = true;
+        cancel.cancel();
+        for (_, call) in pending.drain() {
+            let _ = call.reply.send(Err(HostError::Cancelled));
+        }
+    };
+    let quota_error = || {
+        HostError::Failed(format!(
+            "workflow agent-run quota exceeded (maximum {WORKFLOW_MAX_AGENT_RUNS})"
+        ))
+    };
     for event in inbox {
         match event {
             Event::Host(request) => match *request {
@@ -699,9 +768,23 @@ where
                         Err(error) => {
                             let _ = reply.send(Err(error));
                         }
-                        Ok(request) => {
+                        Ok(_) if agent_runs >= max_agent_runs => {
+                            let _ = reply.send(Err(quota_error()));
+                        }
+                        Ok(Checked { request, validator }) => {
+                            agent_runs += 1;
                             next_id += 1;
-                            pending.insert(next_id, reply);
+                            pending.insert(
+                                next_id,
+                                Call {
+                                    reply,
+                                    validator,
+                                    agent: next_id,
+                                    attempts: 1,
+                                    agent_id: None,
+                                    duration_ms: 0,
+                                },
+                            );
                             write_line(
                                 &mut output,
                                 &json!({"type": "request", "id": next_id, "kind": "spawn_agent", "opts": request}),
@@ -722,18 +805,40 @@ where
                 // Script telemetry is suppressed, as in the reference host.
                 WorkflowHostRequest::Telemetry { .. } => {}
                 WorkflowHostRequest::RenderTemplate { name, reply, .. } => {
-                    let _ = reply.send(Err(HostError::Failed(format!("unknown template: {name}"))));
+                    let _ = reply.send(if cancelled {
+                        Err(HostError::Cancelled)
+                    } else {
+                        Err(HostError::Failed(format!("unknown template: {name}")))
+                    });
                 }
-                WorkflowHostRequest::WriteScratchFile { reply, .. }
-                | WorkflowHostRequest::ReadScratchFile { reply, .. } => {
-                    let _ = reply.send(Err(HostError::Unsupported(
-                        "scratch files are not supported by this host yet".into(),
-                    )));
+                WorkflowHostRequest::WriteScratchFile {
+                    name,
+                    content,
+                    reply,
+                } => {
+                    let _ = reply.send(match (&scratch, cancelled) {
+                        (_, true) => Err(HostError::Cancelled),
+                        (None, _) => Err(no_scratch()),
+                        (Some(scratch), _) => scratch.write(&name, &content),
+                    });
                 }
-                WorkflowHostRequest::GitDiffSince { reply, .. } => {
-                    let _ = reply.send(Err(HostError::Unsupported(
-                        "git_diff_since is not supported by this host yet".into(),
-                    )));
+                WorkflowHostRequest::ReadScratchFile { name, reply } => {
+                    let _ = reply.send(match (&scratch, cancelled) {
+                        (_, true) => Err(HostError::Cancelled),
+                        (None, _) => Err(no_scratch()),
+                        (Some(scratch), _) => scratch.read(&name),
+                    });
+                }
+                WorkflowHostRequest::GitDiffSince { commit, reply } => {
+                    if cancelled {
+                        let _ = reply.send(Err(HostError::Cancelled));
+                        continue;
+                    }
+                    // Off the event loop: git may take up to 20 s.
+                    let cwd = cwd.clone();
+                    std::thread::spawn(move || {
+                        let _ = reply.send(crate::workflow_host::git_diff_since(&cwd, &commit));
+                    });
                 }
             },
             Event::Line(line) => {
@@ -743,13 +848,14 @@ where
                 match value.get("type").and_then(Value::as_str) {
                     Some("cancel") => cancel_all(&mut pending, &mut cancelled),
                     Some("reply") => {
-                        let Some(reply) = value
+                        let Some(mut call) = value
                             .get("id")
                             .and_then(Value::as_u64)
                             .and_then(|id| pending.remove(&id))
                         else {
                             continue;
                         };
+                        let open = value.get("open") == Some(&json!(true));
                         let result = if let Some(ok) = value.get("ok") {
                             serde_json::from_value::<AgentResult>(ok.clone()).map_err(|error| {
                                 HostError::Failed(format!(
@@ -761,7 +867,76 @@ where
                                 value.get("error").unwrap_or(&Value::Null),
                             ))
                         };
-                        let _ = reply.send(result);
+                        let close = |output: &mut W, status: &str, detail: &str, agent: u64| {
+                            if open {
+                                write_line(
+                                    output,
+                                    &json!({"type": "close", "agent": agent, "status": status, "detail": detail}),
+                                );
+                            }
+                        };
+                        let mut result = match result {
+                            Err(error) => {
+                                close(&mut output, "failed", &error.to_string(), call.agent);
+                                let _ = call.reply.send(Err(error));
+                                continue;
+                            }
+                            Ok(result) => result,
+                        };
+                        let Some(validator) = call.validator.as_ref() else {
+                            close(&mut output, "completed", "", call.agent);
+                            let _ = call.reply.send(Ok(result));
+                            continue;
+                        };
+                        // The reference reports the first attempt's id and
+                        // the summed duration of every attempt.
+                        call.duration_ms = call.duration_ms.saturating_add(result.duration_ms);
+                        let agent_id = call
+                            .agent_id
+                            .get_or_insert_with(|| result.agent_id.clone())
+                            .clone();
+                        result.agent_id = agent_id;
+                        result.duration_ms = call.duration_ms;
+                        if !result.success {
+                            close(&mut output, "failed", "", call.agent);
+                            let _ = call.reply.send(Ok(result));
+                            continue;
+                        }
+                        let text = match &result.output {
+                            Value::String(text) => text.clone(),
+                            other => other.to_string(),
+                        };
+                        match validate_contract_output(validator, &text) {
+                            Ok(value) => {
+                                result.output = value;
+                                close(&mut output, "completed", "", call.agent);
+                                let _ = call.reply.send(Ok(result));
+                            }
+                            Err(error) if call.attempts <= SCHEMA_CONTRACT_RETRIES && open => {
+                                if agent_runs >= max_agent_runs {
+                                    let error = quota_error();
+                                    close(&mut output, "failed", &error.to_string(), call.agent);
+                                    let _ = call.reply.send(Err(error));
+                                    continue;
+                                }
+                                agent_runs += 1;
+                                call.attempts += 1;
+                                next_id += 1;
+                                write_line(
+                                    &mut output,
+                                    &json!({"type": "request", "id": next_id, "kind": "resume_agent", "agent": call.agent, "prompt": retry_prompt(&error)}),
+                                );
+                                pending.insert(next_id, call);
+                            }
+                            Err(error) => {
+                                let message =
+                                    format!("structured output validation failed: {error}");
+                                result.success = false;
+                                result.output = Value::String(message.clone());
+                                close(&mut output, "failed", &message, call.agent);
+                                let _ = call.reply.send(Ok(result));
+                            }
+                        }
                     }
                     _ => {}
                 }
@@ -831,9 +1006,11 @@ mod tests {
     }
 
     impl Sink {
+        /// Complete lines only: a line may still be half written.
         fn lines(&self) -> Vec<Value> {
-            String::from_utf8(self.0.lock().unwrap().clone())
-                .unwrap()
+            let text = String::from_utf8(self.0.lock().unwrap().clone()).unwrap();
+            let complete = &text[..text.rfind('\n').map_or(0, |end| end + 1)];
+            complete
                 .lines()
                 .map(|line| serde_json::from_str(line).unwrap())
                 .collect()
@@ -985,8 +1162,12 @@ mod tests {
             ),
             ("#{ resume_from: \"c1\" }", "resume_from is not supported"),
             (
-                "#{ output_schema: #{ type: \"object\" } }",
-                "output_schema is not supported",
+                "#{ output_schema: #{ type: 7 } }",
+                "output_schema is not a valid self-contained JSON Schema: ",
+            ),
+            (
+                "#{ output_schema: #{ \"$ref\": \"https://example.com/s.json\" } }",
+                "external JSON Schema references are disabled",
             ),
             (
                 long_label.as_str(),
@@ -1158,21 +1339,271 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_host_calls_are_explicit() {
+    fn templates_scratch_and_git_diff_follow_the_reference_host() {
         let script = format!(
-            "{META}let out = [];\nfor f in [|| render_template(\"t\", #{{}}), || write_scratch_file(\"a\", \"b\"), || read_scratch_file(\"a\"), || git_diff_since(\"HEAD\")] {{ try {{ f.call(); out.push(\"ran\"); }} catch (e) {{ out.push(e); }} }}\nout"
+            "{META}let out = [];\nfor f in [|| render_template(\"t\", #{{}}), || write_scratch_file(\"a\", \"b\"), || read_scratch_file(\"a\"), || git_diff_since(\"HEAD~1\")] {{ try {{ out.push(f.call()); }} catch (e) {{ out.push(e); }} }}\nout"
         );
+        // Without a session directory scratch files are refused explicitly.
         let session = Session::start(run(&script, Value::Null), 1_000_000);
         let (_, lines) = session.finish();
         assert_eq!(
             lines.last().unwrap()["result"],
             json!([
                 "unknown template: t",
-                "scratch files are not supported by this host yet",
-                "scratch files are not supported by this host yet",
-                "git_diff_since is not supported by this host yet"
+                "scratch files need a session directory, and this run was started without one",
+                "scratch files need a session directory, and this run was started without one",
+                "git_diff_since expects a commit hash, got: HEAD~1"
             ])
         );
+
+        let root = tempfile::tempdir().unwrap();
+        let dir = root
+            .path()
+            .join("s")
+            .join("workflows")
+            .join("run")
+            .join("scratch");
+        let script = format!(
+            "{META}let p = write_scratch_file(\"notes.md\", \"hello\");\nlet back = read_scratch_file(\"notes.md\");\nlet bad = \"\"; try {{ write_scratch_file(\"../x\", \"y\"); }} catch (e) {{ bad = e; }}\nlet missing = \"\"; try {{ read_scratch_file(\"none\"); }} catch (e) {{ missing = e; }}\n#{{ p: p, back: back, bad: bad, missing: missing }}"
+        );
+        let start = json!({"op": "run", "source": {"type": "script", "script": script}, "cwd": "/", "scratchDir": dir.to_str().unwrap()});
+        let (_, lines) = Session::start(start, 1_000_000).finish();
+        let result = &lines.last().unwrap()["result"];
+        assert_eq!(result["p"], "scratch/notes.md");
+        assert_eq!(result["back"], "hello");
+        assert_eq!(
+            result["bad"],
+            "scratch file name must be a single relative path component, got: ../x"
+        );
+        assert!(
+            result["missing"]
+                .as_str()
+                .unwrap()
+                .starts_with("scratch read metadata: "),
+            "{result}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join("notes.md")).unwrap(),
+            "hello"
+        );
+    }
+
+    fn contract_script(schema: &str) -> String {
+        format!(
+            "{META}let r = agent(\"scan\", #{{ label: \"s\", output_schema: {schema} }});\n#{{ ok: r.success, out: r.output, id: r.agent_id, ms: r.duration_ms }}"
+        )
+    }
+
+    const OK_SCHEMA: &str =
+        "#{ type: \"object\", required: [\"ok\"], properties: #{ ok: #{ type: \"boolean\" } } }";
+
+    fn reply_open(session: &Session, id: &Value, agent: &str, output: &str, ms: u64) {
+        session.send(json!({"type": "reply", "id": id, "open": true, "ok": {"agent_id": agent, "success": true, "output": output, "cancelled": false, "tokens_used": 0, "duration_ms": ms}}));
+    }
+
+    #[test]
+    fn output_schema_passes_on_the_first_answer() {
+        let session = Session::start(run(&contract_script(OK_SCHEMA), Value::Null), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        assert_eq!(request["opts"]["contract"], true);
+        let prompt = request["opts"]["prompt"].as_str().unwrap();
+        assert!(
+            prompt
+                .starts_with("scan\n\n<output-contract>\nDo the work above with your tools first."),
+            "{prompt}"
+        );
+        assert!(prompt.contains("\"required\":[\"ok\"]"), "{prompt}");
+        reply_open(
+            &session,
+            &request["id"],
+            "c1",
+            "done.\n```json\n{\"ok\": true}\n```",
+            5,
+        );
+        let (_, lines) = session.finish();
+        let kinds: Vec<&str> = lines
+            .iter()
+            .map(|line| line["type"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, ["started", "request", "close", "outcome"]);
+        assert_eq!(
+            lines[2],
+            json!({"type": "close", "agent": request["id"], "status": "completed", "detail": ""})
+        );
+        assert_eq!(
+            lines.last().unwrap()["result"],
+            json!({"ok": true, "out": {"ok": true}, "id": "c1", "ms": 5})
+        );
+        assert_eq!(lines.last().unwrap()["agentsUsed"], 1);
+    }
+
+    #[test]
+    fn output_schema_resumes_the_same_child_once_then_accepts() {
+        let session = Session::start(run(&contract_script(OK_SCHEMA), Value::Null), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        reply_open(&session, &request["id"], "c1", "all clear", 5);
+        let resume = session.sink.wait(|line| line["kind"] == "resume_agent");
+        assert_eq!(resume["agent"], request["id"]);
+        let prompt = resume["prompt"].as_str().unwrap();
+        assert!(prompt.starts_with("Your final message did not satisfy the output contract: final message did not contain valid JSON (expected a ```json fenced block): "), "{prompt}");
+        assert!(prompt.ends_with("Reply with a single ```json fenced block containing one JSON value conforming to the schema from <output-contract>, and nothing else."), "{prompt}");
+        reply_open(
+            &session,
+            &resume["id"],
+            "c1-again",
+            "```json\n{\"ok\": false}\n```",
+            7,
+        );
+        let (_, lines) = session.finish();
+        let closes: Vec<&Value> = lines
+            .iter()
+            .filter(|line| line["type"] == "close")
+            .collect();
+        assert_eq!(closes.len(), 1);
+        assert_eq!(closes[0]["status"], "completed");
+        // One logical call; the first attempt's id and the summed time.
+        let outcome = lines.last().unwrap();
+        assert_eq!(
+            outcome["result"],
+            json!({"ok": true, "out": {"ok": false}, "id": "c1", "ms": 12})
+        );
+        assert_eq!(outcome["agentsUsed"], 1);
+    }
+
+    #[test]
+    fn output_schema_fails_after_the_retry_and_a_failed_child_is_not_retried() {
+        let session = Session::start(run(&contract_script(OK_SCHEMA), Value::Null), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        reply_open(&session, &request["id"], "c1", "{\"ok\": \"yes\"}", 1);
+        let resume = session.sink.wait(|line| line["kind"] == "resume_agent");
+        assert!(
+            resume["prompt"]
+                .as_str()
+                .unwrap()
+                .contains("output does not match the required schema: ")
+        );
+        reply_open(&session, &resume["id"], "c1", "still no", 1);
+        let (_, lines) = session.finish();
+        let close = lines.iter().find(|line| line["type"] == "close").unwrap();
+        assert_eq!(close["status"], "failed");
+        let result = &lines.last().unwrap()["result"];
+        assert_eq!(result["ok"], false);
+        assert!(
+            result["out"].as_str().unwrap().starts_with(
+                "structured output validation failed: final message did not contain valid JSON"
+            ),
+            "{result}"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line["kind"] == "resume_agent")
+                .count(),
+            1
+        );
+
+        // A child that failed is handed back as is: no retry, no close
+        // (the host closed it).
+        let session = Session::start(run(&contract_script(OK_SCHEMA), Value::Null), 1_000_000);
+        let request = session.sink.wait(|line| line["type"] == "request");
+        session.send(json!({"type": "reply", "id": request["id"], "ok": {"agent_id": "c", "success": false, "output": "subagent run failed", "cancelled": false, "tokens_used": 0, "duration_ms": 0}}));
+        let (_, lines) = session.finish();
+        assert!(
+            lines
+                .iter()
+                .all(|line| line["type"] != "close" && line["kind"] != "resume_agent"),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines.last().unwrap()["result"]["out"],
+            "subagent run failed"
+        );
+    }
+
+    #[test]
+    fn the_agent_run_quota_counts_every_attempt() {
+        let start = |script: &str| {
+            let (feed, rx) = mpsc::channel::<Vec<u8>>();
+            feed.send(format!("{}\n", run(script, Value::Null)).into_bytes())
+                .unwrap();
+            let sink = Sink::default();
+            let out = sink.clone();
+            let done = std::thread::spawn(move || {
+                serve_with(io::BufReader::new(Feed(rx, Vec::new())), out, 1_000_000, 1)
+            });
+            Session {
+                feed: Some(feed),
+                sink,
+                done,
+            }
+        };
+        // The second first-attempt run is over a quota of one.
+        let session = start(&format!(
+            "{META}agent(\"a\"); let r = \"\"; try {{ agent(\"b\"); }} catch (e) {{ r = e; }}\nr"
+        ));
+        let request = session.sink.wait(|line| line["type"] == "request");
+        session.send(json!({"type": "reply", "id": request["id"], "ok": ok_result("c1", "A")}));
+        let (_, lines) = session.finish();
+        assert_eq!(
+            lines.last().unwrap()["result"],
+            "workflow agent-run quota exceeded (maximum 2048)"
+        );
+        // A schema retry needs a run too; without one the child is closed
+        // as failed and the call fails.
+        let session = start(&format!(
+            "{META}let r = \"\"; try {{ agent(\"a\", #{{ output_schema: {OK_SCHEMA} }}); }} catch (e) {{ r = e; }}\nr"
+        ));
+        let request = session.sink.wait(|line| line["type"] == "request");
+        reply_open(&session, &request["id"], "c1", "no json", 1);
+        let (_, lines) = session.finish();
+        assert!(lines.iter().all(|line| line["kind"] != "resume_agent"));
+        assert_eq!(
+            lines.iter().find(|line| line["type"] == "close").unwrap()["status"],
+            "failed"
+        );
+        assert_eq!(
+            lines.last().unwrap()["result"],
+            "workflow agent-run quota exceeded (maximum 2048)"
+        );
+    }
+
+    #[test]
+    fn a_parallel_panel_with_schemas_keeps_order_and_isolates_retries() {
+        let script = format!(
+            "{META}let rs = parallel([#{{ prompt: \"a\", output_schema: {OK_SCHEMA} }}, #{{ prompt: \"b\" }}, #{{ prompt: \"c\", output_schema: {OK_SCHEMA} }}]);\nrs.map(|r| if r == () {{ \"null\" }} else {{ r.output }})"
+        );
+        let session = Session::start(run(&script, Value::Null), 1_000_000);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let requests = loop {
+            let requests: Vec<Value> = session
+                .sink
+                .lines()
+                .into_iter()
+                .filter(|line| line["kind"] == "spawn_agent")
+                .collect();
+            if requests.len() == 3 {
+                break requests;
+            }
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_eq!(
+            requests
+                .iter()
+                .map(|r| r["opts"]["contract"].as_bool().unwrap())
+                .collect::<Vec<_>>(),
+            [true, false, true]
+        );
+        reply_open(&session, &requests[2]["id"], "c3", "nope", 1);
+        let resume = session.sink.wait(|line| line["kind"] == "resume_agent");
+        assert_eq!(resume["agent"], requests[2]["id"]);
+        session.send(json!({"type": "reply", "id": requests[1]["id"], "ok": ok_result("c2", "B")}));
+        reply_open(&session, &requests[0]["id"], "c1", "{\"ok\": true}", 1);
+        reply_open(&session, &resume["id"], "c3", "{\"ok\": false}", 1);
+        let (_, lines) = session.finish();
+        let outcome = lines.last().unwrap();
+        assert_eq!(outcome["result"], json!([{"ok": true}, "B", {"ok": false}]));
+        assert_eq!(outcome["agentsUsed"], 3);
     }
 
     #[test]

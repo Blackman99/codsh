@@ -655,6 +655,8 @@ function * backgroundTurn(options) {
   yield* mockText(`${label} job=${jobIdOf(first)} ${resultSummary(resultText(since.at(-1)))}`)
 }
 
+const HOLD = { live: 0, peak: 0 }
+
 async function * subagentChildTurn(options, kind, signal) {
   const tools = Array.isArray(options.tools) ? options.tools.map(tool => tool.name).sort().join(',') : ''
   const done = toolResults(options)
@@ -723,6 +725,33 @@ async function * subagentChildTurn(options, kind, signal) {
       return
     }
     yield* mockText('CHILD_SLOW_DONE')
+    return
+  }
+  // Ticket 182. JSON answers `FIRST<<text>>` from its prompt, and
+  // `RETRY<<text>>` once it is told its answer missed the output contract
+  // (the correction turn of the same child). HOLD waits the given ms while
+  // counting the HOLD turns that are live at once in this dsh process, then
+  // reports the peak it saw.
+  if (kind === 'JSON') {
+    const texts = rawUserTexts(options)
+    const prompt = texts.find(text => text.includes('CHILD_JSON')) ?? ''
+    const retry = texts.some(text => text.includes('did not satisfy the output contract'))
+    const pick = (/RETRY<<([\s\S]*?)>>/.exec(prompt) && retry ? /RETRY<<([\s\S]*?)>>/ : /FIRST<<([\s\S]*?)>>/).exec(prompt)
+    yield* mockText(pick?.[1] ?? 'no answer')
+    return
+  }
+  if (kind === 'HOLD') {
+    const ms = Number(/CHILD_HOLD (\d+)/.exec(rawUserTexts(options).join('\n'))?.[1] ?? '300')
+    HOLD.live += 1
+    HOLD.peak = Math.max(HOLD.peak, HOLD.live)
+    try {
+      await sleep(ms, signal)
+    } catch {
+      return
+    } finally {
+      HOLD.live -= 1
+    }
+    yield* mockText(`CHILD_HELD peak=${HOLD.peak}`)
     return
   }
   yield* mockText(`CHILD_ECHO tools=${tools}`)
@@ -880,12 +909,16 @@ class RustAcpMockAdapter extends LlmAdapter {
         text: (block.content ?? []).filter(part => part.type === 'text').map(part => part.text).join('\n').slice(0, 500),
       })))
       const side = String(options.system ?? '').startsWith('codsh side question')
+      const assistant = options.messages
+        .filter(message => message.role === 'assistant')
+        .flatMap(message => message.content.filter(block => block.type === 'text').map(block => block.text))
       appendFileSync(trace, `${JSON.stringify({
         purpose: side ? 'btw' : options.purpose ?? 'turn',
         provider: options.provider,
         model: options.model?.id ?? options.model ?? '',
         tools: names,
         user,
+        assistant,
         results,
       })}\n`)
     }

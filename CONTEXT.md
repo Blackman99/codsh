@@ -309,7 +309,17 @@ hidden `__workflow-engine` subcommand (dsh gets its path in
 budget, and agent options, and asks the host for each agent call; the host
 starts it as a dsh child through the subagent planner (type, capability, model,
 effort, isolation) with a per-run live cap, reports `event: "workflow"` lines
-for the tool block, and never offers the tool to a child.
+for the tool block, and never offers the tool to a child. The live cap
+(`[subagents] workflow_max_concurrent`, `GROK_WORKFLOW_MAX_CONCURRENT_AGENTS`,
+sent as `workflowMaxConcurrent` in the subagent policy) is separate from the
+engine's cumulative `agent_budget`. The engine owns the reference host
+contracts in `rust/src/workflow_host.rs`: `output_schema` compiles with the
+`jsonschema` crate and rewrites the prompt with the output contract; the host
+keeps a contract child open (`open: true` in the reply) so the engine can send
+one `resume_agent` correction turn to the same dsh child, then a `close` line
+ends it. Scratch files live under the session's plan directory
+(`workflows/<call>/scratch`, sent as `scratchDir`), and `git_diff_since` runs
+git in the engine. Open children are closed when the run ends.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`
 (from `[toolset.bash] auto_background_on_timeout` and
