@@ -90,6 +90,7 @@ import {
   parseNamedArgs,
   pauseStatus,
   resultStatus,
+  statusWords,
   uniqueName,
 } from './rust-acp-workflow-runs.mjs'
 const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
@@ -403,6 +404,9 @@ export function createWorkflowRuns(deps) {
       session: session.id,
       name: run.name,
       status: run.status,
+      // Ticket 206: the result map's status (`partial` / `verified`) of a
+      // completed run, so the tasks pane does not read a partial run as done.
+      result: run.status === 'complete' ? run.resultStatus ?? '' : '',
       phase: run.currentPhase ?? '',
       agents: run.agents.length,
       running: count('running'),
@@ -515,7 +519,7 @@ export function createWorkflowRuns(deps) {
     if (!agent || session.pending.length === 0) return
     const runs = session.pending.splice(0)
     const reminder = formatReminder(runs, { reportPath: reportPathIn(session) })
-    const summary = runs.map(run => `workflow ${run.name} [${run.status.replaceAll('_', ' ')}]`).join(', ')
+    const summary = runs.map(run => `workflow ${run.name} [${statusWords(run)}]`).join(', ')
     const message = createUserMessage({
       content: [{ type: 'text', text: `<system-reminder>\n${reminder}</system-reminder>` }, { type: 'text', text: WAKE_PROMPT }],
       source: { kind: 'plugin', plugin: NOTICE_PLUGIN, form: 'notice', summary },
@@ -1014,7 +1018,13 @@ export function createWorkflowRuns(deps) {
       return `Could not start deep research: ${detail}`
     }
     remindLaunch(session, run, `/deep-research ${run.objective ?? query}`)
-    return `Deep research '${run.name}' started in the background. It will cross-check candidate claims and return a concise cited report here. Use /workflow runs to follow progress.`
+    const reply = `Deep research '${run.name}' started in the background. It will cross-check candidate claims and return a concise cited report here. Use /workflow runs to follow progress.`
+    // Plain `-p "/deep-research <query>"` (ticket 206): nothing is left to
+    // report a background run to once the command ends, so the reply waits
+    // for the run and carries its block, as the plain workflow tool does.
+    // The client stops the run with `/workflow stop` on a signal.
+    if (env.CODSH_WORKFLOW_FOREGROUND === '1') return `${reply}\n${await waitForeground(session, run)}`
+    return reply
   }
 
   /** Display names bare `/workflow save` offers: own-name runs not yet in the project catalog and not built in. */

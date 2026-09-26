@@ -7652,6 +7652,7 @@ fn apply_control_events(
             }
             // Ticket 179 events are applied by `apply_interaction_events`.
             ControlEvent::Question { .. }
+            | ControlEvent::ToolsResult { .. }
             | ControlEvent::QuestionClosed { .. }
             | ControlEvent::PlanState { .. }
             | ControlEvent::PlanResult { .. }
@@ -8353,23 +8354,6 @@ fn run_plain_turn(
         let _ = io::stdout().flush();
         std::process::exit(signal);
     }
-    // Memory joins the first prompt of a new session, as in the TUI. A remote
-    // prompt is sent as typed: local memory, rules, and files stay here.
-    let blocks = if connection.client.remote {
-        if let Err(error) = remote_text_only(&blocks) {
-            connection.client.shutdown();
-            return Err(io::Error::other(error));
-        }
-        blocks
-    } else {
-        blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none())
-    };
-    // The usage slice counts the turns dsh starts from here on (ticket 65).
-    let prompt_started_ms = usage::now_ms();
-    if let Err(error) = connection.client.submit_prompt_blocks(&blocks) {
-        connection.client.shutdown();
-        return Err(io::Error::other(error.message));
-    }
     let model = launch
         .model
         .clone()
@@ -8391,6 +8375,50 @@ fn run_plain_turn(
         model,
         permission_mode,
     );
+    // Ticket 206: the init line names the session's tools and the client
+    // commands this path runs. Events pumped while asking are not dropped.
+    let (tools, early) = plain_tool_names(&mut connection.client, interrupt, terminate);
+    for event in &early {
+        output.on_event(event);
+    }
+    let commands = if tools.iter().any(|name| name == "workflow") {
+        vec!["deep-research".to_string()]
+    } else {
+        Vec::new()
+    };
+    output.set_catalog(tools, commands);
+    if let Some(query) = plain_deep_research_query(prompt) {
+        let mut stop = plain_deep_research(
+            &mut connection.client,
+            &query,
+            &mut output,
+            interrupt,
+            terminate,
+        );
+        connection.client.shutdown();
+        if stop.code != 0 && stop.message.is_empty() {
+            stop.message = plain_failure_message(&effective.dsh_home);
+        }
+        output.finish(stop.code != 0, &stop.message);
+        return plain_exit(&stop);
+    }
+    // Memory joins the first prompt of a new session, as in the TUI. A remote
+    // prompt is sent as typed: local memory, rules, and files stay here.
+    let blocks = if connection.client.remote {
+        if let Err(error) = remote_text_only(&blocks) {
+            connection.client.shutdown();
+            return Err(io::Error::other(error));
+        }
+        blocks
+    } else {
+        blocks_with_model_prompt(launch, &effective, blocks, None, resume.is_none())
+    };
+    // The usage slice counts the turns dsh starts from here on (ticket 65).
+    let prompt_started_ms = usage::now_ms();
+    if let Err(error) = connection.client.submit_prompt_blocks(&blocks) {
+        connection.client.shutdown();
+        return Err(io::Error::other(error.message));
+    }
     let mut stop = PlainStop {
         code: 0,
         message: String::new(),
@@ -8573,6 +8601,230 @@ fn run_plain_turn(
     }
     output.finish(failed, &stop.message);
     plain_exit(&stop)
+}
+
+/// `-p "/deep-research <query>"` (ticket 206): the query of the built-in
+/// command, empty when none was given. Only a plain text prompt is a
+/// command, as a typed line in the TUI is; `/deep-researchx` is not.
+fn plain_deep_research_query(prompt: &PlainPrompt) -> Option<String> {
+    let PlainPrompt::Text(text) = prompt else {
+        return None;
+    };
+    let rest = text.trim_start().strip_prefix("/deep-research")?;
+    if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    Some(rest.trim().to_string())
+}
+
+/// The tool names of this session's agent from the control plugin, and the
+/// ACP events pumped while waiting. Empty for a remote session or when the
+/// control channel does not answer in time.
+fn plain_tool_names(
+    client: &mut AcpClient,
+    interrupt: &AtomicBool,
+    terminate: &AtomicBool,
+) -> (Vec<String>, Vec<AcpEvent>) {
+    let mut early = Vec::new();
+    let Some(session) = client.session_id.clone().filter(|_| !client.remote) else {
+        return (Vec::new(), early);
+    };
+    let ready = Instant::now() + Duration::from_secs(5);
+    while !client.control_ready() && Instant::now() < ready {
+        if plain_signal(interrupt, terminate) != 0 {
+            return (Vec::new(), early);
+        }
+        early.extend(client.pump(Duration::from_millis(20)));
+        let _ = client.poll_control();
+    }
+    if !client.control_ready()
+        || client
+            .send_control(&control::tools_message("tools-plain", &session))
+            .is_err()
+    {
+        return (Vec::new(), early);
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && plain_signal(interrupt, terminate) == 0 {
+        early.extend(client.pump(Duration::from_millis(20)));
+        for event in client.poll_control() {
+            if let control::ControlEvent::ToolsResult { id, outcome } = event
+                && id == "tools-plain"
+            {
+                return (outcome.unwrap_or_default(), early);
+            }
+        }
+    }
+    (Vec::new(), early)
+}
+
+/// Run `/deep-research <query>` for a plain prompt (ticket 206), as the TUI's
+/// slash command does (reference `BuiltinAction::DeepResearch`): the run
+/// manager launches the built-in workflow, not the model. Under
+/// CODSH_WORKFLOW_FOREGROUND its reply waits for the run and carries the run
+/// block, which is the answer. An empty query answers with the reference
+/// usage. A signal stops the run before the process exits.
+fn plain_deep_research(
+    client: &mut AcpClient,
+    query: &str,
+    output: &mut headless::HeadlessOutput,
+    interrupt: &AtomicBool,
+    terminate: &AtomicBool,
+) -> PlainStop {
+    let session = client.session_id.clone().unwrap_or_default();
+    let ready = Instant::now() + Duration::from_secs(10);
+    while !client.control_ready() && Instant::now() < ready {
+        let _ = client.pump(Duration::from_millis(50));
+        let _ = client.poll_control();
+    }
+    if client.remote || !client.control_ready() {
+        return PlainStop {
+            code: 1,
+            message: format!(
+                "/deep-research unavailable: {}",
+                if client.remote {
+                    "a remote session has no local workflow run manager".to_string()
+                } else {
+                    client.control_unavailable()
+                }
+            ),
+        };
+    }
+    const LAUNCH: &str = "deep-research-plain";
+    if let Err(error) = client.send_workflow_launch(LAUNCH, "deep-research", query) {
+        return PlainStop {
+            code: 1,
+            message: format!("/deep-research unavailable: {error}"),
+        };
+    }
+    output.start();
+    // The display handle of the run this launch started, from its board events.
+    let mut run_name = String::new();
+    loop {
+        let signal = plain_signal(interrupt, terminate);
+        if signal != 0 {
+            if !run_name.is_empty() {
+                let _ = client.send_workflow("deep-research-stop", &format!("stop {run_name}"));
+                let settle = Instant::now() + Duration::from_secs(3);
+                'stopping: while Instant::now() < settle {
+                    let _ = client.pump(Duration::from_millis(50));
+                    for event in client.poll_control() {
+                        if matches!(&event, control::ControlEvent::WorkflowResult { id, .. } if id == LAUNCH)
+                        {
+                            break 'stopping;
+                        }
+                    }
+                }
+            }
+            let message = format!("interrupted by signal {signal}");
+            output.fail(&message);
+            return PlainStop {
+                code: signal,
+                message,
+            };
+        }
+        for event in client.pump(Duration::from_millis(50)) {
+            match &event {
+                AcpEvent::Subagent { event: board }
+                    if board.get("event").and_then(Value::as_str) == Some("workflow")
+                        && board.get("session").and_then(Value::as_str)
+                            == Some(session.as_str()) =>
+                {
+                    if let Some(name) = board.get("name").and_then(Value::as_str)
+                        && !name.is_empty()
+                    {
+                        run_name = name.to_string();
+                    }
+                }
+                AcpEvent::PermissionRequest {
+                    request_id,
+                    options,
+                    ..
+                } => {
+                    // No TTY can approve; reject as the plain turn does.
+                    if let Some(choice) = options
+                        .iter()
+                        .find(|choice| choice.option_id == "reject-once")
+                        .or_else(|| options.first())
+                    {
+                        let _ = client.answer_permission(request_id, &choice.option_id);
+                    }
+                }
+                AcpEvent::Disconnected { detail } => {
+                    return PlainStop {
+                        code: 1,
+                        message: detail.clone(),
+                    };
+                }
+                _ => {}
+            }
+            // Model text of the parent session is not the answer here; child
+            // settlements stay diagnostics, as on the plain tool path.
+            if matches!(&event, AcpEvent::Subagent { .. } | AcpEvent::Stderr { .. }) {
+                output.on_event(&event);
+            }
+        }
+        for event in client.poll_control() {
+            let control::ControlEvent::WorkflowResult { id, outcome } = event else {
+                continue;
+            };
+            if id != LAUNCH {
+                continue;
+            }
+            let text = match outcome {
+                Ok(text) => text,
+                Err(error) => {
+                    return PlainStop {
+                        code: 1,
+                        message: format!("/deep-research unavailable: {error}"),
+                    };
+                }
+            };
+            output.on_event(&AcpEvent::Answer {
+                session_id: session.clone(),
+                message_id: "deep-research".into(),
+                text: text.clone(),
+                hook: false,
+            });
+            output.on_event(&AcpEvent::PromptFinished {
+                request_id: 0,
+                stop_reason: "end_turn".into(),
+                result: Value::Null,
+            });
+            return deep_research_stop(&text);
+        }
+    }
+}
+
+/// Exit status of a plain `/deep-research` reply: the usage text and a
+/// completed run (verified or partial; the block says which) succeed; a run
+/// that failed, was stopped, or never started does not.
+fn deep_research_stop(text: &str) -> PlainStop {
+    let ok = PlainStop {
+        code: 0,
+        message: String::new(),
+    };
+    if text.starts_with("Usage: /deep-research") {
+        return ok;
+    }
+    let status = text
+        .split_once("— status: ")
+        .map(|(_, rest)| rest.split_whitespace().next().unwrap_or("").to_string());
+    match status.as_deref() {
+        Some("complete") => ok,
+        Some(other) => PlainStop {
+            code: 1,
+            message: format!("deep-research ended with status {other}"),
+        },
+        None => PlainStop {
+            code: 1,
+            message: text
+                .lines()
+                .next()
+                .unwrap_or("deep-research did not start")
+                .to_string(),
+        },
+    }
 }
 
 /// The usage ledger slice for the turns this plain prompt started, subagent
@@ -16125,6 +16377,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn plain_deep_research_is_the_built_in_command_not_model_text() {
+        let text = |value: &str| PlainPrompt::Text(value.into());
+        assert_eq!(
+            plain_deep_research_query(&text("/deep-research  rust 2024 edition ")),
+            Some("rust 2024 edition".into())
+        );
+        assert_eq!(
+            plain_deep_research_query(&text("/deep-research")),
+            Some(String::new())
+        );
+        assert_eq!(
+            plain_deep_research_query(&text("  /deep-research\nmulti\nline")),
+            Some("multi\nline".into())
+        );
+        assert_eq!(plain_deep_research_query(&text("/deep-researchx q")), None);
+        assert_eq!(
+            plain_deep_research_query(&text("please /deep-research q")),
+            None
+        );
+        assert_eq!(
+            plain_deep_research_query(&PlainPrompt::Json(
+                r#"{"type":"text","text":"/deep-research q"}"#.into()
+            )),
+            None
+        );
+        let code = |reply: &str| deep_research_stop(reply).code;
+        assert_eq!(code("Usage: /deep-research <query>\nResearch with ..."), 0);
+        let block = "Deep research 'deep-research' started in the background. ...\nWorkflow 'deep-research' ended; a plain prompt waits for its workflow runs.\n\n- Workflow 'deep-research' (run id wf_1) — status: complete\n  Result status: partial\n";
+        assert_eq!(code(block), 0);
+        let failed = deep_research_stop(&block.replace("status: complete", "status: failed"));
+        assert_eq!(failed.code, 1);
+        assert_eq!(failed.message, "deep-research ended with status failed");
+        let refused = deep_research_stop("Could not start deep research: no engine");
+        assert_eq!(refused.code, 1);
+        assert_eq!(refused.message, "Could not start deep research: no engine");
     }
 
     #[test]

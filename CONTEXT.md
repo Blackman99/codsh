@@ -508,7 +508,18 @@ answers `launch: "deep-research"` with the reference replies (usage, args
 read-only children get `web_search`/`web_fetch` only when the configured
 substitute enables them. A completed run whose result map has a `status`
 (`partial`/`verified`) keeps it as `resultStatus`, shown as `Result status:`
-in the completion reminder and `/workflow runs`.
+in the completion reminder and `/workflow runs`, and as `complete (result:
+X)` in the completion notice (`statusWords`), the plugin's `workflow` event
+(`result`), the tasks row and the block title (`WorkflowRun::status_words`).
+The dsh `tool-web` row is not the launcher's: `rust.mjs` writes a fail-closed
+placeholder and `config::apply_to_dsh` (and the test-seam patch) appends
+`web_tools_yaml`, the effective `web.search/fetch.enabled`, after it, so a
+config-only setup gets both tools (this also covers #171's in-session
+search). Headless `-p "/deep-research <query>"` is the built-in command:
+`run_plain_turn` asks the plugin for the visible tool names (control `tools`)
+for the init line, sends `workflow_launch` instead of a prompt, waits for the
+run's `workflow_result`, and stops the run on a signal; `rust-acp-workflow`
+waits in the foreground when `CODSH_WORKFLOW_FOREGROUND=1`.
 Ticket 186 adds memory capture in `memory_capture.rs` over the legacy store
 of `memory.rs` (the default; `[memory_v2] enabled = true` is refused and
 `memory-v2/` is never touched). The client owns the files, the Dream lock

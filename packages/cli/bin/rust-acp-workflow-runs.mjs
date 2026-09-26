@@ -135,6 +135,17 @@ export function resultStatus(result) {
   return typeof status === 'string' && /^[a-z][a-z_-]{0,31}$/.test(status) ? status : null
 }
 
+/**
+ * The run status as the completion notice and the tasks pane word it. A
+ * completed run whose result map says `partial` reads
+ * `complete (result: partial)`, so it never looks like a plain success
+ * (ticket 206; /workflow runs shows the same as `Result status:`).
+ */
+export function statusWords(run) {
+  const words = String(run?.status ?? '').replaceAll('_', ' ')
+  return run?.status === 'complete' && run?.resultStatus ? `${words} (result: ${run.resultStatus})` : words
+}
+
 /** Reference `format_workflow_runs_overview`: display names only, no run ids. */
 export function formatOverview(runs, now = Date.now()) {
   if (runs.length === 0) return 'No workflow runs in this session yet. Launch one with /workflow <name> [args]; browse with /workflows.'

@@ -36,6 +36,7 @@ import {
   newRunId,
   parseCommand,
   parseNamedArgs,
+  statusWords,
   uniqueName,
 } from '../packages/cli/bin/rust-acp-workflow-runs.mjs'
 
@@ -357,6 +358,14 @@ describe('workflow tool input and helpers', () => {
     const aborted = slots.acquire(controller.signal)
     controller.abort(new Error('stop'))
     await expect(aborted).rejects.toThrow('stop')
+  })
+
+  it('words a partial completed run as partial in the notice and tasks pane (ticket 206)', () => {
+    expect(statusWords({ status: 'complete', resultStatus: 'partial' })).toBe('complete (result: partial)')
+    expect(statusWords({ status: 'complete', resultStatus: 'verified' })).toBe('complete (result: verified)')
+    expect(statusWords({ status: 'complete', resultStatus: null })).toBe('complete')
+    expect(statusWords({ status: 'user_paused', resultStatus: 'partial' })).toBe('user paused')
+    expect(statusWords({ status: 'failed' })).toBe('failed')
   })
 
   it('names, orders, matches and reports runs like the reference tracker (ticket 183)', () => {
@@ -1543,6 +1552,8 @@ describe('built-in deep-research workflow (ticket 206)', () => {
     expect(report).toContain('- "Claim claim-1 was excluded by verification: the fetched page does not contain the quoted evidence."')
     expect(report).toContain('- "The synthesized report body failed citation validation; the deterministic finding list is shown instead."')
     expect(web.pages.sort()).toEqual(['/alpha', '/gamma'])
+    // Ticket 206: the tasks pane's run event carries the partial result.
+    expect(agent.events.filter(event => event.event === 'workflow' && event.name === 'deep-research').at(-1)).toMatchObject({ status: 'complete', result: 'partial' })
     await waitFor(() => allSettled(agent), 'every child settled')
     expect(agent.events.filter(event => event.event === 'end' && event.label === 'researcher-2').map(event => event.status)).toEqual(['failed'])
   }, 240000)

@@ -89,6 +89,12 @@ pub enum ControlEvent {
         id: String,
         outcome: Result<String, String>,
     },
+    /// The tool names of a session's agent, for the headless `init` line
+    /// (ticket 206), or why dsh could not list them.
+    ToolsResult {
+        id: String,
+        outcome: Result<Vec<String>, String>,
+    },
     /// dsh's answer to one `/goal` command (ticket 180).
     GoalResult {
         id: String,
@@ -247,6 +253,23 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
                 None => Ok(text("text")),
             },
         },
+        "tools_result" => ControlEvent::ToolsResult {
+            id: id()?,
+            outcome: match value.get("error").and_then(Value::as_str) {
+                Some(error) => Err(error.to_string()),
+                None => Ok(value
+                    .get("tools")
+                    .and_then(Value::as_array)
+                    .map(|names| {
+                        names
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default()),
+            },
+        },
         "schedule_owner_result" => ControlEvent::ScheduleOwnerResult {
             id: id()?,
             session: text("sessionId"),
@@ -321,6 +344,11 @@ pub fn schedule_delete_message(id: &str, session_id: &str, task_id: &str) -> Val
 /// `/workflow ...` from the TUI; `text` is everything after the command name.
 pub fn workflow_message(id: &str, session_id: &str, text: &str) -> Value {
     json!({ "type": "workflow", "id": id, "sessionId": session_id, "text": text })
+}
+
+/// Ask for the tool names of a session's agent (ticket 206).
+pub fn tools_message(id: &str, session_id: &str) -> Value {
+    json!({ "type": "tools", "id": id, "sessionId": session_id })
 }
 
 /// `/<name> [args]` for a saved workflow (ticket 184): the name travels on
@@ -827,6 +855,20 @@ mod tests {
             })
         );
         assert_eq!(parse_event(r#"{"type":"workflow_result"}"#), None);
+        assert_eq!(
+            parse_event(r#"{"type":"tools_result","id":"t1","tools":["read","workflow",7]}"#),
+            Some(ControlEvent::ToolsResult {
+                id: "t1".into(),
+                outcome: Ok(vec!["read".into(), "workflow".into()])
+            })
+        );
+        assert_eq!(
+            parse_event(r#"{"type":"tools_result","id":"t2","error":"no session"}"#),
+            Some(ControlEvent::ToolsResult {
+                id: "t2".into(),
+                outcome: Err("no session".into())
+            })
+        );
         assert_eq!(
             workflow_message("w1", "s1", "pause triage"),
             serde_json::json!({"type":"workflow","id":"w1","sessionId":"s1","text":"pause triage"})

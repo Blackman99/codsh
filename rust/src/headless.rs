@@ -138,6 +138,22 @@ impl HeadlessOutput {
         }
     }
 
+    /// Tool names and client slash commands for the `init` line (ticket 206).
+    /// dsh sends no available_commands on this client, so the plain path asks
+    /// the control plugin for the agent's tools before the prompt.
+    pub fn set_catalog(&mut self, tools: Vec<String>, commands: Vec<String>) {
+        self.tools = tools;
+        self.commands = commands;
+    }
+
+    /// Emit the streaming `init` line now. Plain `/deep-research` produces
+    /// no output line until its run ends, so it announces the session (with
+    /// its tools and commands) when the launch is sent, as the reference's
+    /// immediate launch reply does.
+    pub fn start(&mut self) {
+        self.ensure_init();
+    }
+
     /// The usage ledger slice for this prompt (ticket 65).
     pub fn set_ledger(&mut self, summary: crate::usage::Summary) {
         self.ledger = Some(summary);
@@ -329,7 +345,8 @@ impl HeadlessOutput {
             }
             AcpEvent::ConfigOptions { .. } => {
                 // Config option ids are not the tool list. dsh does not send
-                // available_commands on this client, so tools stay empty.
+                // available_commands on this client; the plain path fills
+                // tools and slash commands with `set_catalog` instead.
             }
             AcpEvent::PromptFinished {
                 request_id,
@@ -1092,6 +1109,57 @@ mod tests {
             Some(&json!({"input_tokens": 0, "output_tokens": 0}))
         );
         assert!(output.usage.is_none());
+    }
+
+    /// Ticket 206: the init line carries the session's tools and the client
+    /// slash commands the plain path runs (`/deep-research`).
+    #[test]
+    fn messages_init_lists_tools_and_deep_research() {
+        let mut output = messages(false);
+        let sink = capture(&mut output);
+        output.set_catalog(
+            vec!["read".into(), "web_search".into(), "workflow".into()],
+            vec!["deep-research".into()],
+        );
+        output.on_event(&AcpEvent::Answer {
+            session_id: "session-1".into(),
+            message_id: "m1".into(),
+            text: "done".into(),
+            hook: false,
+        });
+        output.on_event(&AcpEvent::PromptFinished {
+            request_id: 1,
+            stop_reason: "end_turn".into(),
+            result: json!({"stopReason": "end_turn"}),
+        });
+        output.finish(false, "");
+        let lines = parsed_lines(&sink);
+        let init = lines
+            .iter()
+            .find(|line| line["subtype"] == "init")
+            .expect("init line");
+        assert_eq!(init["tools"], json!(["read", "web_search", "workflow"]));
+        assert_eq!(init["slash_commands"], json!(["deep-research"]));
+
+        // `start` puts the init line out before any answer, and only once.
+        let mut early = messages(false);
+        let sink = capture(&mut early);
+        early.set_catalog(vec!["workflow".into()], vec!["deep-research".into()]);
+        early.start();
+        let lines = parsed_lines(&sink);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert_eq!(lines[0]["subtype"], "init");
+        early.start();
+        early.finish(false, "");
+        let lines = parsed_lines(&sink);
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| line["subtype"] == "init")
+                .count(),
+            1,
+            "{lines:?}"
+        );
     }
 
     #[test]

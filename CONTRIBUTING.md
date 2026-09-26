@@ -558,6 +558,14 @@ unsupported duration, failed, expired, refused, malformed and foreign-host
 results, a timeout recovered later with `/videos status`, Ctrl+C with each
 cancel answer, `/videos` and open, the resume notice, the disabled launch, and
 the official-host refusal. Neither script calls a real or paid video service.
+Web tool registration (ticket 206): `python3 scripts/rust-web-config-pty-test.py`
+(Linux and macOS, part of `test:rust:pty`) packs and installs the client and
+runs it with web search and fetch configured only in `config.toml` (no
+`CODSH_WEB_*`, no `CODSH_ACP_PATCH`) against a loopback OpenAI-shaped fake
+model and a fake SearXNG and page: the session offers and runs `web_search`
+and `web_fetch`, the `-p` init line lists them with `deep-research`,
+`GROK_DISABLE_WEB_SEARCH=1` leaves only fetch, and stray `CODSH_WEB_*` values
+without configuration register neither.
 `python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
 and macOS through the repo launcher and the `pnpm run build:rust` binary: a
 temp plugin with a rule, skill, command, agent, and PreToolUse hook is

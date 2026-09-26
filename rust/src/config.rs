@@ -2803,11 +2803,15 @@ pub fn apply_to_dsh(
     // applies later rows with the same id over earlier ones, so this wins
     // without a second YAML file and without dropping compaction or the gate.
     let saved_route = saved_advertised_route(config);
+    // Ticket 206: which web tools dsh registers comes from the effective
+    // settings, not from the launcher's environment. It follows the overlay,
+    // so this row wins over the launcher's placeholder.
+    let web = web_tools_yaml(config);
     let combined = if is_test_execution_seam_env(env) {
-        format!("{compact_yaml}{pruner}{existing}{gate}{saved_route}")
+        format!("{compact_yaml}{pruner}{existing}{web}{gate}{saved_route}")
     } else {
         format!(
-            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}{gate}{saved_route}",
+            "- id: acp\n  config:\n    provider: {}\n    model: {}\n- id: agent-default-model\n  config:\n    provider: {}\n    model: {}\n- id: llm-deepseek\n  disabled: true\n{compact_yaml}{pruner}{existing}{web}{gate}{saved_route}",
             yaml_plain(&model.provider),
             yaml_plain(&model.model),
             yaml_plain(&model.provider),
@@ -2835,8 +2839,20 @@ fn write_test_seam_patch(
     if let Some(parent) = patch_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&patch_path, existing)?;
+    fs::write(&patch_path, format!("{existing}{}", web_tools_yaml(config)))?;
     Ok(Some(patch_path))
+}
+
+/// The dsh `tool-web` row for the effective web settings: config.toml with
+/// its env overrides (`GROK_WEB_FETCH`, `GROK_DISABLE_WEB_SEARCH`, ...),
+/// requirements, and `--disable-web-search`. dsh applies a later row with the
+/// same id over an earlier one, so this replaces whatever the launcher's
+/// overlay wrote. The `web` command still owns policy and network.
+pub fn web_tools_yaml(config: &EffectiveConfig) -> String {
+    format!(
+        "- id: tool-web\n  config:\n    search: {}\n    fetch: {}\n",
+        config.web.search.enabled, config.web.fetch.enabled
+    )
 }
 
 /// ACP route rows for a saved advertised pair whose id is not in the catalog.
@@ -4144,6 +4160,99 @@ supports_video_generation = true
         );
         let env = video_env(&config);
         assert!(env.contains(&("CODSH_VIDEO_I2V".into(), "0".into())));
+    }
+
+    /// Ticket 206: a config-only setup (no CODSH_WEB_* in the environment)
+    /// registers web_search and web_fetch. The row that decides it follows
+    /// the launcher's overlay, whose placeholder says false.
+    #[test]
+    fn web_tools_come_from_effective_settings_not_launcher_env() {
+        let dir = TempDir::new().unwrap();
+        let mut load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+default = "local"
+web_search = "searx"
+
+[model.local]
+model = "local-model"
+base_url = "http://127.0.0.1:9/v1"
+api_key = "local-no-key"
+
+[model.searx]
+base_url = "http://127.0.0.1:18888"
+protocol = "searxng"
+supports_backend_search = true
+
+[features]
+web_fetch = true
+"#,
+        );
+        let overlay = dir.path().join("launcher-overlay.yml");
+        fs::write(
+            &overlay,
+            "- id: tool-web\n  config:\n    search: false\n    fetch: false\n- insert:\n    - id: rust-acp-web\n      name: 'file:///x.mjs'\n",
+        )
+        .unwrap();
+        load.env
+            .insert("CODSH_ACP_PATCH".into(), overlay.display().to_string());
+        assert!(!load.env.keys().any(|key| key.starts_with("CODSH_WEB_")));
+        let last_tool_web = |config: &EffectiveConfig, env: &BTreeMap<String, String>| {
+            let path = apply_to_dsh(config, env).unwrap().unwrap();
+            let patch = fs::read_to_string(path).unwrap();
+            let at = patch.rfind("- id: tool-web\n").expect("tool-web row");
+            assert!(
+                at > patch.find("id: rust-acp-web").unwrap(),
+                "the effective row must follow the launcher overlay:\n{patch}"
+            );
+            patch[at..].lines().take(4).collect::<Vec<_>>().join("\n")
+        };
+        let config = load_from(load.clone());
+        assert!(config.ready, "{}", config.first_run_message());
+        assert!(config.web.search.enabled && config.web.fetch.enabled);
+        assert_eq!(
+            last_tool_web(&config, &load.env),
+            "- id: tool-web\n  config:\n    search: true\n    fetch: true"
+        );
+        // web_env still publishes the same flags to the provider plugin.
+        let env = web_env(&config);
+        assert!(env.contains(&("CODSH_WEB_SEARCH".into(), "1".into())));
+        assert!(env.contains(&("CODSH_WEB_FETCH".into(), "1".into())));
+
+        // An env override is part of the effective settings.
+        let mut off = load.clone();
+        off.env.insert("GROK_DISABLE_WEB_SEARCH".into(), "1".into());
+        let search_off = load_from(off.clone());
+        assert_eq!(
+            last_tool_web(&search_off, &off.env),
+            "- id: tool-web\n  config:\n    search: false\n    fetch: true"
+        );
+
+        // --disable-web-search turns both off.
+        let mut flag = load.clone();
+        flag.cli_disable_web_search = true;
+        let process_off = load_from(flag.clone());
+        assert_eq!(
+            last_tool_web(&process_off, &flag.env),
+            "- id: tool-web\n  config:\n    search: false\n    fetch: false"
+        );
+
+        // A stray CODSH_WEB_* value is not a setting: nothing configured
+        // stays off even when the launcher saw one.
+        write_config(
+            &load,
+            "[models]\ndefault = \"local\"\n\n[model.local]\nmodel = \"local-model\"\nbase_url = \"http://127.0.0.1:9/v1\"\napi_key = \"local-no-key\"\n",
+        );
+        let mut stray = load.clone();
+        stray.env.insert("CODSH_WEB_SEARCH".into(), "1".into());
+        stray.env.insert("CODSH_WEB_FETCH".into(), "1".into());
+        let bare = load_from(stray.clone());
+        assert_eq!(
+            last_tool_web(&bare, &stray.env),
+            "- id: tool-web\n  config:\n    search: false\n    fetch: false"
+        );
     }
 
     #[test]

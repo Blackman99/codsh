@@ -508,13 +508,17 @@ def main():
         web_patch.write_text(run([NODE, '--input-type=module', '-e',
                                   "import { rustAcpOverlay } from './scripts/rust-acp-overlay.mjs'; process.stdout.write(rustAcpOverlay())"],
                                  cwd=ROOT, env={**os.environ, 'CODSH_WEB_SEARCH': '1', 'CODSH_WEB_FETCH': '1'}).stdout)
+        # Ticket 206: stray CODSH_WEB_* values in the launcher's environment
+        # are not settings. The effective config (here GROK_WEB_FETCH=1 and no
+        # search model) decides: fetch is offered, search is not.
         web_trace = work / 'web-trace.jsonl'
         web_env = {**env('echo'), 'CODSH_ACP_PATCH': str(web_patch), 'CODSH_REVIEW_TRACE': str(web_trace),
                    'GROK_WEB_FETCH': '1'}
         with_web = plain(launcher, project, web_env, ['-p', 'hello'])
         assert with_web.returncode == 0, with_web.stderr
         web_rows = [json.loads(line) for line in web_trace.read_text().splitlines() if line.strip()]
-        assert {'web_search', 'web_fetch'} <= set(web_rows[0]['tools']), web_rows[0]
+        assert 'web_fetch' in web_rows[0]['tools'], web_rows[0]
+        assert 'web_search' not in web_rows[0]['tools'], web_rows[0]
         web_trace.unlink()
         no_web = plain(launcher, project, web_env, ['-p', 'hello', '--disable-web-search'])
         assert no_web.returncode == 0, no_web.stderr

@@ -660,6 +660,9 @@ pub struct WorkflowRun {
     pub session: String,
     pub name: String,
     pub status: String,
+    /// The result map's `status` of a completed run (`partial`,
+    /// `verified`), or empty. Ticket 206.
+    pub result: String,
     pub phase: String,
     pub agents: u64,
     pub running: u64,
@@ -683,9 +686,16 @@ impl WorkflowRun {
         }
     }
 
-    /// `user_paused` reads as `user paused`.
+    /// `user_paused` reads as `user paused`. A completed run whose result
+    /// is partial reads `complete (result: partial)`, as the completion
+    /// notice words it, so it never looks like a plain success.
     pub fn status_words(&self) -> String {
-        self.status.replace('_', " ")
+        let words = self.status.replace('_', " ");
+        if self.status == "complete" && !self.result.is_empty() {
+            format!("{words} (result: {})", self.result)
+        } else {
+            words
+        }
     }
 
     fn quoted_name(&self) -> String {
@@ -990,6 +1000,7 @@ impl Board {
                     session: String::new(),
                     name: String::new(),
                     status: "active".into(),
+                    result: String::new(),
                     phase: String::new(),
                     agents: 0,
                     running: 0,
@@ -1016,6 +1027,7 @@ impl Board {
         if !status.is_empty() {
             run.status = status;
         }
+        run.result = text(event, "result");
         run.phase = text(event, "phase");
         run.agents = event
             .get("agents")
@@ -1977,6 +1989,26 @@ mod tests {
             board.workflow("wf_1").unwrap().block_title(),
             "Workflow complete in 12s: 'review' · fix · 3 agents"
         );
+        // Ticket 206: a completed run whose result is partial says so in
+        // the block title and the tasks row; a resume clears it again.
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-2", "session": "s1", "name": "review", "status": "complete", "result": "partial", "phase": "fix", "agents": 3, "running": 0, "elapsedMs": 12000}));
+        assert_eq!(
+            board.workflow("wf_1").unwrap().block_title(),
+            "Workflow complete (result: partial) in 12s: 'review' · fix · 3 agents"
+        );
+        assert_eq!(
+            board.workflow("wf_1").unwrap().row(),
+            "'review' — complete (result: partial) · fix · 3 agents · 12s"
+        );
+        let lines = list_lines(&board, &TasksModal::default());
+        assert!(
+            lines.iter().any(|line| line
+                .starts_with("  'review' — complete (result: partial) · fix · 3 agents · ")),
+            "{lines:?}"
+        );
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-3", "session": "s1", "name": "review", "status": "active", "result": "", "phase": "fix", "agents": 3, "running": 1, "elapsedMs": 12000}));
+        assert_eq!(board.workflow("wf_1").unwrap().status_words(), "active");
+        board.apply(&json!({"event": "workflow", "id": "wf_1", "call": "call-3", "session": "s1", "name": "review", "status": "complete", "phase": "fix", "agents": 3, "running": 0, "elapsedMs": 12000}));
         board.apply(&json!({"event": "workflow", "id": "", "status": "active"}));
         assert_eq!(board.workflows.len(), 1);
         // Another session's run stays out of this session's pane and status.

@@ -245,10 +245,11 @@ def deep_research(work, cwd, home, grok_home, project_workflows, env, output, pl
             '[features]', 'web_fetch = true', '',
             '[toolset.web_fetch]', f'allowed_domains = ["127.0.0.1:{port}"]', 'allow_local = true', '',
         ]))
-        # The test overlay mirrors what the client enables from config.toml.
+        # The overlay says off; config.toml alone must turn both tools on
+        # (the client appends the effective tool-web row after the overlay).
         saved = {key: os.environ.get(key) for key in ('CODSH_WEB_SEARCH', 'CODSH_WEB_FETCH')}
-        os.environ['CODSH_WEB_SEARCH'] = '1'
-        os.environ['CODSH_WEB_FETCH'] = '1'
+        os.environ['CODSH_WEB_SEARCH'] = '0'
+        os.environ['CODSH_WEB_FETCH'] = '0'
         try:
             patch = work / 'overlay-web.yml'
             patch.write_text(screen.overlay_text())
@@ -259,6 +260,7 @@ def deep_research(work, cwd, home, grok_home, project_workflows, env, output, pl
                 else:
                     os.environ[key] = value
         web_env = {**env, 'CODSH_ACP_PATCH': str(patch)}
+        assert 'search: false' in patch.read_text() and 'fetch: false' in patch.read_text()
         fake = project_workflows / 'deep-research.rhai'
         fake.write_text('let meta = #{ name: "deep-research", description: "a simplified copy" };\n"FAKE_REPORT"\n')
         session = Session('research', LAUNCHER, cwd, web_env, output,
@@ -295,13 +297,24 @@ def deep_research(work, cwd, home, grok_home, project_workflows, env, output, pl
             prompt(session, '/workflow save deep-research')
             wait_until(session, lambda s: "Save is disabled for built-in workflow 'deep-research'" in s.replace('\n', ''),
                        'save refusal', 15)
+            # A partial result is not shown as a plain success: the
+            # completion notice and the tasks pane say so, like /workflow runs.
+            prompt(session, '/deep-research gamma languages | RATELIMIT epsilon')
+            shown = wait_until(session, lambda s: 'workflow deep-research-2 [complete (result: partial)]' in s.replace('\n', ''),
+                               'partial completion notice', 120)
+            assert 'workflow deep-research-2 [complete]' not in shown.replace('\n', ''), shown
+            session.write(b'\x07')  # Ctrl+G
+            shown = wait_until(session, lambda s: "'deep-research-2' — complete (result: partial)" in s, 'partial tasks row', 15)
+            assert "'deep-research' — complete (result: verified)" in shown, shown
+            session.write(b'\x1b')
+            wait_until(session, lambda s: 'Subagents (' not in s, 'tasks pane did not close', 10)
             result['session'] = True
             result['screen'] = session.finish(expect_alt_leave=True)['exit']
         finally:
             session.close()
         reports = sorted((grok_home / 'sessions').glob('*/*/workflows/*/scratch/report.md'))
-        assert len(reports) == 1, reports
-        report = reports[0].read_text()
+        assert len(reports) == 2, reports
+        report = next(r.read_text() for r in reports if '**Status: Verified**' in r.read_text())
         assert '**Status: Verified**' in report and f'- [S1] "Alpha Notes" — "{FakeWeb.base}/alpha"' in report, report
 
         # -p by name through the plain workflow path: a rate-limited branch and
@@ -317,6 +330,33 @@ def deep_research(work, cwd, home, grok_home, project_workflows, env, output, pl
         assert 'SearXNG rate limited the query' in ran.stdout, ran.stdout
         assert FakeWeb.pages == ['/gamma'], FakeWeb.pages
         result['headless_partial'] = True
+
+        # -p "/deep-research <query>" is the built-in command, not model
+        # text: the run executes, the answer is its block, and the init line
+        # lists the session's web tools and /deep-research.
+        FakeWeb.pages.clear()
+        FakeWeb.searches.clear()
+        ran = subprocess.run([NODE, str(LAUNCHER), '--rust', '--always-approve', '--output-format', 'streaming-messages-json',
+                              '-p', '/deep-research gamma languages | RATELIMIT epsilon'],
+                             cwd=cwd, env=web_env, capture_output=True, text=True, timeout=180)
+        assert ran.returncode == 0, ran.stderr + ran.stdout
+        rows = [json.loads(line) for line in ran.stdout.splitlines() if line.startswith('{')]
+        assert rows[0].get('subtype') == 'init', rows[:2]
+        init = rows[0]
+        assert {'web_search', 'web_fetch', 'workflow'} <= set(init['tools']), init
+        assert init['slash_commands'] == ['deep-research'], init
+        final = rows[-1]
+        assert final['type'] == 'result' and final['is_error'] is False, final
+        assert "Deep research 'deep-research' started in the background." in final['result'], final
+        assert '— status: complete' in final['result'] and 'Result status: partial' in final['result'], final
+        assert 'SearXNG rate limited the query' in final['result'], final
+        assert sorted(FakeWeb.searches) == ['RATELIMIT epsilon', 'gamma languages'], FakeWeb.searches
+        assert FakeWeb.pages == ['/gamma'], FakeWeb.pages
+        usage = subprocess.run([NODE, str(LAUNCHER), '--rust', '-p', '/deep-research'],
+                               cwd=cwd, env=web_env, capture_output=True, text=True, timeout=120)
+        assert usage.returncode == 0, usage.stderr
+        assert usage.stdout.startswith('Usage: /deep-research <query>\nResearch with bounded parallel agents'), usage.stdout
+        result['headless_slash'] = True
     finally:
         server.shutdown()
         fake = project_workflows / 'deep-research.rhai'

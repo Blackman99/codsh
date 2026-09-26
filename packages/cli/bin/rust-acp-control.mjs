@@ -32,6 +32,8 @@
  *   rust-acp-subagents (tickets 183, 184) with the reference reply text; a
  *   request with `launch` is a saved workflow's `/<name>` and its `text` the
  *   arguments.
+ * - tools: the tool names of a session's agent, for the headless init line
+ *   (ticket 206).
  * - goal: `/goal` set, status, pause, resume, and clear, handed to the
  *   rust-acp-goal plugin (ticket 180). The answer is one `goal_result`.
  * - memory_model: one background memory request (`/flush`, `/dream`, and
@@ -306,6 +308,22 @@ export function createControl(ctx, send, options = {}) {
     }
   }
 
+  /**
+   * The tool names the session's agent can call, for the headless `init`
+   * line (ticket 206): dsh sends no available_commands on this client.
+   */
+  const tools = (request) => {
+    const agent = agents.get(request.sessionId)
+    try {
+      if (agent === undefined) throw new Error('no live dsh session for the tool list')
+      const view = agent.ctx.tools.view?.(agent)
+      if (view === undefined) throw new Error('this dsh cannot list tools')
+      send({ type: 'tools_result', id: request.id, tools: [...view.visible.keys()].map(String) })
+    } catch (error) {
+      send({ type: 'tools_result', id: request.id, error: String(error?.message ?? error) })
+    }
+  }
+
   const goal = (request) => {
     const plugin = globalThis[GOAL]
     const agent = agents.get(request.sessionId)
@@ -514,6 +532,7 @@ export function createControl(ctx, send, options = {}) {
       else if (request.type === 'job_kill') jobKill(request)
       else if (request.type === 'schedule_delete') scheduleDelete(request)
       else if (request.type === 'workflow') void workflow(request)
+      else if (request.type === 'tools') tools(request)
       else if (request.type === 'goal') goal(request)
       else if (request.type === 'schedule_owner') scheduleOwner(request)
       else if (request.type === 'memory_model') void memoryModel(request)

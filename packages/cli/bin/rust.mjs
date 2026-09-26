@@ -4,7 +4,6 @@ import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { enabled as webFlag } from './rust-acp-web.mjs'
 import { dshFloorProblem, dshPackage, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
 
 const requireFromHere = createRequire(import.meta.url)
@@ -412,10 +411,14 @@ export async function launchRust(args) {
         '  config:',
         '    searchProvider: codsh-substitute',
         '    fetchProvider: codsh-substitute',
+        // Fail-closed placeholder. The Rust client appends the tool-web row
+        // for the effective settings (config.toml plus env overrides) after
+        // this overlay (config.rs web_tools_yaml; ticket 206): the launcher
+        // runs before config.toml is read, so it cannot decide.
         '- id: tool-web',
         '  config:',
-        `    search: ${webFlag('CODSH_WEB_SEARCH', env) ? 'true' : 'false'}`,
-        `    fetch: ${webFlag('CODSH_WEB_FETCH', env) ? 'true' : 'false'}`,
+        '    search: false',
+        '    fetch: false',
         // rust-acp-subagents registers the typed `subagent` tool in its place.
         '- id: tool-subagent',
         '  disabled: true',
