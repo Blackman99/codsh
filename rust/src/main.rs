@@ -3282,8 +3282,10 @@ fn remote_turns(client: &mut AcpClient, updates: Vec<Value>, running: bool) -> V
             let text = params
                 .pointer("/update/content/text")
                 .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
+                .unwrap_or("");
+            // The replay carries what codsh sent: memory, rules, and an
+            // expanded skill body lead the typed words.
+            let text = assets::typed_prompt(text).to_string();
             if let Some(last) = turns.last_mut() {
                 last.done = true;
             }

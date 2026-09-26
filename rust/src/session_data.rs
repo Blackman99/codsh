@@ -587,7 +587,10 @@ fn render_markdown(
                 if session_catalog::plugin_user_snapshot(&event) {
                     continue;
                 }
-                let body = message_text(&event);
+                // Memory, rules, and an expanded skill body led the typed
+                // words to the model; the transcript shows what was typed.
+                let raw = message_text(&event);
+                let body = crate::assets::typed_prompt(&raw);
                 let attachments = attachment_lines(&event);
                 if body.trim().is_empty() && attachments.is_empty() {
                     continue;

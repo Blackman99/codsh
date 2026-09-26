@@ -316,6 +316,76 @@ pub fn invocation_prompt(catalog: &AssetCatalog, text: &str) -> Option<String> {
     })
 }
 
+/// Context blocks codsh folds ahead of the user's text: first-turn memory,
+/// file and `--rules` rules, and agent definitions. Each is a tagged block
+/// that ends with its closing tag line.
+const INJECTED_BLOCKS: &[(&str, &str)] = &[
+    ("<local-memory>\n", "</local-memory>"),
+    ("<human_rules>\n", "</human_rules>"),
+    ("<agent-definitions>\n", "</agent-definitions>"),
+];
+
+/// The text the user typed, recovered from a prompt codsh sent to dsh.
+///
+/// codsh folds first-turn memory, rules, agent definitions, and an expanded
+/// skill or custom-command body into the same text block as the user's words
+/// (`{memory}{context}{invocation}{text}`). Titles, the resume picker, and
+/// replayed turns show only the typed part, like Grok's first-prompt title. A
+/// `--system-prompt-override` preamble is untagged and stays in place.
+pub fn typed_prompt(text: &str) -> &str {
+    let mut rest = text;
+    'blocks: loop {
+        let lead = rest.trim_start_matches(['\n', '\r']);
+        for (open, close) in INJECTED_BLOCKS {
+            if !lead.starts_with(open) {
+                continue;
+            }
+            // The body starts on the line after the opening tag; the closing
+            // tag sits alone on its own line.
+            let body = &lead[open.len() - 1..];
+            let mut from = 0;
+            while let Some(found) = body[from..].find(&format!("\n{close}")) {
+                let end = from + found + 1 + close.len();
+                let tail = &body[end..];
+                if tail.is_empty() || tail.starts_with('\n') || tail.starts_with("\r\n") {
+                    rest = tail
+                        .strip_prefix("\r\n")
+                        .or_else(|| tail.strip_prefix('\n'))
+                        .unwrap_or(tail);
+                    continue 'blocks;
+                }
+                from = end;
+            }
+        }
+        rest = lead;
+        break;
+    }
+    typed_invocation(rest).unwrap_or(rest).trim()
+}
+
+/// An expanded skill or custom command ends with the raw `/name args` the user
+/// typed. Return that tail.
+fn typed_invocation(text: &str) -> Option<&str> {
+    let name = text
+        .strip_prefix("Follow the `")
+        .or_else(|| text.strip_prefix("Run the custom command `"))?
+        .split_once('`')?
+        .0;
+    let bare = name.rsplit_once(':').map(|(_, bare)| bare).unwrap_or(name);
+    let mut end = text.len();
+    while let Some(line_start) = text[..end].rfind('\n') {
+        let line = text[line_start + 1..].trim_start_matches([' ', '\t']);
+        if let Some(command) = line.strip_prefix('/') {
+            let token = command.split(char::is_whitespace).next().unwrap_or("");
+            if !token.is_empty() && (token == name || token == bare) {
+                return Some(line);
+            }
+        }
+        end = line_start;
+    }
+    None
+}
+
 pub fn inspect_text(catalog: &AssetCatalog) -> String {
     let mut lines = vec![format!(
         "Assets: project {} · {} rules · {} skills · {} commands · {} agents",
@@ -1977,6 +2047,64 @@ mod tests {
         let spaced = prompt_for_model(&catalog, "  keep\nline");
         assert!(spaced.starts_with("<human_rules>"), "{spaced}");
         assert!(spaced.ends_with("  keep\nline"), "{spaced}");
+    }
+
+    #[test]
+    fn typed_prompt_unwraps_injected_context_and_invocations() {
+        // Issue #186 follow-up: a first turn with memory got the title
+        // `<local-memory> Local memory notes the`. Everything codsh folds in
+        // front of the typed words is dropped for titles and resumed turns.
+        let root = tempfile::tempdir().unwrap();
+        fixture(root.path());
+        let catalog = catalog_for(root.path(), true, &[], &[]);
+        assert!(!catalog.rules.is_empty() && !catalog.agents.is_empty());
+        let memory = "<local-memory>\nLocal memory notes the user saved. Read-only context. Do not upload them.\n[global MEMORY.md]\n- likes tea\n[session sessions/2026-09-26-x.md]\n## Decisions\n- port 7431\n</local-memory>\n";
+        let rules = prompt_with_session(&catalog, "Fix the flaky test", "SESSION_RULE", false);
+        assert!(rules.starts_with("<human_rules>"), "{rules}");
+        assert!(rules.contains("<agent-definitions>"), "{rules}");
+        assert_eq!(typed_prompt(&rules), "Fix the flaky test");
+        assert_eq!(
+            typed_prompt(&format!("{memory}{rules}")),
+            "Fix the flaky test"
+        );
+        assert_eq!(typed_prompt(&format!("{memory}hello there")), "hello there");
+        // `--verbatim` sends memory and rules as their own leading block.
+        let lead = format!("{memory}{}", context_block(&catalog, "", false));
+        assert_eq!(
+            typed_prompt(&format!("{lead}\nverbatim ask")),
+            "verbatim ask"
+        );
+        assert_eq!(typed_prompt(&lead), "");
+        for typed in [
+            "/commit fix the build",
+            "/local:commit fix",
+            "/ship-note  keep\nline",
+        ] {
+            let expanded = prompt_for_model(&catalog, typed);
+            assert_ne!(expanded, typed);
+            assert_eq!(typed_prompt(&format!("{memory}{expanded}")), typed.trim());
+        }
+        // A skill body that quotes its own slash line still yields the typed tail.
+        let quoted = "Follow the `local:commit` skill from /s/SKILL.md. Arguments: a\n\nRun /commit first.\n/commit x\n\nThe skill body was truncated at 25000 tokens. Read sibling files for the rest.\n/commit a";
+        assert_eq!(typed_prompt(quoted), "/commit a");
+        // Plain text, text that only mentions a tag, and an unclosed block stay.
+        assert_eq!(typed_prompt("  plain ask  "), "plain ask");
+        assert_eq!(
+            typed_prompt("why is <local-memory> shown?"),
+            "why is <local-memory> shown?"
+        );
+        assert_eq!(
+            typed_prompt("<local-memory>\nnever closed"),
+            "<local-memory>\nnever closed"
+        );
+        assert_eq!(
+            typed_prompt("<human_rules>\nx\n</human_rules>trailing"),
+            "<human_rules>\nx\n</human_rules>trailing"
+        );
+        assert_eq!(
+            typed_prompt("Follow the `x` skill with no slash line"),
+            "Follow the `x` skill with no slash line"
+        );
     }
 
     #[test]

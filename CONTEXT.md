@@ -763,7 +763,11 @@ every other folder is one row that opens the rest, because the session wanted
 is almost always in the folder they are in. Rows are ordered by when the
 session was last touched — not when it began — and each names its title, that
 age, how many messages it holds, and, only for a session from elsewhere, the
-folder it belongs to.
+folder it belongs to. Without a manual or generated title, the title is the
+first prompt the person typed. Whatever the client laid in front of those
+words for the model — first-turn memory and recalled session logs, rules,
+agent definitions, an expanded skill body — is context, never the title, and a
+resumed transcript shows that turn as typed rather than dropping it.
 _Avoid_: session picker, history list
 
 **Region pointer**:

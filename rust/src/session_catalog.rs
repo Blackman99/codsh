@@ -384,10 +384,14 @@ fn session_from_projection(
     if title.title.is_empty() && !title.manual {
         let logged = row.get("title").and_then(Value::as_str).unwrap_or("");
         let manual = row.get("manual").and_then(Value::as_bool).unwrap_or(false);
+        // dsh's own fallback title is the first words of the whole first
+        // message, injected memory and rules included. codsh derives that
+        // tier from the typed prompt instead, as Grok does.
+        let fallback = row.get("source").and_then(Value::as_str) == Some("fallback");
         if manual {
             title.manual = true;
             title.title = clip_title(logged);
-        } else if !logged.is_empty() {
+        } else if !logged.is_empty() && !fallback {
             title.generated = clip_title(logged);
         }
         title.provider = row
@@ -716,8 +720,11 @@ fn user_prompt(event: &Value) -> Option<String> {
             text.push_str(piece);
         }
     }
+    // Memory, rules, agent definitions, and an expanded skill body ride in
+    // the same block as the typed words; the picker shows only the latter.
+    let text = crate::assets::typed_prompt(&text);
     // `/imagine` is sent as a fixed instruction; the picker shows the typed line.
-    if let Some(prompt) = crate::image_gen::imagine_prompt_of(&text) {
+    if let Some(prompt) = crate::image_gen::imagine_prompt_of(text) {
         return Some(
             format!("/imagine {prompt}")
                 .chars()
@@ -725,7 +732,7 @@ fn user_prompt(event: &Value) -> Option<String> {
                 .collect(),
         );
     }
-    if let Some(prompt) = crate::video_gen::imagine_video_prompt_of(&text) {
+    if let Some(prompt) = crate::video_gen::imagine_video_prompt_of(text) {
         return Some(
             format!("/imagine-video {prompt}")
                 .chars()
@@ -2649,5 +2656,69 @@ mod tests {
         let shown = render_dashboard(&catalog, &view, Path::new("/tmp/work"));
         assert!(shown.contains("No sessions match."));
         let _ = fs::remove_dir_all(home);
+    }
+
+    #[test]
+    fn titles_and_prompts_use_the_typed_words_not_injected_context() {
+        // Issue #186 follow-up: a first turn with memory was titled
+        // `<local-memory> Local memory notes the` (dsh's fallback over the
+        // whole message). The picker title and prompts are the typed words.
+        let home = temp_home();
+        let work = home.join("work");
+        fs::create_dir_all(&work).unwrap();
+        let memory = "<local-memory>\nLocal memory notes the user saved. Read-only context. Do not upload them.\n[global MEMORY.md]\n- likes tea\n</local-memory>\n";
+        let rules = "<human_rules>\nProject and user rules. Deeper files take precedence over broader ones.\n\nInstructions from: AGENTS.md (project, 9 bytes)\nuse tabs\n</human_rules>\n";
+        let first = format!("{memory}{rules}Which port does the widget use?");
+        let second = format!(
+            "{rules}Follow the `local:commit` skill from /s/SKILL.md. Arguments: now\n\nBODY\n/commit now"
+        );
+        write_session(
+            &home,
+            "33333333-3333-4333-8333-333333333333",
+            work.to_str().unwrap(),
+            &[first.as_str(), second.as_str()],
+            10,
+        );
+        let catalog = load_catalog(&home, &work);
+        let session = catalog
+            .sessions
+            .iter()
+            .find(|session| session.id.starts_with("33333333"))
+            .unwrap();
+        assert_eq!(session.display_title(), "Which port does the widget use?");
+        assert_eq!(
+            session.prompts,
+            vec![
+                "Which port does the widget use?".to_string(),
+                "/commit now".to_string()
+            ]
+        );
+        let _ = fs::remove_dir_all(home);
+
+        // The helper projection: dsh's stored fallback title never wins over
+        // the typed prompt; a provider or user title still does.
+        let row = |source: &str, manual: bool| {
+            json!({
+                "id": "44444444-4444-4444-8444-444444444444",
+                "cwd": "/tmp/work",
+                "prompts": ["Which port does the widget use?"],
+                "title": "<local-memory> Local memory notes the",
+                "manual": manual,
+                "source": source,
+            })
+        };
+        let none = BTreeMap::new();
+        let fallback = session_from_projection(&row("fallback", false), &none, &none).unwrap();
+        assert_eq!(fallback.display_title(), "Which port does the widget use?");
+        let generated = session_from_projection(&row("provider", false), &none, &none).unwrap();
+        assert_eq!(
+            generated.display_title(),
+            "<local-memory> Local memory notes the"
+        );
+        let manual = session_from_projection(&row("user", true), &none, &none).unwrap();
+        assert_eq!(
+            manual.display_title(),
+            "<local-memory> Local memory notes the"
+        );
     }
 }

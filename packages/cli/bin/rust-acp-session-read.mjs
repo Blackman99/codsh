@@ -93,8 +93,72 @@ export function imagineTyped(text) {
   return text.startsWith(IMAGINE_PREFIX) ? `/imagine ${text.slice(IMAGINE_PREFIX.length)}` : text
 }
 
+// Context blocks codsh folds ahead of the user's text (assets.rs
+// INJECTED_BLOCKS): first-turn memory, rules, and agent definitions.
+const INJECTED_BLOCKS = [
+  ['<local-memory>\n', '</local-memory>'],
+  ['<human_rules>\n', '</human_rules>'],
+  ['<agent-definitions>\n', '</agent-definitions>'],
+]
+
+function stripInjected(text) {
+  let rest = text
+  for (;;) {
+    const lead = rest.replace(/^[\r\n]+/u, '')
+    let next
+    for (const [open, close] of INJECTED_BLOCKS) {
+      if (!lead.startsWith(open)) continue
+      const body = lead.slice(open.length - 1)
+      let from = 0
+      for (;;) {
+        const found = body.indexOf(`\n${close}`, from)
+        if (found < 0) break
+        const end = found + 1 + close.length
+        const tail = body.slice(end)
+        if (tail === '' || tail.startsWith('\n') || tail.startsWith('\r\n')) {
+          next = tail.replace(/^\r?\n/u, '')
+          break
+        }
+        from = end
+      }
+      if (next !== undefined) break
+    }
+    if (next === undefined) return lead
+    rest = next
+  }
+}
+
+function typedInvocation(text) {
+  const head = /^(?:Follow the `|Run the custom command `)([^`]*)`/u.exec(text)
+  if (head === null) return undefined
+  const name = head[1]
+  const bare = name.includes(':') ? name.slice(name.lastIndexOf(':') + 1) : name
+  let end = text.length
+  for (;;) {
+    const lineStart = text.lastIndexOf('\n', end - 1)
+    if (lineStart < 0 || end === 0) return undefined
+    const line = text.slice(lineStart + 1).replace(/^[ \t]+/u, '')
+    if (line.startsWith('/')) {
+      const token = line.slice(1).split(/\s/u)[0]
+      if (token !== '' && (token === name || token === bare)) return line
+    }
+    end = lineStart
+  }
+}
+
+/**
+ * The text the user typed, recovered from a prompt codsh sent to dsh
+ * (assets::typed_prompt). Memory, rules, agent definitions, and an expanded
+ * skill or custom-command body ride in the same block as the typed words;
+ * titles, the picker, and resumed turns show only the typed part.
+ */
+export function typedPrompt(text) {
+  const rest = stripInjected(String(text ?? ''))
+  return (typedInvocation(rest) ?? rest).trim()
+}
+
 function typedText(content) {
-  return imagineTyped(textBlocks(content).replace(PASTED_IMAGE_FALLBACKS, ''))
+  return imagineTyped(typedPrompt(textBlocks(content).replace(PASTED_IMAGE_FALLBACKS, '')))
 }
 
 function proposedDiff(name, args) {
@@ -238,7 +302,7 @@ function isDirectUser(event) {
   const kind = typeof source === 'string' ? source : source?.kind ?? source?.type ?? ''
   if (kind === 'inject' || kind === 'tool' || kind === 'system' || kind === 'plugin' || kind === 'agent-message') return false
   const message = event.data?.message ?? event.data ?? {}
-  const text = textBlocks(message.content)
+  const text = typedPrompt(textBlocks(message.content))
   if (text.startsWith('<') && !text.includes('<compacted-summary>')) return false
   if (/Current runtime context|This snapshot supersedes/i.test(text)) return false
   return true
@@ -308,7 +372,7 @@ function isJobNotice(line) {
 
 function summarizePrompt(event) {
   const message = event?.data?.message ?? event?.data ?? {}
-  const line = textBlocks(message.content)
+  const line = imagineTyped(typedPrompt(textBlocks(message.content)))
     .split('\n')
     .map(part => part.trim())
     .find(part => part !== '' && !part.startsWith('<pasted-image ')) ?? ''
@@ -703,7 +767,18 @@ function openTurnOf(events) {
   return open
 }
 
-function promptLines(events) {
+/**
+ * dsh's fallback title is the first words of the whole first message,
+ * injected memory and rules included. codsh derives that tier from the typed
+ * prompt instead (the first entry of prompts), as Grok does; a provider or
+ * user title is kept.
+ */
+export function catalogTitle(folded) {
+  if (folded?.source !== 'fallback') return folded
+  return { ...folded, title: '', source: '' }
+}
+
+export function promptLines(events) {
   const lines = []
   for (const event of events ?? []) {
     if (event?.type !== 'user/message') continue
@@ -715,7 +790,13 @@ function promptLines(events) {
     if (source?.kind === 'plugin' && source?.plugin === 'tool-goal') continue
     const message = event.data?.message ?? event.data ?? {}
     const content = Array.isArray(message.content) ? message.content : Array.isArray(event.data?.content) ? event.data.content : []
-    const text = content.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('\n')
+    // Only prompts the user typed: plugin context (a runtime snapshot, the
+    // workflow catalog reminder), relayed messages, and injected memory or
+    // rules are never the title.
+    if (!isDirectUser(event) || isCompactCheckpoint(event)) continue
+    const raw = content.filter(block => block?.type === 'text').map(block => String(block.text ?? '')).join('\n')
+    if (raw.includes('<compacted-summary>')) continue
+    const text = imagineTyped(typedPrompt(raw))
     const line = text.split('\n').map(part => part.trim()).find(part => part !== '' && !part.startsWith('<pasted-image '))
     if (line && /^Current runtime context\b/.test(line)) continue
     if (line) lines.push(line.slice(0, 160))
@@ -754,7 +835,7 @@ async function listCatalog(home, dshBin) {
     }
     try {
       const { events } = await handle.read()
-      const folded = titleOf(events)
+      const folded = catalogTitle(titleOf(events))
       sessions.push({
         id: sessionId,
         cwd: header.cwd ?? '',

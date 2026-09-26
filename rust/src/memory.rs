@@ -1485,6 +1485,13 @@ mod tests {
         save_note(&store, Scope::Workspace, &huge).unwrap();
         let bounded = injection_block(&store, true).unwrap();
         assert!(bounded.chars().count() < 6_000);
+        // The block leads the first prompt; titles and the picker still show
+        // only the typed words (issue #186 follow-up).
+        let prompt = format!("{first}Which zebra fact did I save?");
+        assert_eq!(
+            crate::assets::typed_prompt(&prompt),
+            "Which zebra fact did I save?"
+        );
     }
 
     #[test]

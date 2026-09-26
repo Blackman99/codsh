@@ -21,7 +21,10 @@ gate open; the automatic Dream at launch and the
 idle flush run under low configured gates; the next session's first request
 carries the consolidated memory. Plain -p runs cover --memory-flush success,
 nothing to store, a model failure, [memory_v2] refusal (and no unknown-field
-warning from inspect) and GROK_MEMORY_LOG.
+warning from inspect) and GROK_MEMORY_LOG. Finally `sessions list`, the
+/resume picker, and a resumed transcript show the typed first prompts of
+sessions whose first turn carried memory or AGENTS.md rules, never the
+injected blocks (issue #186 follow-up).
 
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first). It reuses the Session harness of
@@ -335,6 +338,59 @@ def main():
         inspected = plain('inspect')
         assert 'unknown security/policy field' not in inspected.stdout + inspected.stderr, inspected.stdout + inspected.stderr
         results['memory_v2'] = True
+
+        # 5. Titles, the picker, and resumed turns show the typed words, never
+        # the injected memory or rules (issue #186 follow-up: a first turn with
+        # memory was titled `<local-memory> Local memory notes the`, and on
+        # resume that turn was missing).
+        write_config(grok, BASE_CONFIG)
+        (cwd / 'AGENTS.md').write_text('RULE_TOKEN keep answers short\n')
+        ruled = plain('-p', 'RULES_TITLE which rule applies here')
+        assert ruled.returncode == 0, ruled.stderr
+        listed = subprocess.run([NODE, str(LAUNCHER), '--rust', 'sessions', 'list'], cwd=cwd, env=env,
+                                capture_output=True, text=True, timeout=120)
+        assert listed.returncode == 0, listed.stderr
+        titles = listed.stdout
+        for typed in ('Which port does the widget service listen on?', 'which port does the widget service use',
+                      'MEM_ECHO plain fact to keep', 'RULES_TITLE which rule applies here'):
+            assert typed in titles, (typed, titles)
+        for injected in ('<local-memory>', 'Local memory notes', '<human_rules>', 'Project and user rules'):
+            assert injected not in titles, (injected, titles)
+        later_id = next(line for line in titles.splitlines() if 'which port does the widget service use' in line)
+        later_id = re.search(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', later_id).group(0)
+        session = Session('title', LAUNCHER, cwd, env, output,
+                          extra=['--fullscreen', '--trust', '--resume', later_id], cols=160, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            shown = wait_flat(session, 'RUST_ACP_ANSWER', 15)
+            # The user row precedes the mock's answer, which echoes everything
+            # the model received (memory included) by design.
+            asked = flat(shown).partition('RUST_ACP_ANSWER')[0]
+            assert 'which port does the widget service use' in asked, asked
+            for injected in ('<local-memory>', 'Local memory notes', '<human_rules>'):
+                assert injected not in asked, (injected, asked)
+            results['resumed_prompt'] = True
+        finally:
+            quit_session(session)
+            (output / 'title-resumed.ansi').write_bytes(session.data)
+            session.close()
+        session = Session('picker', LAUNCHER, cwd, env, output,
+                          extra=['--fullscreen', '--trust'], cols=160, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            session.write('/resume\r')
+            shown = wait_flat(session, 'RULES_TITLE which rule applies here', 10)
+            text = flat(shown)
+            assert 'MEM_HOTEL secret words' in text, text
+            for injected in ('<local-memory>', 'Local memory notes', '<human_rules>'):
+                assert injected not in text, (injected, text)
+            session.write('\x1b')
+            session.pump(0.3)
+            results['typed_titles'] = True
+        finally:
+            quit_session(session)
+            (output / 'title-picker.ansi').write_bytes(session.data)
+            session.close()
     print(json.dumps({'output': str(output), **results}, indent=2))
 
 
