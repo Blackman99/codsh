@@ -1,0 +1,6 @@
+---
+'codsh-cli': minor
+'codsh-bundle': minor
+---
+
+`codsh --rust` generates and edits images through an image service you configure: `[models] image_gen` (and optionally `image_edit`) names a `[model.<id>]` with `base_url` and `supports_image_generation` / `supports_image_edit`, speaking the reference `xai` JSON format or the `openai` Images format (for example a local stable-diffusion.cpp `sd-server`). Without one, neither tool exists; official hosts are refused. The model's `image_gen` / `image_edit` tools and `/imagine <description>` run through dsh, and every request asks first with a card naming the prompt, the host, how many reference images are sent, and that codsh does not know the service's price. `[Image #N]` chips, absolute paths, `file://` and `data:` URLs are edit references (Read deny rules apply). The row shows elapsed time, Ctrl+C cancels and saves nothing, and a refusal, URL-only or malformed reply, HTTP error or timeout saves nothing and says why. Results are checked and saved atomically as `<session>/images/<n>.<ext>`; `/images` lists them and `/images open [N]` opens one, including after `--resume`. `codsh --rust image generate|edit|list` uses the same service outside a session.

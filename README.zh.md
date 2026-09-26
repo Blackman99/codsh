@@ -380,6 +380,52 @@ Responses 形态的替代服务用本地夹具检查。SearXNG 协议同样用�
 并在本机 localhost 上的一个真实 SearXNG 进程上验证过。公共 SearXNG 主机不在
 本次检查内。
 
+`codsh --rust` 中的图片：在你指定服务之前，图片生成与编辑都是关闭的。
+`[models] image_gen` 指向一个带 `base_url` 与 `supports_image_generation = true`
+的 `[model.<id>]` 表；同一表上的 `supports_image_edit = true`，或单独的
+`[models] image_edit`，启用编辑。没有该标记的聊天模型不会被当作图片服务，
+单模型默认值也不会把图片服务选成聊天模型；官方主机（`api.x.ai`、`grok.com`）
+作为配置错误被拒绝。`protocol` 选择线路格式：`xai`（默认）是参考实现的 JSON
+请求体（`prompt`、`aspect_ratio`、`resolution`、data URL 参考图、`b64_json`
+回复），`openai` 是 OpenAI Images 形态（`size` 取自 `image_size`，编辑用
+multipart `image[]`），本地 stable-diffusion.cpp 的 `sd-server` 使用这种格式。
+`env_key` / `api_key` 可选，无密钥的本地服务也能用；写了 `env_key` 但变量为空
+是错误。`timeout_secs` 默认 300。
+
+```toml
+[models]
+image_gen = "sd-local"
+
+[model.sd-local]
+base_url = "http://127.0.0.1:1234/v1"
+protocol = "openai"
+supports_image_generation = true
+supports_image_edit = true
+image_size = 512
+```
+
+配置了服务后，模型会得到 `image_gen`（提示词，可选 `aspect_ratio`）与
+`image_edit`（提示词，一到五个 `image` 参考图：同一条消息里的 `[Image #N]` 标签、
+绝对路径、`file://` URL 或 `data:image/...` URL）。`/imagine <描述>` 让模型把你
+的原话不加改写地交给 `image_gen`。每次图片请求都走 dsh 工具审批：卡片显示
+`Allow Generate image "<提示词>" via <主机>?`（或 `Edit image (N refs)`），并
+说明会发送什么，以及 codsh 不知道该服务的价格、费用由该服务决定。Read 拒绝规则
+同样会拒绝参考图路径。`GROK_IMAGE_GEN=0` / `GROK_IMAGE_EDIT=0`（或
+`features.image_gen = false`）关闭对应工具，`GROK_IMAGE_GEN_MODEL_OVERRIDE` /
+`GROK_IMAGE_EDIT_MODEL_OVERRIDE` 更换请求里的模型，
+`tools.media_gen.max_parallel_image_gen_calls`（默认 4）限制一步里的调用数，
+超出的调用带原因失败。运行中的行显示已用时间；Ctrl+C 取消请求，不保存任何
+文件。结果会先校验（确实是 png/jpeg/webp/gif 字节），再原子地保存为
+`<会话>/images/<n>.<扩展名>`（目录权限 0700，不覆盖已有文件）；服务拒绝、返回
+URL 而不是图片数据、字节损坏、HTTP 错误或超时都不保存文件，并显示原因。
+`/images` 列出本会话的图片，`/images open [N]` 打开其中一张（不带 N 时为最新
+一张），使用 `CODSH_IMAGE_OPENER`，否则 macOS 用 `open`、其他系统用 `xdg-open`。
+`--resume` 之后这些行保留标题，`/imagine` 按输入原样显示，`/images` 仍能列出并
+打开同样的文件。`codsh --rust image generate|edit|list`（`--json`）在会话外使用
+同一服务，`codsh --rust inspect` 显示解析出的服务以及被拒绝的原因。编辑器 ACP
+服务（`codsh --rust agent stdio`）不提供图片工具。测试使用回环假服务；`openai`
+格式另外在本机用真实的 stable-diffusion.cpp `sd-server`（SD-Turbo 模型）验证过。
+
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
 `confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段

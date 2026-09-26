@@ -518,6 +518,13 @@ pub const INHERITED_ENV: &[&str] = &[
     "CODSH_WEB_SEARCH",
     "CODSH_WEB_FETCH",
     "CODSH_WEB_SEARCH_KEY_ENV",
+    // Ticket 187: the `image` command reloads config.toml, so it must see
+    // the same image switches the client resolved.
+    "GROK_IMAGE_GEN",
+    "GROK_IMAGE_EDIT",
+    "GROK_IMAGE_GEN_MODEL_OVERRIDE",
+    "GROK_IMAGE_EDIT_MODEL_OVERRIDE",
+    "GROK_MAX_PARALLEL_IMAGE_GEN_CALLS",
     "CODSH_RUST_BIN",
     "CODSH_SHELL_MARKER",
     "CODSH_SHELL_WORKDIR",
@@ -633,6 +640,26 @@ pub fn dsh_spawn_spec(
         && let Some(value) = std::env::var_os(&name)
     {
         env.push((name, value.to_string_lossy().into_owned()));
+    }
+    // The image substitutes' credentials (ticket 187), named by config.
+    let image_keys: Vec<String> = env
+        .iter()
+        .find(|(key, _)| key == "CODSH_IMAGE_KEY_ENV")
+        .map(|(_, value)| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    for name in image_keys {
+        if !env.iter().any(|(key, _)| key == &name)
+            && let Some(value) = std::env::var_os(&name)
+        {
+            env.push((name, value.to_string_lossy().into_owned()));
+        }
     }
     Ok(SpawnSpec {
         program,

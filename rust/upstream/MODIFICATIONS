@@ -113,6 +113,23 @@ refusal follow the reference slash_exec.rs and workflow.rs text in
 `packages/cli/bin/rust-acp-workflow.mjs`. The reference bundled workflow scope
 (downloaded workflows) is not reproduced.
 
+Ticket 55 (#187) adds local `src/image_gen.rs` and
+`packages/cli/bin/rust-acp-image.mjs`, written against the reference
+crates/codegen/xai-grok-tools/src/implementations/grok_build/{image_gen,
+image_edit}/mod.rs, grok_build/storage.rs, xai-grok-tools-api/src/
+slash_commands.rs and the shell's /imagine command at the pinned commit
+(Apache-2.0, see LICENSE), not copied. The `/imagine` instruction and usage
+text are copied verbatim; the tool schemas keep the reference argument names
+and wording, with "xAI Imagine" replaced by "the configured image service".
+Local changes to the reference behavior: the service is any configured
+substitute (`xai` reference JSON or `openai` Images protocol) and official
+hosts are refused instead of calling the Imagine account; there is no tier
+upsell; like the reference only `b64_json` is read, and a URL-only reply is
+named as such and never fetched; saved files keep the returned format (png/jpg/webp/gif) instead
+of always `.jpg`; references are sent as given (up to 20 MiB each) instead of
+being re-encoded to 768 px / 400 KiB; every call asks through the dsh
+approval path; the editor ACP server offers no image tools.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

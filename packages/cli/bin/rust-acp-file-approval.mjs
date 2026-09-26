@@ -104,6 +104,13 @@ export function accessFromTool(name, args = {}) {
   // search_tool reads the catalog; use_tool re-enters this gate as the
   // named MCP tool, so rules and grants apply to the real tool once.
   if (name === 'search_tool' || name === 'use_tool') return { kind: 'read', path: '' }
+  // Image tools (ticket 187) send the prompt, and for edits the reference
+  // images, to the configured image service. Each call asks; path references
+  // are also checked against Read deny rules before the card opens.
+  if (name === 'image_gen' || name === 'image_edit') {
+    const references = Array.isArray(args.image) ? args.image.map(String) : []
+    return { kind: 'tool', name, prompt: stringField(args, ['prompt']), references }
+  }
   // dsh publishes `mcp__<server>__<tool>`; rules and grants use `server__tool`.
   if (name.includes('__')) return { kind: 'mcp', name: name.startsWith('mcp__') ? name.slice(5) : name }
   if (path && (args.old_string || args.new_string || args.content)) return { kind: 'edit', path }
@@ -1300,6 +1307,7 @@ function evaluateGrants(policy, access) {
 }
 
 function mutatingAccess(access) {
+  if (access.kind === 'tool' && (access.name === 'image_gen' || access.name === 'image_edit')) return true
   return access.kind === 'edit' || access.kind === 'bash' || access.kind === 'mcp' || access.kind === 'webfetch'
 }
 
@@ -1410,7 +1418,47 @@ function persistGrant(policy, access, allow) {
   }
 }
 
+/** A path-like image reference (not a placeholder or data URL). */
+function imageReferencePath(reference) {
+  const text = String(reference ?? '').trim()
+  if (text.startsWith('file://')) {
+    try { return decodeURIComponent(new URL(text).pathname) } catch { return '' }
+  }
+  if (text === '' || text.startsWith('data:') || /^\[Image #\d+\]$/u.test(text)) return ''
+  return text
+}
+
+/** A Read deny rule on any image_edit path reference. */
+export function imageReferenceDenied(policy, access) {
+  if (access.kind !== 'tool' || access.name !== 'image_edit') return null
+  for (const reference of access.references ?? []) {
+    const path = imageReferencePath(reference)
+    if (!path) continue
+    const decision = evaluateRules(policy, { kind: 'read', path })
+    if (decision?.kind === 'deny') return { kind: 'deny', reason: `${decision.reason}; the reference ${path} was not sent` }
+  }
+  return null
+}
+
+function imageAskReason(access) {
+  const hostKey = access.name === 'image_edit' ? 'CODSH_IMAGE_EDIT_HOST' : 'CODSH_IMAGE_GEN_HOST'
+  const host = process.env[hostKey] || 'the configured image service'
+  const flat = String(access.prompt ?? '').replace(/\s+/gu, ' ').trim()
+  const prompt = flat.length > 60 ? `${flat.slice(0, 59)}…` : flat
+  const count = access.references?.length ?? 0
+  const sends = count > 0
+    ? `Sends the prompt and ${count} reference image${count === 1 ? '' : 's'} to ${host}.`
+    : `Sends the prompt to ${host}.`
+  return [
+    `Allow ${access.name} \`${prompt}\` → ${host}? y=allow once  n=reject`,
+    `${sends} codsh does not know its price; any charge is set by that service. Each image request asks again.`,
+  ].join('\n')
+}
+
 function askReason(access, policy, persistFailed) {
+  if (access.kind === 'tool' && (access.name === 'image_gen' || access.name === 'image_edit')) {
+    return imageAskReason(access)
+  }
   const subject = access.kind === 'bash'
     ? `bash \`${access.command}\``
     : access.kind === 'edit'
@@ -1513,6 +1561,9 @@ function planFileEdit(ctx, exec) {
 export function apply(ctx) {
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (!process.env.CODSH_PERMISSION_POLICY) {
+      if (exec.name === 'image_gen' || exec.name === 'image_edit') {
+        return { kind: 'ask', reason: imageAskReason(accessFromTool(exec.name, exec.arguments ?? {})) }
+      }
       if (exec.name !== 'write' && exec.name !== 'edit') return next()
       if (planFileEdit(ctx, exec)) return next()
       const path = typeof exec.arguments?.file_path === 'string' ? exec.arguments.file_path : ''
@@ -1535,6 +1586,8 @@ export function apply(ctx) {
       if (rules?.kind === 'deny') return { kind: 'deny', reason: rules.reason }
       return next()
     }
+    const imageDenied = hookDeny ? null : imageReferenceDenied(policy, access)
+    if (imageDenied) return { kind: 'deny', reason: imageDenied.reason }
     const decision = evaluateForAgent(policy, access, hookDeny, agentCwdOf(exec))
     if (decision.kind === 'deny') return { kind: 'deny', reason: decision.reason }
     if (decision.kind === 'allow') return next()

@@ -536,7 +536,17 @@ packed client and real dsh sessions. Search uses a local Responses-shaped
 substitute and a local SearXNG JSON fixture; the SearXNG request is a keyless
 GET and result URLs stay inside the configured domain list. One fetch uses
 the public `http://example.com/` page. A real SearXNG process is not started
-by that script. `python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
+by that script. Image generation (ticket 187): `pnpm exec vitest run
+scripts/rust-image-gen.spec.mjs` drives real dsh with the keyless `image` mock
+mode (`IMAGE_TOOLS`, `IMAGE_GEN [ratio=R] <prompt>`, `IMAGE_EDIT <ref>|<ref> ::
+<prompt>`, `IMAGE_PAIR a THEN b`, and the `/imagine` instruction) against a
+fake native runner, and `python3 scripts/rust-image-gen-pty-test.py` (Linux and
+macOS) drives the packed client against a loopback xAI-shaped fake image
+service: approval card reject/allow, `/imagine`, a Ctrl+V `[Image #1]` edit,
+refusal, malformed bytes, URL-only and HTTP 402 replies, a hung request
+cancelled with Ctrl+C, `/images` and open, resume, the disabled launch, and
+the official-host refusal. Neither script calls a real or paid image service.
+`python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
 and macOS through the repo launcher and the `pnpm run build:rust` binary: a
 temp plugin with a rule, skill, command, agent, and PreToolUse hook is
 installed with `--trust`, `/plugins` Space enables it, the next prompt must

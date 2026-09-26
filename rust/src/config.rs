@@ -127,6 +127,8 @@ pub struct EffectiveConfig {
     pub permission: PermissionPolicy,
     pub voice: crate::voice::VoiceConfig,
     pub web: crate::web::WebServices,
+    /// Ticket 187: image_gen / image_edit substitute services.
+    pub images: crate::image_gen::ImageServices,
     pub assets: crate::assets::AssetCatalog,
     /// Process and config gate. A `/memory` `t` toggle does not change this.
     pub memory: crate::memory::Enablement,
@@ -676,7 +678,19 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         sources
             .entry("models.default".into())
             .or_insert_with(|| "config.toml".into());
-    } else if models.len() == 1 {
+    } else if models.len() == 1
+        && !models.keys().any(|id| {
+            // An image service named by [models] image_gen / image_edit
+            // (ticket 187) is never the chat model by default.
+            ["image_gen", "image_edit"].iter().any(|key| {
+                table
+                    .get("models")
+                    .and_then(|models| models.get(*key))
+                    .and_then(TomlValue::as_str)
+                    == Some(id.as_str())
+            })
+        })
+    {
         default_model = models.keys().next().cloned();
         sources
             .entry("models.default".into())
@@ -1919,6 +1933,24 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     for (key, value, source) in crate::web::inspect_rows(&web) {
         push_setting(&mut settings, key, &value, &source);
     }
+    let images = crate::image_gen::load_services_layered(
+        &table,
+        user.as_ref()
+            .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
+        &input.env,
+        requirements.as_ref(),
+        managed.as_ref(),
+    );
+    warnings.extend(images.warnings.iter().cloned());
+    for reason in &images.errors {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: reason.clone(),
+        });
+    }
+    for (key, value, source) in crate::image_gen::inspect_rows(&images) {
+        push_setting(&mut settings, key, &value, &source);
+    }
     let ask = crate::interaction::load_ask_settings(
         user.as_ref()
             .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
@@ -2001,6 +2033,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         permission,
         voice,
         web,
+        images,
         assets,
         memory,
         memory_capture,
@@ -2388,6 +2421,10 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
                 "fetchCost": config.web.fetch.cost,
                 "disclosure": crate::web::disclosure(&config.web),
             }),
+        );
+        object.insert(
+            "images".into(),
+            crate::image_gen::inspect_json(&config.images),
         );
         object.insert(
             "sandboxProfile".into(),
@@ -2884,6 +2921,27 @@ pub fn web_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     // plain plugin drops web_search / web_fetch from every agent schema.
     if config.web.process_off {
         extra.push(("CODSH_DISABLE_WEB_TOOLS".into(), "1".into()));
+    }
+    extra
+}
+
+/// Ticket 187: which image tools the dsh plugin registers, the parallel cap,
+/// and the host named on the approval card. The `image` command reloads
+/// config.toml for the service, key, and policy. The credential name is
+/// forwarded so the child can copy that one env value.
+pub fn image_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    let mut extra = crate::image_gen::dsh_env(&config.images);
+    let mut keys: Vec<String> = [
+        config.images.gen_service.as_ref(),
+        config.images.edit_service.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(|service| service.env_key.clone())
+    .collect();
+    keys.dedup();
+    if !keys.is_empty() {
+        extra.push(("CODSH_IMAGE_KEY_ENV".into(), keys.join(",")));
     }
     extra
 }
@@ -3914,6 +3972,64 @@ mod tests {
         refresh_assets(&mut config, &home);
         assert!(config.assets.agents.is_empty());
         assert!(plugin_runtime_changed(&config, &after));
+    }
+
+    #[test]
+    fn an_image_service_is_explicit_and_never_the_default_chat_model() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+image_gen = "imagine"
+
+[model.imagine]
+model = "sd-turbo"
+base_url = "http://127.0.0.1:7/v1"
+supports_image_generation = true
+"#,
+        );
+        let config = load_from(load);
+        assert_eq!(config.default_model, None);
+        assert!(config.images.gen_enabled && !config.images.edit_enabled);
+        assert_eq!(
+            setting(&config, "features.image_gen"),
+            Some(("true", "config.toml"))
+        );
+        let env = image_env(&config);
+        assert!(
+            env.contains(&("CODSH_IMAGE_GEN".into(), "1".into())),
+            "{env:?}"
+        );
+        assert!(
+            env.contains(&("CODSH_IMAGE_GEN_HOST".into(), "127.0.0.1:7".into())),
+            "{env:?}"
+        );
+
+        let official = TempDir::new().unwrap();
+        let load = input(&official);
+        write_config(
+            &load,
+            r#"
+[models]
+image_gen = "imagine"
+
+[model.imagine]
+base_url = "https://api.x.ai/v1"
+supports_image_generation = true
+"#,
+        );
+        let config = load_from(load);
+        assert!(!config.images.gen_enabled);
+        assert!(
+            config
+                .errors
+                .iter()
+                .any(|error| error.reason.contains("api.x.ai")),
+            "{:?}",
+            config.errors
+        );
     }
 
     #[test]

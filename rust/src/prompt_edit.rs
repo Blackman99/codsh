@@ -36,6 +36,8 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "fullscreen",
         "goal",
         "history",
+        "imagine",
+        "images",
         "jump",
         "login",
         "logout",
@@ -154,6 +156,18 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("fullscreen", &["full"], "Switch to fullscreen", true),
     SlashCommand::new("goal", &[], crate::goal::DESCRIPTION, false),
     SlashCommand::new("history", &[], "Search prompt history", true),
+    SlashCommand::new(
+        "imagine",
+        &[],
+        "Generate an image from a description (/imagine <description>)",
+        false,
+    ),
+    SlashCommand::new(
+        "images",
+        &[],
+        "List this session's saved images; /images open [N] opens one",
+        true,
+    ),
     SlashCommand::new("jump", &[], "Jump to a turn", true),
     SlashCommand::new(
         "login",

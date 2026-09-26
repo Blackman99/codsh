@@ -9,6 +9,9 @@ pub struct RestoredTool {
     pub status: String,
     pub diff: String,
     pub result: String,
+    /// The call's arguments, projected for tools whose card is built from
+    /// them (image_gen / image_edit, ticket 187); Null otherwise.
+    pub input: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +191,7 @@ pub fn project_turns(value: &Value) -> Result<Vec<RestoredTurn>, HistoryError> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string(),
+                input: tool.get("input").cloned().unwrap_or(Value::Null),
             })
             .collect();
         turns.push(RestoredTurn {

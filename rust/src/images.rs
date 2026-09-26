@@ -483,13 +483,21 @@ fn short_type(media_type: &str) -> &str {
     media_type.rsplit('/').next().unwrap_or(media_type)
 }
 
-fn extension_for(media_type: &str) -> &'static str {
+pub(crate) fn extension_for(media_type: &str) -> &'static str {
     match media_type {
         "image/jpeg" => "jpg",
         "image/webp" => "webp",
         "image/gif" => "gif",
         _ => "png",
     }
+}
+
+/// Media type and pixel size of image bytes of any length (ticket 187 checks
+/// what an image service returned and what a reference file holds).
+pub(crate) fn identify(bytes: &[u8]) -> Option<(&'static str, Option<u32>, Option<u32>)> {
+    let media_type = media_type_of(bytes)?;
+    let (width, height) = dimensions(bytes, media_type);
+    Some((media_type, width, height))
 }
 
 fn media_type_of(bytes: &[u8]) -> Option<&'static str> {

@@ -716,6 +716,15 @@ fn user_prompt(event: &Value) -> Option<String> {
             text.push_str(piece);
         }
     }
+    // `/imagine` is sent as a fixed instruction; the picker shows the typed line.
+    if let Some(prompt) = crate::image_gen::imagine_prompt_of(&text) {
+        return Some(
+            format!("/imagine {prompt}")
+                .chars()
+                .take(CONTENT_SNIPPET)
+                .collect(),
+        );
+    }
     let line = text
         .lines()
         .map(str::trim)

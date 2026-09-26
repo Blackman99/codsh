@@ -28,7 +28,7 @@ function fetchEnabled() {
   return enabled('CODSH_WEB_FETCH')
 }
 
-function rustBinary() {
+export function rustBinary() {
   if (process.env.CODSH_RUST_BIN) return process.env.CODSH_RUST_BIN
   // The ACP child is started by the native client. Use that executable when
   // the explicit path was not forwarded. Linux exposes it as /proc; macOS uses ps.

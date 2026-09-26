@@ -2022,6 +2022,52 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(`RUST_ACP_WEB_DONE ${text}`)
       return
     }
+    if (MODE === 'image') {
+      // Image generation (ticket 187). The prompt names the call:
+      // `IMAGE_GEN [ratio=R] <prompt>`, `IMAGE_EDIT <ref>[|<ref>…] :: <prompt>`,
+      // `IMAGE_PAIR <a> THEN <b>` (two parallel image_gen calls), or
+      // `IMAGE_TOOLS`. `/imagine` arrives as its fixed instruction; the
+      // `Prompt:` line is passed to image_gen verbatim.
+      const isPrompt = message => message.role === 'user'
+        && message.content.some(block => block.type === 'text' && /IMAGE_(GEN|EDIT|PAIR|TOOLS)|Call the image_gen tool immediately/.test(block.text))
+      const lastPrompt = options.messages.findLastIndex(isPrompt)
+      const prompt = lastPrompt < 0 ? '' : options.messages[lastPrompt].content
+        .filter(block => block.type === 'text').map(block => block.text).join('\n')
+      if (prompt.includes('IMAGE_TOOLS')) {
+        const offered = (Array.isArray(options.tools) ? options.tools.map(tool => tool.name) : [])
+          .filter(name => name.startsWith('image_'))
+        yield* mockText(`RUST_ACP_IMAGE_TOOLS ${offered.sort().join(',') || '(none)'}`)
+        return
+      }
+      const done = toolResults({ messages: options.messages.slice(lastPrompt + 1) })
+      if (done.length === 0) {
+        // Call ids are unique in the session so each turn owns its card.
+        const seq = toolResults(options).length
+        const callId = offset => `rust-acp-image-${seq + offset}`
+        const imagine = /^Prompt: (.*)$/m.exec(prompt)
+        const edit = /IMAGE_EDIT (.+?) :: (.+)$/m.exec(prompt)
+        const pair = /IMAGE_PAIR (.+?) THEN (.+)$/m.exec(prompt)
+        const gen = /IMAGE_GEN (?:ratio=(\S+) )?(.+)$/m.exec(prompt)
+        if (prompt.includes('Call the image_gen tool immediately') && imagine) {
+          yield* mockToolCall(callId(1), 'image_gen', { prompt: imagine[1] })
+        } else if (edit) {
+          yield* mockToolCall(callId(1), 'image_edit', { prompt: edit[2].trim(), image: edit[1].split('|').map(item => item.trim()) })
+        } else if (pair) {
+          yield* mockToolCalls([
+            { id: callId(1), name: 'image_gen', args: { prompt: pair[1].trim() } },
+            { id: callId(2), name: 'image_gen', args: { prompt: pair[2].trim() } },
+          ])
+        } else if (gen) {
+          yield* mockToolCall(callId(1), 'image_gen', { prompt: gen[2].trim(), ...(gen[1] ? { aspect_ratio: gen[1] } : {}) })
+        } else {
+          yield* mockText('RUST_ACP_IMAGE_ERROR no image request in the prompt')
+        }
+        return
+      }
+      const summary = done.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${resultText(result).replace(/\s+/g, ' ').slice(0, 400)}`).join(' | ')
+      yield* mockText(done.some(result => result.isError === true) ? `RUST_ACP_IMAGE_ERROR ${summary}` : `RUST_ACP_IMAGE_DONE ${summary}`)
+      return
+    }
     if (MODE === 'mcp') {
       // The prompt names the call: `MCP_CALL <tool> <json args>`, repeated
       // with ` THEN ` for a sequence. `MCP_TOOLS` lists the MCP-related tool

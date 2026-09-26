@@ -742,6 +742,60 @@ is checked with a local fixture. The SearXNG protocol is checked the same
 way, and also against one real SearXNG process bound to localhost on this
 machine. A public SearXNG host is not part of this check.
 
+Images in `codsh --rust`: image generation and editing are off until you name
+a service. `[models] image_gen` names a `[model.<id>]` table with `base_url`
+and `supports_image_generation = true`; `supports_image_edit = true` on the
+same table, or a separate `[models] image_edit`, enables edits. A chat model
+without that flag is never used as an image service, the single-model default
+never picks an image service as the chat model, and official hosts
+(`api.x.ai`, `grok.com`) are refused as a configuration error. `protocol`
+selects the wire format: `xai` (default) is the reference JSON body
+(`prompt`, `aspect_ratio`, `resolution`, data-URL references, `b64_json`
+reply) and `openai` is the OpenAI Images shape (`size` from `image_size`,
+multipart `image[]` edits), which a local stable-diffusion.cpp `sd-server`
+speaks. `env_key` / `api_key` are optional so a keyless local service works;
+a named but empty `env_key` is an error. `timeout_secs` defaults to 300.
+
+```toml
+[models]
+image_gen = "sd-local"
+
+[model.sd-local]
+base_url = "http://127.0.0.1:1234/v1"
+protocol = "openai"
+supports_image_generation = true
+supports_image_edit = true
+image_size = 512
+```
+
+With a service configured the model gets `image_gen` (prompt, optional
+`aspect_ratio`) and `image_edit` (prompt, one to five `image` references: an
+`[Image #N]` chip from the same message, an absolute path, a `file://` URL,
+or a `data:image/...` URL). `/imagine <description>` asks the model to call
+`image_gen` with your words unchanged. Every image request goes through the
+dsh tool approval: the card reads `Allow Generate image "<prompt>" via
+<host>?` (or `Edit image (N refs)`) and says what is sent and that codsh does
+not know the service's price; any charge is set by that service. A Read deny
+rule also refuses a reference path. `GROK_IMAGE_GEN=0` / `GROK_IMAGE_EDIT=0`
+(or `features.image_gen = false`) turn a tool off, `GROK_IMAGE_GEN_MODEL_OVERRIDE`
+/ `GROK_IMAGE_EDIT_MODEL_OVERRIDE` change the request model, and
+`tools.media_gen.max_parallel_image_gen_calls` (default 4) caps calls in one
+model step; extra calls fail with that reason. The running row shows elapsed
+time; Ctrl+C cancels the request and saves nothing. A result is checked
+(real png/jpeg/webp/gif bytes) and saved atomically as
+`<session>/images/<n>.<ext>` (folder mode 0700, never replacing a file); a
+refusal, a URL instead of image data, malformed bytes, an HTTP error or a
+timeout saves nothing and shows the reason. `/images` lists the session's
+images and `/images open [N]` opens one (the latest without N) with
+`CODSH_IMAGE_OPENER`, else `open` on macOS or `xdg-open`. After `--resume`
+the rows keep their titles, `/imagine` shows as typed, and `/images` still
+lists and opens the same files. `codsh --rust image generate|edit|list`
+(`--json`) uses the same service outside a session, and `codsh --rust
+inspect` shows the resolved service and why one was refused. The editor ACP
+server (`codsh --rust agent stdio`) does not offer image tools. Tests use a
+loopback fake service; the `openai` shape was also checked against a real
+stable-diffusion.cpp `sd-server` with the SD-Turbo model on this machine.
+
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
 status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored

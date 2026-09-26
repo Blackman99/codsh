@@ -1088,6 +1088,27 @@ without it. Resume shows a sent image turn by its placeholders, never its
 `<pasted-image>` path, and sends nothing again.
 _Avoid_: upload, embed
 
+**Image service**:
+The substitute that `image_gen` / `image_edit` call in `codsh --rust`
+(ticket 187). It exists only when `[models] image_gen` (and optionally
+`image_edit`) names a `[model.<id>]` marked `supports_image_generation` /
+`supports_image_edit`; official hosts are a configuration error and a chat
+model is never used in its place. `image_gen.rs` owns config, the `xai`
+(reference JSON) and `openai` (OpenAI Images, e.g. stable-diffusion.cpp
+`sd-server`) wire formats, reply checks, and atomic numbered saves under
+`<session>/images/`; `codsh --rust image run --json` is the job runner.
+`rust-acp-image.mjs` registers the two dsh tools only when the client sets
+`CODSH_IMAGE_GEN` / `CODSH_IMAGE_EDIT`, resolves `[Image #N]` from the latest
+user message (image block, else its `<pasted-image>` path), spawns the runner,
+and kills it on cancel. Approval is the ordinary dsh ask
+(`rust-acp-file-approval.mjs`): every call asks, a Read deny rule refuses a
+reference path, and the Rust client titles the card and row from the saved
+tool input (prompt, host, reference count, unknown price). `/imagine` sends
+the reference instruction verbatim; the session reader and picker show it
+as `/imagine <prompt>`. The editor ACP server gets no image env and so no
+image tools.
+_Avoid_: image model (for the chat model), Imagine account
+
 **Clipboard delivery**:
 The result of one copy in `codsh --rust` (ticket 155). Every copy tries the
 native tool, tmux's paste buffer inside tmux, and OSC 52 where the route

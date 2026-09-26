@@ -76,8 +76,16 @@ function nestedToolResults(event) {
 // element the user typed mid-message stays.
 const PASTED_IMAGE_FALLBACKS = /(?:\n<pasted-image id="\d+" media="image\/(?:png|jpeg|webp|gif)"(?: dimensions="\d+x\d+")? path="[^"\n]*">\n<\/pasted-image>\n)+$/u
 
+// `/imagine <prompt>` (ticket 187) is sent to the model as this fixed
+// instruction; resume shows the line the user typed.
+const IMAGINE_PREFIX = "Call the image_gen tool immediately, passing the user's prompt below verbatim — do not rewrite, embellish, or expand it. After the tool completes, briefly acknowledge and mention where the image was saved.\n\nPrompt: "
+
+export function imagineTyped(text) {
+  return text.startsWith(IMAGINE_PREFIX) ? `/imagine ${text.slice(IMAGINE_PREFIX.length)}` : text
+}
+
 function typedText(content) {
-  return textBlocks(content).replace(PASTED_IMAGE_FALLBACKS, '')
+  return imagineTyped(textBlocks(content).replace(PASTED_IMAGE_FALLBACKS, ''))
 }
 
 function proposedDiff(name, args) {
@@ -208,6 +216,9 @@ function liveToolResultIds(events, live) {
     if (event?.type !== 'tool/result' || typeof event.seq !== 'number' || !live.has(event.seq)) continue
     const message = event.data?.message ?? {}
     ids.add(String(message.toolCallId ?? message.callId ?? event.data?.callId ?? ''))
+    // dsh stores a plugin tool's call id on the nested tool-result block (and
+    // message.source); keep its tool/call so resume shows the tool's name.
+    for (const nested of nestedToolResults(event)) ids.add(nested.id)
   }
   return ids
 }
@@ -546,6 +557,8 @@ export function projectTurns(events, options = {}) {
         status: 'pending',
         diff: proposedDiff(name, args),
         result: '',
+        // The Rust client titles image calls from their prompt (ticket 187).
+        ...(name === 'image_gen' || name === 'image_edit' ? { input: args } : {}),
       }
       tools.set(id, tool)
       current.tools.push(tool)
