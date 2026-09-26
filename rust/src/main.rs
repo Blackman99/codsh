@@ -30,6 +30,7 @@ mod mcp_proxy;
 mod mcp_remote;
 mod memory;
 mod memory_capture;
+mod memory_keywords;
 mod memory_ui;
 mod models;
 mod navigation;
@@ -12773,7 +12774,7 @@ fn sync_memory_capture(
         .is_some_and(|job| session_id.as_deref() != Some(job))
         && let Some(text) = side.memory.cancel(Some(&store), &config.log, Some(&send))
     {
-        *hint = text;
+        show_memory_notice(text, hint, last_error);
     }
     let ctx = memory_capture::Ctx {
         store: &store,
@@ -12783,15 +12784,24 @@ fn sync_memory_capture(
         send: &send,
     };
     for notice in side.memory.settle(&ctx) {
-        *hint = notice;
+        show_memory_notice(notice, hint, last_error);
     }
     if client
         .as_ref()
         .is_some_and(|active| !active.remote && active.control_ready())
         && let Some(text) = side.memory.tick(&ctx, !inflight, conversation_len)
     {
-        *hint = text;
+        show_memory_notice(text, hint, last_error);
     }
+}
+
+/// A memory notice replaces the hint and retires a stale busy refusal of
+/// `/flush` or `/dream`, which otherwise stayed under "Dream completed".
+fn show_memory_notice(notice: String, hint: &mut String, last_error: &mut String) {
+    if memory_capture::is_busy_refusal(last_error) {
+        last_error.clear();
+    }
+    *hint = notice;
 }
 
 /// `/flush` and `/dream` (ticket 186). Both take no arguments.
@@ -14797,6 +14807,20 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_notice_retires_a_stale_busy_refusal_only() {
+        // Issue #186 follow-up: "Dream is already running…" stayed under
+        // "Dream completed" until the next command.
+        let mut hint = String::new();
+        let mut last_error = memory_capture::DREAM_BUSY.to_string();
+        show_memory_notice("Dream completed: …".into(), &mut hint, &mut last_error);
+        assert_eq!(hint, "Dream completed: …");
+        assert!(last_error.is_empty());
+        let mut last_error = "memory log unwritable".to_string();
+        show_memory_notice("Memory flushed: …".into(), &mut hint, &mut last_error);
+        assert_eq!(last_error, "memory log unwritable");
+    }
 
     fn live_turn(user: &str) -> Turn {
         Turn {

@@ -172,3 +172,10 @@ reference behavior, each to keep a manual edit: an existing session log is
 appended to instead of overwritten; Dream refuses to write when MEMORY.md
 changed while the model ran; the previous MEMORY.md and consolidated session
 logs are moved to sessions/.archive/ instead of being discarded or deleted.
+The #186 follow-ups copy STOP_WORDS and extract_keywords (with their tests)
+verbatim from crates/codegen/xai-grok-memory/src/query_expansion.rs at the
+pinned commit into local `src/memory_keywords.rs`; `memory.rs` uses them with
+` OR ` and BM25 order for first-turn recall as index.rs does. One more local
+change to the reference: the reference keeps the last flush content in memory
+only (memory_state.rs), so the first flush after a restart or resume sent the
+full prompt; here it is read back from the session's newest flush log.

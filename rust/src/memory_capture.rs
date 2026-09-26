@@ -1326,6 +1326,65 @@ impl FlushOutcome {
     }
 }
 
+/// Flush triggers whose logs are `sessions/{date}-{trigger}-{sid8}.md`.
+const FLUSH_TRIGGERS: [&str; 2] = ["user_requested", "interval"];
+
+/// Whether `name` is a flush log of `sid8` (Dream archives may add `-N`).
+fn is_flush_log_of(name: &str, sid8: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".md") else {
+        return false;
+    };
+    let stem = match stem.rsplit_once('-') {
+        Some((head, tail))
+            if tail != sid8 && !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            head
+        }
+        _ => stem,
+    };
+    let Some(head) = stem
+        .strip_suffix(sid8)
+        .and_then(|head| head.strip_suffix('-'))
+    else {
+        return false;
+    };
+    // `YYYY-MM-DD-{trigger}`
+    let (Some(date), Some(trigger)) = (head.get(..10), head.get(10..)) else {
+        return false;
+    };
+    date.bytes().all(|b| b.is_ascii_digit() || b == b'-')
+        && trigger
+            .strip_prefix('-')
+            .is_some_and(|trigger| FLUSH_TRIGGERS.contains(&trigger))
+}
+
+/// The last flush this session wrote, read back from its newest flush log
+/// (live or archived by Dream): the segment after the final
+/// `<!-- flush … -->` separator, or the whole file when it has one segment.
+pub fn previous_flush_on_disk(store: &Store, session_id: &str) -> Option<String> {
+    let sid8 = sid8(session_id);
+    if sid8.is_empty() {
+        return None;
+    }
+    let newest = [sessions_dir(store), archive_dir(store)]
+        .iter()
+        .filter_map(|dir| fs::read_dir(dir).ok())
+        .flatten()
+        .flatten()
+        .filter(|entry| is_flush_log_of(&entry.file_name().to_string_lossy(), &sid8))
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .max_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)))?
+        .1;
+    let text = fs::read_to_string(newest).ok()?;
+    let last = match text.rfind("<!-- flush ") {
+        Some(start) => text[start..].split_once("-->").map_or("", |(_, rest)| rest),
+        None => text.as_str(),
+    };
+    let last = last.trim();
+    (!last.is_empty()).then(|| last.to_string())
+}
+
 /// Empty or NO_REPLY stores nothing; the answer is capped, then must carry
 /// a markdown header; it is appended to `{date}-{trigger}-{sid8}.md`.
 pub fn commit_flush(
@@ -1575,6 +1634,18 @@ pub struct Ctx<'a> {
     pub send: SendFn<'a>,
 }
 
+/// Busy refusals of `/flush` and `/dream`. They are transient: the next
+/// memory notice (the running job settled or was cancelled) supersedes them.
+pub const FLUSH_BUSY: &str = "Another memory flush is already running.";
+pub const FLUSH_BUSY_DREAM: &str = "Dream is running; flush again when it finishes.";
+pub const DREAM_BUSY: &str = "Dream is already running; try again when it finishes.";
+pub const DREAM_BUSY_FLUSH: &str = "A memory flush is running; try /dream when it finishes.";
+
+/// Whether `text` is one of the busy refusals above.
+pub fn is_busy_refusal(text: &str) -> bool {
+    [FLUSH_BUSY, FLUSH_BUSY_DREAM, DREAM_BUSY, DREAM_BUSY_FLUSH].contains(&text)
+}
+
 pub const V2_REFUSAL: &str = "[memory_v2] enabled = true selects the reference v2 store, which this client does not implement; background capture and Dream stay off and memory-v2/ is not touched";
 
 #[derive(Debug, Default)]
@@ -1633,18 +1704,28 @@ impl Runner {
         }
         if let Some(job) = &self.job {
             return Err(match job.kind {
-                JobKind::Flush { .. } => "Another memory flush is already running.".into(),
-                JobKind::Dream { .. } => "Dream is running; flush again when it finishes.".into(),
+                JobKind::Flush { .. } => FLUSH_BUSY.into(),
+                JobKind::Dream { .. } => FLUSH_BUSY_DREAM.into(),
             });
         }
         let Some(session_id) = ctx.session_id.filter(|id| !id.is_empty()) else {
             return Err("/flush needs a live dsh session; send a prompt first".into());
         };
-        let previous = self
+        // Local deviation: the reference keeps the last flush in memory only,
+        // so the first flush after a restart or `--resume` resent the whole
+        // window and duplicated the log. Recover it from disk instead.
+        let recovered;
+        let previous = match self
             .previous_flush
             .as_ref()
             .filter(|(session, _)| session == session_id)
-            .map(|(_, content)| content.as_str());
+        {
+            Some((_, content)) => Some(content.as_str()),
+            None => {
+                recovered = previous_flush_on_disk(ctx.store, session_id);
+                recovered.as_deref()
+            }
+        };
         let delta = previous.is_some();
         let system = flush_system_prompt(previous);
         let id = self.next_id();
@@ -1702,12 +1783,8 @@ impl Runner {
                 return Ok(None);
             }
             return Err(match job.kind {
-                JobKind::Dream { .. } => {
-                    "Dream is already running; try again when it finishes.".into()
-                }
-                JobKind::Flush { .. } => {
-                    "A memory flush is running; try /dream when it finishes.".into()
-                }
+                JobKind::Dream { .. } => DREAM_BUSY.into(),
+                JobKind::Flush { .. } => DREAM_BUSY_FLUSH.into(),
             });
         }
         let Some(session_id) = ctx.session_id.filter(|id| !id.is_empty()) else {
@@ -1721,7 +1798,7 @@ impl Runner {
             DreamStart::Plan(plan) => plan,
             DreamStart::Busy => {
                 return if manual {
-                    Err("Dream is already running; try again when it finishes.".into())
+                    Err(DREAM_BUSY.into())
                 } else {
                     Ok(None)
                 };
@@ -2723,6 +2800,117 @@ mod tests {
             "sentMessages": 21,
             "sentChars": 9120,
         }))
+    }
+
+    /// Runs one `/flush` to completion and returns the system prompt sent.
+    fn flush_once(runner: &mut Runner, ctx: &Ctx, harness: &Harness, answer: &str) -> String {
+        runner.start_flush(ctx, "user_requested").unwrap();
+        let request = harness.sent.borrow().last().unwrap().clone();
+        let id = request["id"].as_str().unwrap().to_string();
+        runner.accept(id, Ok(reply(answer)));
+        let notices = runner.settle(ctx);
+        assert!(notices[0].starts_with("Memory flushed: "), "{notices:?}");
+        request["system"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn first_flush_after_restart_uses_the_last_flush_on_disk() {
+        // Issue #186 follow-up: the previous flush lived only in memory, so the
+        // first /flush after a restart or --resume resent the whole window.
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_in(dir.path());
+        let config = CaptureConfig::default();
+        let harness = Harness {
+            sent: RefCell::new(Vec::new()),
+        };
+        let send = |message: &Value| harness.send(message);
+        let ctx = Ctx {
+            store: &store,
+            config: &config,
+            active: true,
+            session_id: Some("sess12345678-resumed"),
+            send: &send,
+        };
+        let mut first = Runner::default();
+        assert_eq!(
+            flush_once(&mut first, &ctx, &harness, "## Decisions\none"),
+            FLUSH_SYSTEM_PROMPT
+        );
+        assert!(
+            flush_once(&mut first, &ctx, &harness, "## Decisions\ntwo")
+                .ends_with("--- Previous flush content ---\n## Decisions\none")
+        );
+        // A session summary of the same session is not a flush log.
+        write_daily_log(
+            &store,
+            "2026-09-27",
+            "ship-it",
+            "sess12345678",
+            "## Summary\nx",
+            "session-end",
+            0,
+        )
+        .unwrap();
+        // Restart: a new runner reads the last segment back from disk.
+        let mut restarted = Runner::default();
+        let hint = restarted.start_flush(&ctx, "user_requested").unwrap();
+        assert!(hint.contains("(new since the last flush)"), "{hint}");
+        let system = harness.sent.borrow().last().unwrap()["system"].clone();
+        assert_eq!(system, flush_system_prompt(Some("## Decisions\ntwo")));
+        assert_eq!(restarted.running().map(|(name, _)| name), Some("flush"));
+        // Dream archived the log (with a `-N` suffix): still recovered.
+        let live: Vec<_> = fs::read_dir(sessions_dir(&store))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.to_string_lossy().contains("user_requested"))
+            .collect();
+        assert_eq!(live.len(), 1, "{live:?}");
+        fs::create_dir_all(archive_dir(&store)).unwrap();
+        let archived = archive_dir(&store).join(format!(
+            "{}-1.md",
+            live[0].file_stem().unwrap().to_string_lossy()
+        ));
+        fs::rename(&live[0], &archived).unwrap();
+        assert_eq!(
+            previous_flush_on_disk(&store, "sess12345678-resumed").as_deref(),
+            Some("## Decisions\ntwo")
+        );
+        // Another session has no previous flush.
+        assert_eq!(previous_flush_on_disk(&store, "other123-session"), None);
+        assert!(is_flush_log_of(
+            "2026-09-27-interval-sess1234.md",
+            "sess1234"
+        ));
+        assert!(is_flush_log_of(
+            "2026-09-27-user_requested-sess1234-12.md",
+            "sess1234"
+        ));
+        assert!(!is_flush_log_of(
+            "2026-09-27-ship-it-sess1234.md",
+            "sess1234"
+        ));
+        assert!(!is_flush_log_of(
+            "2026-09-27-interval-other123.md",
+            "sess1234"
+        ));
+        assert!(!is_flush_log_of(
+            "2026-09-27-interval-sess1234.txt",
+            "sess1234"
+        ));
+        assert!(!is_flush_log_of(
+            "日本語日本語-interval-sess1234.md",
+            "sess1234"
+        ));
+    }
+
+    #[test]
+    fn busy_refusals_are_recognized() {
+        for text in [FLUSH_BUSY, FLUSH_BUSY_DREAM, DREAM_BUSY, DREAM_BUSY_FLUSH] {
+            assert!(is_busy_refusal(text));
+        }
+        assert!(!is_busy_refusal("Dream is turned off for this session."));
+        assert!(!is_busy_refusal(V2_REFUSAL));
     }
 
     #[test]

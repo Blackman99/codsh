@@ -3260,6 +3260,7 @@ const KNOWN_POLICY_KEYS: &[&str] = &[
     "sandbox",
     "campaigns",
     "memory",
+    "memory_v2",
     "subagents",
     "auth",
     "force_login_team_uuid",
@@ -5568,6 +5569,28 @@ hard_clear_age_turns = 9
         let block = crate::memory::injection_block(&store, stopped.memory.enabled()).unwrap();
         assert!(block.is_empty());
         assert!(note.is_file());
+    }
+
+    #[test]
+    fn memory_v2_is_a_known_field_with_one_refusal() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            "[memory]\nenabled = true\n\n[memory_v2]\nenabled = true\n",
+        );
+        let config = load_from(load);
+        assert!(config.memory_capture.v2_requested);
+        assert!(
+            !config
+                .warnings
+                .iter()
+                .chain(config.errors.iter().map(|error| &error.reason))
+                .any(|text| text.contains("unknown security/policy field `memory_v2`")),
+            "{:?} {:?}",
+            config.warnings,
+            config.errors
+        );
     }
 
     #[test]

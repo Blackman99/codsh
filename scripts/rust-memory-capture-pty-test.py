@@ -11,13 +11,17 @@ real ~/.grok and no paid model is touched.
 Checked: /flush writes and then appends a delta to the daily session log and
 names the route, what was sent and the token usage; /memory then s shows
 content-free diagnostics and y copies them; quitting saves the session-end
-summary (3 prompts, 50 bytes, no model call); /dream refuses a second run
-while one is running, keeps a MEMORY.md edited while it ran, then merges the
-logs and keeps the previous version in sessions/.archive/; /new cancels a
-running Dream and leaves the gate open; the automatic Dream at launch and the
+summary (3 prompts, 50 bytes, no model call); after --continue the first
+/flush is a delta against the last flush on disk; a conversational first
+prompt recalls a session log before any Dream; /dream refuses a second run
+while one is running (the refusal clears with the next notice), keeps a
+MEMORY.md edited while it ran, then merges the logs and keeps the previous
+version in sessions/.archive/; /new cancels a running Dream and leaves the
+gate open; the automatic Dream at launch and the
 idle flush run under low configured gates; the next session's first request
 carries the consolidated memory. Plain -p runs cover --memory-flush success,
-nothing to store, a model failure, [memory_v2] refusal and GROK_MEMORY_LOG.
+nothing to store, a model failure, [memory_v2] refusal (and no unknown-field
+warning from inspect) and GROK_MEMORY_LOG.
 
 Runs on Linux and macOS against the repo launcher and the staged native
 binary (run `pnpm run build:rust` first). It reuses the Session harness of
@@ -181,6 +185,43 @@ def main():
         assert '## Topics Discussed\n\n1. MEM_ALPHA the widget service listens on port 7431\n' in summary, summary
         results['session_end'] = True
 
+        # 1b. Restart with --continue: the first /flush is a delta against the
+        # last flush on disk, not a full resend (issue #186 follow-up).
+        session = Session('resumed', LAUNCHER, cwd, {**env, 'GROK_MEMORY_LOG': '1'}, output,
+                          extra=['--fullscreen', '--trust', '--continue'], cols=160, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            ask(session, 'MEM_JULIET the queue is redis seven')
+            session.write('/flush\r')
+            wait_until(session, lambda s: flushed[0].read_text().count('<!-- flush ') == 2, 'resumed flush', 30)
+            last = flushed[0].read_text().rpartition('<!-- flush ')[2]
+            assert 'delta=true' in last and 'MEM_JULIET' in last, last
+            log = (grok / 'logs' / 'memory.log').read_text()
+            assert 'flush.start trigger=user_requested delta=true' in log, log
+            assert 'delta=false' not in log, log
+            results['resumed_flush'] = True
+        finally:
+            quit_session(session)
+            (output / 'resumed.ansi').write_bytes(session.data)
+            session.close()
+        (grok / 'logs' / 'memory.log').unlink()
+
+        # 1c. Recall before any Dream: a conversational first prompt pulls the
+        # session log that shares only some of its words (keywords OR'ed).
+        assert not (workspace_dir() / 'MEMORY.md').exists()
+        session = Session('recall', LAUNCHER, cwd, env, output,
+                          extra=['--fullscreen', '--trust'], cols=160, rows=46)
+        try:
+            session.wait_visible('Connected to dsh ACP', 30)
+            shown = ask(session, 'Which port does the widget service listen on?')
+            text = flat(shown)
+            assert 'MEM_ALPHA' in text, text
+            results['recall_before_dream'] = True
+        finally:
+            quit_session(session)
+            (output / 'recall.ansi').write_bytes(session.data)
+            session.close()
+
         # 2. /dream: busy, a concurrent manual edit kept, then a merge; /new cancels.
         memory_file = workspace_dir() / 'MEMORY.md'
         memory_file.write_text('# Project\n- MEM_OLD first fact\n')
@@ -196,7 +237,9 @@ def main():
             wait_flat(session, 'Dream is already running; try again when it finishes.', 10)
             assert (workspace_dir() / '.dream-mutex').exists()
             memory_file.write_text('# Project\n- MEM_OLD first fact\n- MEM_MANUAL my own edit\n')
-            wait_flat(session, 'Dream not written: MEMORY.md changed while Dream ran; your edit was kept', 20)
+            shown = wait_flat(session, 'Dream not written: MEMORY.md changed while Dream ran; your edit was kept', 20)
+            # The busy refusal is retired by the next memory notice.
+            assert 'Dream is already running' not in flat(shown), flat(shown)
             assert memory_file.read_text() == '# Project\n- MEM_OLD first fact\n- MEM_MANUAL my own edit\n'
             assert not (workspace_dir() / '.dream-consolidated').exists()
             assert not (workspace_dir() / '.dream-mutex').exists()
@@ -289,6 +332,8 @@ def main():
         refused = plain('-p', 'MEM_INDIA', '--memory-flush')
         assert refused.returncode == 1 and '[memory_v2] enabled = true selects the reference v2 store' in refused.stderr, refused.stderr
         assert not (memory_root / 'memory-v2').exists() and not (grok / 'memory-v2').exists()
+        inspected = plain('inspect')
+        assert 'unknown security/policy field' not in inspected.stdout + inspected.stderr, inspected.stdout + inspected.stderr
         results['memory_v2'] = True
     print(json.dumps({'output': str(output), **results}, indent=2))
 

@@ -525,7 +525,10 @@ runs at a time. The session-end summary is written by `AcpClient` from a
 ledger of live (not replayed) updates. Local deviations from the reference:
 append rather than overwrite a session log, a Dream conflict when
 `MEMORY.md` changed while the model ran, a backup and an archive instead of
-deletion, and honest outcome text. The pre-compaction flush is not wired
+deletion, honest outcome text, and the delta flush surviving a restart (the
+previous flush is read back from the session's newest flush log instead of
+living only in memory). First-turn recall follows the reference keyword
+search (`memory_keywords.rs`: stop words dropped, keywords OR'ed, BM25 order). The pre-compaction flush is not wired
 because dsh owns compaction.
 Background commands stay dsh jobs
 (`rust-acp-background.mjs`): in the interactive client, `CODSH_BASH_POLICY`

@@ -454,7 +454,12 @@ fn search_indexed(store: &Store, query: &str) -> Result<Vec<SearchHit>, MemoryEr
         if !path.is_file() {
             continue;
         }
-        hits.extend(search_index_file(&path, store, &terms)?);
+        let match_query = fts_match(&terms);
+        hits.extend(
+            search_index_file(&path, store, &match_query)?
+                .into_iter()
+                .map(|(_, hit)| hit),
+        );
     }
     hits.sort_by(|left, right| {
         scope_rank_name(&left.scope)
@@ -484,6 +489,37 @@ fn fts_terms(query: &str) -> Vec<String> {
         .filter(|term| !term.is_empty())
         .map(|term| term.to_ascii_lowercase())
         .collect()
+}
+
+/// Session-log hits for first-turn recall, best BM25 rank first. The
+/// reference (`index.rs` `search_fts_by_sources`) drops stop words with
+/// `extract_keywords` and joins the rest with ` OR `, so a conversational
+/// prompt still finds a log that shares only some of its words.
+/// `search_notes` keeps every term required.
+fn recall_indexed(store: &Store, query: &str) -> Result<Vec<SearchHit>, MemoryError> {
+    let keywords = crate::memory_keywords::extract_keywords(query);
+    if keywords.is_empty() {
+        return Ok(Vec::new());
+    }
+    let match_query = fts_any(&keywords);
+    let mut ranked = Vec::new();
+    for path in index_paths(store) {
+        if !path.is_file() {
+            continue;
+        }
+        ranked.extend(search_index_file(&path, store, &match_query)?);
+    }
+    ranked.sort_by(|left, right| left.0.total_cmp(&right.0));
+    Ok(ranked.into_iter().map(|(_, hit)| hit).collect())
+}
+
+/// Quoted keywords joined with ` OR `.
+fn fts_any(keywords: &[String]) -> String {
+    keywords
+        .iter()
+        .map(|keyword| format!("\"{}\"", keyword.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 /// Quote each term so user text cannot change the FTS expression.
@@ -880,20 +916,20 @@ fn index_health(path: &Path) -> IndexHealth {
     }
 }
 
+/// Rows matching `match_query`, with their BM25 rank (lower is better).
 fn search_index_file(
     path: &Path,
     store: &Store,
-    terms: &[String],
-) -> Result<Vec<SearchHit>, MemoryError> {
+    match_query: &str,
+) -> Result<Vec<(f64, SearchHit)>, MemoryError> {
     if !matches!(index_health(path), IndexHealth::Usable) {
         return Ok(Vec::new());
     }
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = Connection::open_with_flags(path, flags).map_err(sql_error)?;
-    let match_query = fts_match(terms);
     let mut statement = connection
         .prepare(
-            "SELECT scope, name, path, line FROM notes_fts
+            "SELECT scope, name, path, line, rank FROM notes_fts
              WHERE notes_fts MATCH ?1
              ORDER BY rank
              LIMIT ?2",
@@ -906,20 +942,24 @@ fn search_index_file(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, i64>(3)?,
+                row.get::<_, f64>(4)?,
             ))
         })
         .map_err(sql_error)?;
     let mut hits = Vec::new();
     for row in rows {
-        let (scope, name, path, line) = row.map_err(sql_error)?;
+        let (scope, name, path, line, rank) = row.map_err(sql_error)?;
         let Some(note) = note_for_hit(store, &scope, &name, &path)? else {
             continue;
         };
-        hits.push(SearchHit {
-            note,
-            line: line.max(1) as usize,
-            scope,
-        });
+        hits.push((
+            rank,
+            SearchHit {
+                note,
+                line: line.max(1) as usize,
+                scope,
+            },
+        ));
     }
     Ok(hits)
 }
@@ -1020,11 +1060,9 @@ pub fn injection_block_for(
         .filter(|note| !note.generated_index && note.name == GLOBAL_NOTE)
         .cloned()
         .collect();
-    if !fts_terms(query).is_empty() {
-        for hit in search_indexed(store, query)? {
-            if hit.scope == "session" && !selected.iter().any(|note| note.path == hit.note.path) {
-                selected.push(hit.note);
-            }
+    for hit in recall_indexed(store, query)? {
+        if hit.scope == "session" && !selected.iter().any(|note| note.path == hit.note.path) {
+            selected.push(hit.note);
         }
     }
     selected.truncate(INJECTION_NOTE_CAP);
@@ -1447,6 +1485,48 @@ mod tests {
         save_note(&store, Scope::Workspace, &huge).unwrap();
         let bounded = injection_block(&store, true).unwrap();
         assert!(bounded.chars().count() < 6_000);
+    }
+
+    #[test]
+    fn recall_matches_any_keyword_ranked_and_ignores_stop_words() {
+        // Issue #186 follow-up: a conversational first prompt used to need
+        // every word in one log (AND), so recall before Dream found nothing.
+        let (_dir, grok, project) = fixture();
+        let store = open_store(&grok, &project).unwrap();
+        let sessions = store.workspace_dir.join(SESSIONS);
+        fs::create_dir_all(&sessions).unwrap();
+        fs::write(
+            sessions.join("2026-09-26-user_requested-aaaa1111.md"),
+            "## Decisions\n- The widget service listens on port 7431.\n",
+        )
+        .unwrap();
+        fs::write(
+            sessions.join("2026-09-26-user_requested-bbbb2222.md"),
+            "## Decisions\n- The widget dashboard is blue.\n",
+        )
+        .unwrap();
+        fs::write(
+            sessions.join("2026-09-26-user_requested-cccc3333.md"),
+            "## Decisions\n- Unrelated gardening notes.\n",
+        )
+        .unwrap();
+        rebuild_index(&store).unwrap();
+        let prompt = "Which port does the widget service listen on?";
+        assert!(search_notes(&store, prompt).unwrap().is_empty());
+        let block = injection_block_for(&store, true, prompt).unwrap();
+        let port = block.find("port 7431").expect(&block);
+        let blue = block.find("dashboard is blue").expect(&block);
+        assert!(port < blue, "best BM25 match first: {block}");
+        assert!(!block.contains("gardening"), "{block}");
+        // Only stop words, numbers, or FTS syntax: no session log, no error.
+        for query in ["what is that?", "7431", "\"widget\" OR NEAR(", "*"] {
+            let block = injection_block_for(&store, true, query).unwrap();
+            if query.contains("widget") {
+                assert!(block.contains("port 7431"), "{block}");
+            } else {
+                assert!(!block.contains("[session "), "{query}: {block}");
+            }
+        }
     }
 
     #[test]
