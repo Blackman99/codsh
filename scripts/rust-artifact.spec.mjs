@@ -255,7 +255,7 @@ describe('dsh plugins in a clean global install', () => {
     const cli = isolatedCli(dir)
     // Nothing above codsh-cli can resolve a harness package, as after `npm install -g`.
     expect(() => createRequire(join(cli, 'bin', 'rust-acp-plan.mjs')).resolve('@deepseek-ai/dsh-llm')).toThrow()
-    const plugins = ['rust-acp-plan.mjs', 'rust-acp-file-approval.mjs', 'rust-acp-hooks.mjs', 'rust-acp-subagents.mjs', 'rust-acp-background.mjs', 'rust-acp-control.mjs', 'rust-acp-mcp.mjs', 'rust-acp-goal.mjs', 'rust-acp-compact.mjs', 'rust-acp-web.mjs', 'rust-acp-plain.mjs', 'rust-acp-image.mjs']
+    const plugins = ['rust-acp-plan.mjs', 'rust-acp-file-approval.mjs', 'rust-acp-hooks.mjs', 'rust-acp-subagents.mjs', 'rust-acp-background.mjs', 'rust-acp-control.mjs', 'rust-acp-mcp.mjs', 'rust-acp-goal.mjs', 'rust-acp-compact.mjs', 'rust-acp-web.mjs', 'rust-acp-plain.mjs', 'rust-acp-image.mjs', 'rust-acp-video.mjs']
     writeFileSync(join(dsh, 'lib/bin.js'), [
       `const names = ${JSON.stringify(plugins)}`,
       `for (const name of names) { const mod = await import(${JSON.stringify(pathToFileURL(join(cli, 'bin')).href)} + '/' + name); if (!mod.name && !mod.apply) throw new Error('no plugin export in ' + name) }`,

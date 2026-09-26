@@ -426,6 +426,57 @@ URL 而不是图片数据、字节损坏、HTTP 错误或超时都不保存文�
 服务（`codsh --rust agent stdio`）不提供图片工具。测试使用回环假服务；`openai`
 格式另外在本机用真实的 stable-diffusion.cpp `sd-server`（SD-Turbo 模型）验证过。
 
+`codsh --rust` 中的视频：在你指定服务之前，视频生成是关闭的。`[models] video_gen`
+指向一个带 `base_url` 与 `supports_video_generation = true` 的 `[model.<id>]`
+表；规则与图片相同（不会成为聊天默认模型，官方主机被拒绝，`env_key` / `api_key`
+可选）。`protocol = "xai"`（默认）是参考实现的异步接口（`POST
+{base}/videos/generations`，轮询 `GET {base}/videos/{id}`，下载 `video.url`）；
+`protocol = "sdcpp"` 是本地 stable-diffusion.cpp `sd-server` 的原生任务接口
+（`/sdcpp/v1/capabilities`、`/sdcpp/v1/vid_gen`、`/sdcpp/v1/jobs/{id}`、
+`/sdcpp/v1/jobs/{id}/cancel`）。服务接受什么要明确写出，不做猜测：
+`video_durations`、`video_resolutions` 与 `video_tools`（默认两个工具都有）；
+sdcpp 另有 `video_fps`、`video_output_format`（webm、webp、avi）和
+`video_strength`，只接受首帧和可选的尾帧。工具的参数说明带有这些限制，不支持的
+时长、分辨率或输入在发出任何请求之前就带原因失败。`timeout_secs`（默认 300）与
+`poll_secs`（默认 5）按服务设置；`video_download_hosts` 列出除 `base_url` 以外
+唯一允许下载 xai 成品视频的主机。
+
+```toml
+[models]
+video_gen = "sd-video"
+
+[model.sd-video]
+base_url = "http://127.0.0.1:1234"
+protocol = "sdcpp"
+supports_video_generation = true
+video_durations = [1, 2]
+video_resolutions = ["256p"]
+video_fps = 4
+```
+
+模型会得到 `image_to_video`（让一张图动起来）与 `reference_to_video`（提示词、
+画面比例、参考图、可选首尾帧，xai 上还有声音与关键帧）。附上图片后输入
+`/imagine-video <描述>`，模型会把你的原话不加改写地交给 `image_to_video`。每个
+任务都走 dsh 工具审批：卡片显示 `Allow Animate image (<时长>, <分辨率>)
+"<提示词>" via <主机>?`（或 `Reference video (...)`），说明发送几张图片，以及
+codsh 不知道该服务的价格。Read 拒绝规则会拒绝参考图路径。`GROK_VIDEO_GEN=0`
+（或 `features.video_gen = false`）移除这些工具，
+`tools.media_gen.max_parallel_video_gen_calls`（默认 4）限制一步里的调用数。
+每个任务在开始前记录到 `<会话>/video-jobs/`，运行中的行显示状态（开始、排队及
+位置、服务报告的生成进度、下载）和已用时间。失败、任务过期、服务拒绝、外部或
+损坏的下载、超时和 Ctrl+C 是彼此区分的结果，都不保存文件；Ctrl+C 会请 sdcpp
+服务取消，并记录它确认、拒绝、已经完成还是无法取消（xai 没有取消请求）。完成的
+视频会先校验（mp4、webm、avi 或动态 webp），再原子地保存为
+`<会话>/videos/<n>.<扩展名>`。`/videos` 列出任务与视频，`/videos open [N]` 用
+`CODSH_VIDEO_OPENER`（否则 `open` 或 `xdg-open`）打开一个，`/videos status [N]`
+向服务查询没人跟进的任务（例如崩溃中断的任务，或超时时仍在运行的任务），完成的
+话就保存视频，`/videos cancel N` 取消它。`--resume` 之后这些行保留标题，一条
+提示列出结果尚未确定的任务，`/videos` 仍作用于同样的文件。
+`codsh --rust video generate|reference|list|status|cancel` 在会话外使用同一
+服务。编辑器 ACP 服务不提供视频工具。测试对两种协议都使用回环假服务；`sdcpp`
+协议另外在本机用真实的 stable-diffusion.cpp `sd-server`（SD 1.5 加 AnimateDiff
+运动模块）验证过。
+
 预览的用户配置是 `$GROK_HOME/config.toml`（默认
 `~/.codsh-rust/.grok/config.toml`）。`[ui] theme`、紧凑模式、时间戳、状态行、
 `confirm_before_rewind` 与 `ui.fork_secondary_model` 也写在这份文件里。兼容的 `[model.<id>]` 字段

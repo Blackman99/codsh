@@ -796,6 +796,67 @@ server (`codsh --rust agent stdio`) does not offer image tools. Tests use a
 loopback fake service; the `openai` shape was also checked against a real
 stable-diffusion.cpp `sd-server` with the SD-Turbo model on this machine.
 
+Videos in `codsh --rust`: video generation is off until you name a service.
+`[models] video_gen` names a `[model.<id>]` table with `base_url` and
+`supports_video_generation = true`; the same rules as images apply (never the
+chat default, official hosts refused, optional `env_key` / `api_key`).
+`protocol = "xai"` (default) is the reference async API (`POST
+{base}/videos/generations`, poll `GET {base}/videos/{id}`, download
+`video.url`); `protocol = "sdcpp"` is the native job API of a local
+stable-diffusion.cpp `sd-server` (`/sdcpp/v1/capabilities`,
+`/sdcpp/v1/vid_gen`, `/sdcpp/v1/jobs/{id}`, `/sdcpp/v1/jobs/{id}/cancel`).
+What the service accepts is written down, not guessed: `video_durations`,
+`video_resolutions` and `video_tools` (both tools by default); sdcpp adds
+`video_fps`, `video_output_format` (webm, webp, avi) and `video_strength`, and
+takes only a first frame and an optional last frame. The tool schemas and
+descriptions carry these limits, and an unsupported duration, resolution or
+input fails with the reason before any request. `timeout_secs` (default 300)
+and `poll_secs` (default 5) are per service; `video_download_hosts` lists the
+only hosts besides `base_url` a finished xai video is fetched from.
+
+```toml
+[models]
+video_gen = "sd-video"
+
+[model.sd-video]
+base_url = "http://127.0.0.1:1234"
+protocol = "sdcpp"
+supports_video_generation = true
+video_durations = [1, 2]
+video_resolutions = ["256p"]
+video_fps = 4
+```
+
+The model gets `image_to_video` (animate one image) and `reference_to_video`
+(prompt, aspect ratio, reference images, optional first/last frame, voices,
+keyframes on xai). `/imagine-video <description>` with an attached image asks
+the model to call `image_to_video` with your words unchanged. Every job goes
+through the dsh tool approval: the card reads `Allow Animate image (<length>,
+<resolution>) "<prompt>" via <host>?` (or `Reference video (...)`), says how
+many images are sent, and that codsh does not know the service's price. Read
+deny rules refuse a reference path. `GROK_VIDEO_GEN=0` (or
+`features.video_gen = false`) removes the tools, and
+`tools.media_gen.max_parallel_video_gen_calls` (default 4) caps calls in one
+model step. Each job is recorded in `<session>/video-jobs/` before it starts,
+and the running row shows its state (starting, queued with its position,
+generating as the service reports it, downloading) and elapsed time. A failure, an expired job, a refusal, a
+foreign or malformed download, a timeout and Ctrl+C are separate outcomes and
+save nothing; Ctrl+C asks an sdcpp service to cancel and records whether it
+confirmed, refused, had already finished, or cannot cancel (xai has no cancel
+request). A finished video is checked (mp4, webm, avi or animated webp) and
+saved atomically as `<session>/videos/<n>.<ext>`. `/videos` lists the jobs and
+videos, `/videos open [N]` opens one with `CODSH_VIDEO_OPENER` (else `open` or
+`xdg-open`), `/videos status [N]` asks the service about a job nobody follows
+(for example one interrupted by a crash, or still running at a timeout) and
+saves the video if it finished, and `/videos cancel N` cancels it. After
+`--resume` the rows keep their titles, a notice names jobs whose outcome is
+not known yet, and `/videos` works on the same files. `codsh --rust video
+generate|reference|list|status|cancel` uses the same service outside a
+session. The editor ACP server does not offer video tools. Tests use loopback
+fake services for both protocols; the `sdcpp` protocol was also checked
+against a real stable-diffusion.cpp `sd-server` (SD 1.5 + AnimateDiff motion
+module) on this machine.
+
 User configuration for the preview is `$GROK_HOME/config.toml` (default
 `~/.codsh-rust/.grok/config.toml`). `[ui] theme`, compact mode, timestamps,
 status line, `confirm_before_rewind`, and `ui.fork_secondary_model` are stored

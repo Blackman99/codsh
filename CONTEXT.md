@@ -1109,6 +1109,31 @@ as `/imagine <prompt>`. The editor ACP server gets no image env and so no
 image tools.
 _Avoid_: image model (for the chat model), Imagine account
 
+**Video service**:
+The substitute that `image_to_video` / `reference_to_video` call in `codsh
+--rust` (ticket 188). It exists only when `[models] video_gen` names a
+`[model.<id>]` marked `supports_video_generation`; official hosts are a
+configuration error and a chat model is never used in its place. `video_gen.rs`
+owns config, the declared capabilities (`video_durations`,
+`video_resolutions`, `video_tools`, sdcpp `video_fps` / `video_output_format`),
+validation before any request, the `xai` (reference async
+`/videos/generations` + `/videos/{id}`) and `sdcpp` (stable-diffusion.cpp
+`/sdcpp/v1/vid_gen` + `/sdcpp/v1/jobs/{id}`) protocols, and the **video job
+record** in `<session>/video-jobs/<name>.json`, written before the start
+request. A job's status is one of submitting, queued, generating, downloading,
+completed, failed, expired, refused, cancelled (with the service's cancel
+answer), timed_out, unknown, or lost; only completed saves a file, atomically
+under `<session>/videos/`. `codsh --rust video run --json` is the job runner;
+`/videos status` and `video status` query a job nobody follows and finish it.
+`rust-acp-video.mjs` registers the tools only when the client sets
+`CODSH_VIDEO_I2V` / `CODSH_VIDEO_R2V`, resolves `[Image #N]` references,
+spawns the runner detached, and on cancel sends SIGTERM and waits for the
+runner's cancel answer. Approval is the ordinary dsh ask; the Rust client titles
+the card and live row from the saved tool input and job record (length,
+resolution, host, image count, unknown price). `/imagine-video` sends the
+reference instruction verbatim with the attached images and shows as typed.
+_Avoid_: video model (for the chat model), render farm
+
 **Clipboard delivery**:
 The result of one copy in `codsh --rust` (ticket 155). Every copy tries the
 native tool, tmux's paste buffer inside tmux, and OSC 52 where the route

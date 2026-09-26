@@ -129,6 +129,8 @@ pub struct EffectiveConfig {
     pub web: crate::web::WebServices,
     /// Ticket 187: image_gen / image_edit substitute services.
     pub images: crate::image_gen::ImageServices,
+    /// Ticket 188: image_to_video / reference_to_video substitute service.
+    pub videos: crate::video_gen::VideoServices,
     pub assets: crate::assets::AssetCatalog,
     /// Process and config gate. A `/memory` `t` toggle does not change this.
     pub memory: crate::memory::Enablement,
@@ -680,9 +682,10 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
             .or_insert_with(|| "config.toml".into());
     } else if models.len() == 1
         && !models.keys().any(|id| {
-            // An image service named by [models] image_gen / image_edit
-            // (ticket 187) is never the chat model by default.
-            ["image_gen", "image_edit"].iter().any(|key| {
+            // An image or video service named by [models] image_gen /
+            // image_edit / video_gen (tickets 187, 188) is never the chat
+            // model by default.
+            ["image_gen", "image_edit", "video_gen"].iter().any(|key| {
                 table
                     .get("models")
                     .and_then(|models| models.get(*key))
@@ -1951,6 +1954,24 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
     for (key, value, source) in crate::image_gen::inspect_rows(&images) {
         push_setting(&mut settings, key, &value, &source);
     }
+    let videos = crate::video_gen::load_services_layered(
+        &table,
+        user.as_ref()
+            .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
+        &input.env,
+        requirements.as_ref(),
+        managed.as_ref(),
+    );
+    warnings.extend(videos.warnings.iter().cloned());
+    for reason in &videos.errors {
+        errors.push(ConfigError {
+            path: Some(config_path.clone()),
+            reason: reason.clone(),
+        });
+    }
+    for (key, value, source) in crate::video_gen::inspect_rows(&videos) {
+        push_setting(&mut settings, key, &value, &source);
+    }
     let ask = crate::interaction::load_ask_settings(
         user.as_ref()
             .unwrap_or(&TomlValue::Table(toml::map::Map::new())),
@@ -2034,6 +2055,7 @@ pub fn load_from(mut input: LoadInput) -> EffectiveConfig {
         voice,
         web,
         images,
+        videos,
         assets,
         memory,
         memory_capture,
@@ -2425,6 +2447,10 @@ pub fn inspect_json(config: &EffectiveConfig) -> String {
         object.insert(
             "images".into(),
             crate::image_gen::inspect_json(&config.images),
+        );
+        object.insert(
+            "videos".into(),
+            crate::video_gen::inspect_json(&config.videos),
         );
         object.insert(
             "sandboxProfile".into(),
@@ -2942,6 +2968,22 @@ pub fn image_env(config: &EffectiveConfig) -> Vec<(String, String)> {
     keys.dedup();
     if !keys.is_empty() {
         extra.push(("CODSH_IMAGE_KEY_ENV".into(), keys.join(",")));
+    }
+    extra
+}
+
+/// Ticket 188: which video tools the dsh plugin registers, the parallel
+/// cap, the host on the approval card, and what the service accepts. The
+/// `video` command reloads config.toml for the service, key, and policy.
+pub fn video_env(config: &EffectiveConfig) -> Vec<(String, String)> {
+    let mut extra = crate::video_gen::dsh_env(&config.videos);
+    if let Some(name) = config
+        .videos
+        .service
+        .as_ref()
+        .and_then(|service| service.env_key.clone())
+    {
+        extra.push(("CODSH_VIDEO_KEY_ENV".into(), name));
     }
     extra
 }
@@ -4030,6 +4072,77 @@ supports_image_generation = true
             "{:?}",
             config.errors
         );
+    }
+
+    #[test]
+    fn a_video_service_is_explicit_and_never_the_default_chat_model() {
+        let dir = TempDir::new().unwrap();
+        let load = input(&dir);
+        write_config(
+            &load,
+            r#"
+[models]
+video_gen = "clips"
+
+[model.clips]
+base_url = "http://127.0.0.1:7"
+protocol = "sdcpp"
+supports_video_generation = true
+env_key = "CLIPS_KEY"
+api_key = "inline"
+video_durations = [1, 2]
+"#,
+        );
+        let config = load_from(load);
+        assert_eq!(config.default_model, None);
+        assert!(config.videos.enabled, "{:?}", config.errors);
+        assert_eq!(
+            setting(&config, "features.video_gen"),
+            Some(("true", "config.toml"))
+        );
+        let env = video_env(&config);
+        for pair in [
+            ("CODSH_VIDEO_I2V", "1"),
+            ("CODSH_VIDEO_R2V", "1"),
+            ("CODSH_VIDEO_HOST", "127.0.0.1:7"),
+            ("CODSH_VIDEO_KEY_ENV", "CLIPS_KEY"),
+        ] {
+            assert!(
+                env.contains(&(pair.0.into(), pair.1.into())),
+                "{pair:?} {env:?}"
+            );
+        }
+        assert!(
+            env.iter()
+                .any(|(key, value)| key == "CODSH_VIDEO_CAPS" && value.contains("1 or 2 s")),
+            "{env:?}"
+        );
+
+        let official = TempDir::new().unwrap();
+        let load = input(&official);
+        write_config(
+            &load,
+            r#"
+[models]
+video_gen = "clips"
+
+[model.clips]
+base_url = "https://api.x.ai/v1"
+supports_video_generation = true
+"#,
+        );
+        let config = load_from(load);
+        assert!(!config.videos.enabled);
+        assert!(
+            config
+                .errors
+                .iter()
+                .any(|error| error.reason.contains("api.x.ai")),
+            "{:?}",
+            config.errors
+        );
+        let env = video_env(&config);
+        assert!(env.contains(&("CODSH_VIDEO_I2V".into(), "0".into())));
     }
 
     #[test]

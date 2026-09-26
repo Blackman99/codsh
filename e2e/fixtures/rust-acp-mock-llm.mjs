@@ -2068,6 +2068,48 @@ class RustAcpMockAdapter extends LlmAdapter {
       yield* mockText(done.some(result => result.isError === true) ? `RUST_ACP_IMAGE_ERROR ${summary}` : `RUST_ACP_IMAGE_DONE ${summary}`)
       return
     }
+    if (MODE === 'video') {
+      // Video generation (ticket 188). The prompt names the call:
+      // `VIDEO_I2V <json args>`, `VIDEO_R2V <json args>`, or `VIDEO_TOOLS`
+      // (the offered video tools and what their descriptions say the
+      // service accepts). `/imagine-video` arrives as the reference skill
+      // plus `User prompt: <text>`; its image is the first `[Image #N]` or
+      // image path in that text.
+      const isPrompt = message => message.role === 'user'
+        && message.content.some(block => block.type === 'text' && /VIDEO_(I2V|R2V|TOOLS)|# Imagine Video/.test(block.text))
+      const lastPrompt = options.messages.findLastIndex(isPrompt)
+      const prompt = lastPrompt < 0 ? '' : options.messages[lastPrompt].content
+        .filter(block => block.type === 'text').map(block => block.text).join('\n')
+      if (prompt.includes('VIDEO_TOOLS')) {
+        const offered = (Array.isArray(options.tools) ? options.tools : [])
+          .filter(tool => tool.name.endsWith('_to_video'))
+          .map(tool => `${tool.name}[${/accepts: ([^.]*)/.exec(String(tool.description ?? ''))?.[1] ?? 'no caps'}]`)
+        yield* mockText(`RUST_ACP_VIDEO_TOOLS ${offered.sort().join(',') || '(none)'}`)
+        return
+      }
+      const done = toolResults({ messages: options.messages.slice(lastPrompt + 1) })
+      if (done.length === 0) {
+        const seq = toolResults(options).length
+        const callId = `rust-acp-video-${seq + 1}`
+        const i2v = /VIDEO_I2V (\{.*\})\s*$/m.exec(prompt)
+        const r2v = /VIDEO_R2V (\{.*\})\s*$/m.exec(prompt)
+        const imagine = /^User prompt: (.*)$/m.exec(prompt)
+        if (i2v) {
+          yield* mockToolCall(callId, 'image_to_video', JSON.parse(i2v[1]))
+        } else if (r2v) {
+          yield* mockToolCall(callId, 'reference_to_video', JSON.parse(r2v[1]))
+        } else if (prompt.includes('# Imagine Video') && imagine) {
+          const image = /\[Image #\d+\]|\S+\.(?:png|jpe?g|webp)/.exec(imagine[1])?.[0] ?? '[Image #1]'
+          yield* mockToolCall(callId, 'image_to_video', { prompt: imagine[1].replace(image, '').trim(), image })
+        } else {
+          yield* mockText('RUST_ACP_VIDEO_ERROR no video request in the prompt')
+        }
+        return
+      }
+      const summary = done.map(result => `${result.isError === true ? 'ERR' : 'OK'}:${resultText(result).replace(/\s+/g, ' ').slice(0, 600)}`).join(' | ')
+      yield* mockText(done.some(result => result.isError === true) ? `RUST_ACP_VIDEO_ERROR ${summary}` : `RUST_ACP_VIDEO_DONE ${summary}`)
+      return
+    }
     if (MODE === 'mcp') {
       // The prompt names the call: `MCP_CALL <tool> <json args>`, repeated
       // with ` THEN ` for a sequence. `MCP_TOOLS` lists the MCP-related tool

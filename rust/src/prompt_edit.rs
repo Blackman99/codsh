@@ -37,6 +37,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "goal",
         "history",
         "imagine",
+        "imagine-video",
         "images",
         "jump",
         "login",
@@ -56,6 +57,7 @@ pub fn builtin_command_names() -> &'static [&'static str] {
         "tutorial",
         "usage",
         "cost",
+        "videos",
         "vim-mode",
         "view-plan",
         "reload-assets",
@@ -163,6 +165,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
         false,
     ),
     SlashCommand::new(
+        "imagine-video",
+        &[],
+        "Generate a video from a description (/imagine-video <description>)",
+        false,
+    ),
+    SlashCommand::new(
         "images",
         &[],
         "List this session's saved images; /images open [N] opens one",
@@ -257,6 +265,12 @@ pub const SLASH_COMMANDS: &[SlashCommand] = &[
     SlashCommand::new("timeline", &[], "Open the timeline", true),
     SlashCommand::new("tour", &[], "Open the tutorial", true),
     SlashCommand::new("tutorial", &[], "Open the tutorial", true),
+    SlashCommand::new(
+        "videos",
+        &[],
+        "This session's videos and video jobs; /videos open|status|cancel [N]",
+        true,
+    ),
     SlashCommand::new("vim-mode", &[], "Toggle vim-style scrollback keys", true),
     SlashCommand::new(
         "voice",
@@ -1952,6 +1966,30 @@ impl PromptComposer {
         self.restore_parked_draft(restored);
     }
 
+    /// Ticket 188: `/imagine-video <prompt>` with attached images keeps
+    /// them. The instruction and the same image blocks a typed prompt would
+    /// carry are staged for the command, so `[Image #N]` resolves.
+    fn stage_imagine_video(&mut self, text: &str) {
+        let Some(args) = crate::video_gen::imagine_video_args(text).filter(|args| !args.is_empty())
+        else {
+            return;
+        };
+        if self.images.is_empty() {
+            return;
+        }
+        let Ok(mut staged) = self.prepare_submit() else {
+            return;
+        };
+        if staged.images.is_empty() {
+            return;
+        }
+        staged.text = crate::video_gen::imagine_video_instruction(args);
+        if let Ok(blocks) = self.blocks_for_route(&staged) {
+            staged.blocks = blocks;
+            self.stage_prepared_submit(staged);
+        }
+    }
+
     fn submit_or_slash(&mut self) -> Action {
         let text = self.draft.text().to_string();
         if text.trim() == "/btw" || text.trim().starts_with("/btw ") {
@@ -2009,6 +2047,7 @@ impl PromptComposer {
             return action;
         }
         if text.trim().starts_with('/') {
+            self.stage_imagine_video(&text);
             self.overlay = Overlay::None;
             let restored = std::mem::take(&mut self.slash_stash);
             self.replace_draft("");

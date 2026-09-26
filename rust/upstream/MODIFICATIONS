@@ -130,6 +130,28 @@ of always `.jpg`; references are sent as given (up to 20 MiB each) instead of
 being re-encoded to 768 px / 400 KiB; every call asks through the dsh
 approval path; the editor ACP server offers no image tools.
 
+Ticket 56 (#188) adds local `src/video_gen.rs` and
+`packages/cli/bin/rust-acp-video.mjs`, written against the reference
+crates/codegen/xai-grok-tools/src/implementations/grok_build/video_gen/mod.rs,
+xai-grok-tools/src/media_gen/limits.rs, the pager's slash_commands/
+imagine_video.rs and render_video_overlay.rs at the pinned commit (Apache-2.0,
+see LICENSE), not copied. The `/imagine-video` instruction and usage text are
+copied verbatim; the tool schemas keep the reference argument names and
+wording, with the service branding (including the voice list text) replaced by
+"the configured video service". Local changes to the reference behavior: the
+service is any configured substitute (`xai` reference async API or the
+stable-diffusion.cpp `sdcpp` job API) and official hosts are refused instead of
+calling the Imagine account; there is no tier upsell, no ZDR/S3 upload path and
+no model override; the schema's duration and resolution limits come from the
+configured service's declared capabilities and anything outside them is
+refused before a request instead of being defaulted; a finished xai video is
+downloaded only from `base_url`'s host or `video_download_hosts`; every job is
+recorded in `<session>/video-jobs/` so timeout, cancel (with the service's
+answer), an interrupted runner and a later `/videos status` query are
+distinguishable; videos are saved as `<session>/videos/<n>.<ext>` in the
+returned container; every call asks through the dsh approval path; the editor
+ACP server offers no video tools.
+
 upstream/import.json records original source paths and SHA-256 digests.
 scripts/build-rust.mjs records the native artifact's normal/build dependency
 closure and carries dependency license/notice files into npm packing, refusing

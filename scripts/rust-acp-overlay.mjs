@@ -55,7 +55,11 @@ export function rustAcpImageUrl() {
   return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-image.mjs', import.meta.url)))).href
 }
 
-export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl(), mcpUrl = rustAcpMcpUrl(), planUrl = rustAcpPlanUrl(), backgroundUrl = rustAcpBackgroundUrl(), goalUrl = rustAcpGoalUrl(), imageUrl = rustAcpImageUrl()) {
+export function rustAcpVideoUrl() {
+  return pathToFileURL(resolve(fileURLToPath(new URL('../packages/cli/bin/rust-acp-video.mjs', import.meta.url)))).href
+}
+
+export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcpFileApprovalUrl(), compactUrl = rustAcpCompactUrl(), webUrl = rustAcpWebUrl(), plainUrl = rustAcpPlainUrl(), hooksUrl = rustAcpHooksUrl(), subagentsUrl = rustAcpSubagentsUrl(), controlUrl = rustAcpControlUrl(), mcpUrl = rustAcpMcpUrl(), planUrl = rustAcpPlanUrl(), backgroundUrl = rustAcpBackgroundUrl(), goalUrl = rustAcpGoalUrl(), imageUrl = rustAcpImageUrl(), videoUrl = rustAcpVideoUrl()) {
   const threshold = process.env.CODSH_TEST_COMPACT_THRESHOLD
   const lines = [
     '- id: acp',
@@ -152,6 +156,8 @@ export function rustAcpOverlay(mockUrl = rustAcpMockUrl(), approvalUrl = rustAcp
     `      name: '${mcpUrl}'`,
     '    - id: rust-acp-image',
     `      name: '${imageUrl}'`,
+    '    - id: rust-acp-video',
+    `      name: '${videoUrl}'`,
     '',
   )
   return lines.join('\n')

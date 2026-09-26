@@ -525,6 +525,9 @@ pub const INHERITED_ENV: &[&str] = &[
     "GROK_IMAGE_GEN_MODEL_OVERRIDE",
     "GROK_IMAGE_EDIT_MODEL_OVERRIDE",
     "GROK_MAX_PARALLEL_IMAGE_GEN_CALLS",
+    // Ticket 188: the `video` command reloads config.toml too.
+    "GROK_VIDEO_GEN",
+    "GROK_MAX_PARALLEL_VIDEO_GEN_CALLS",
     "CODSH_RUST_BIN",
     "CODSH_SHELL_MARKER",
     "CODSH_SHELL_WORKDIR",
@@ -660,6 +663,17 @@ pub fn dsh_spawn_spec(
         {
             env.push((name, value.to_string_lossy().into_owned()));
         }
+    }
+    // The video substitute's credential (ticket 188), named by config.
+    if let Some(name) = env
+        .iter()
+        .find(|(key, _)| key == "CODSH_VIDEO_KEY_ENV")
+        .map(|(_, value)| value.trim().to_string())
+        && !name.is_empty()
+        && !env.iter().any(|(key, _)| key == &name)
+        && let Some(value) = std::env::var_os(&name)
+    {
+        env.push((name, value.to_string_lossy().into_owned()));
     }
     Ok(SpawnSpec {
         program,

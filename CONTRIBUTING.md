@@ -546,6 +546,18 @@ service: approval card reject/allow, `/imagine`, a Ctrl+V `[Image #1]` edit,
 refusal, malformed bytes, URL-only and HTTP 402 replies, a hung request
 cancelled with Ctrl+C, `/images` and open, resume, the disabled launch, and
 the official-host refusal. Neither script calls a real or paid image service.
+Video generation (ticket 188): `pnpm exec vitest run
+scripts/rust-video-gen.spec.mjs` drives real dsh with the keyless `video` mock
+mode (`VIDEO_TOOLS`, `VIDEO_I2V {json}`, `VIDEO_R2V {json}`, and the
+`/imagine-video` instruction) against a fake native runner, and `python3
+scripts/rust-video-gen-pty-test.py` (Linux and macOS, part of
+`test:rust:pty`) drives the packed client against loopback fakes of the xAI
+async video API and the stable-diffusion.cpp job API: approval card
+reject/allow, the live job row, `/imagine-video` with a Ctrl+V image, an
+unsupported duration, failed, expired, refused, malformed and foreign-host
+results, a timeout recovered later with `/videos status`, Ctrl+C with each
+cancel answer, `/videos` and open, the resume notice, the disabled launch, and
+the official-host refusal. Neither script calls a real or paid video service.
 `python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
 and macOS through the repo launcher and the `pnpm run build:rust` binary: a
 temp plugin with a rule, skill, command, agent, and PreToolUse hook is

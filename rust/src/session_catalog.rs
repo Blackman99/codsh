@@ -725,6 +725,14 @@ fn user_prompt(event: &Value) -> Option<String> {
                 .collect(),
         );
     }
+    if let Some(prompt) = crate::video_gen::imagine_video_prompt_of(&text) {
+        return Some(
+            format!("/imagine-video {prompt}")
+                .chars()
+                .take(CONTENT_SNIPPET)
+                .collect(),
+        );
+    }
     let line = text
         .lines()
         .map(str::trim)

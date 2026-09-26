@@ -79,6 +79,9 @@ function stringField(args, keys) {
   return ''
 }
 
+/** Ticket 188: the video tools; each call asks, like the image tools. */
+const VIDEO_TOOLS = new Set(['image_to_video', 'reference_to_video'])
+
 export function accessFromTool(name, args = {}) {
   const path = stringField(args, ['file_path', 'filePath', 'path', 'target_directory'])
   if (name === 'read' || name === 'read_file' || name === 'list_dir' || name === 'read_image') {
@@ -110,6 +113,11 @@ export function accessFromTool(name, args = {}) {
   if (name === 'image_gen' || name === 'image_edit') {
     const references = Array.isArray(args.image) ? args.image.map(String) : []
     return { kind: 'tool', name, prompt: stringField(args, ['prompt']), references }
+  }
+  // Video tools (ticket 188) start one job on the configured video service
+  // with the prompt and every image input. Each call asks, like images.
+  if (VIDEO_TOOLS.has(name)) {
+    return { kind: 'tool', name, prompt: stringField(args, ['prompt']), references: videoReferences(args) }
   }
   // dsh publishes `mcp__<server>__<tool>`; rules and grants use `server__tool`.
   if (name.includes('__')) return { kind: 'mcp', name: name.startsWith('mcp__') ? name.slice(5) : name }
@@ -1307,7 +1315,7 @@ function evaluateGrants(policy, access) {
 }
 
 function mutatingAccess(access) {
-  if (access.kind === 'tool' && (access.name === 'image_gen' || access.name === 'image_edit')) return true
+  if (access.kind === 'tool' && (access.name === 'image_gen' || access.name === 'image_edit' || VIDEO_TOOLS.has(access.name))) return true
   return access.kind === 'edit' || access.kind === 'bash' || access.kind === 'mcp' || access.kind === 'webfetch'
 }
 
@@ -1428,9 +1436,9 @@ function imageReferencePath(reference) {
   return text
 }
 
-/** A Read deny rule on any image_edit path reference. */
+/** A Read deny rule on any image_edit or video tool path reference. */
 export function imageReferenceDenied(policy, access) {
-  if (access.kind !== 'tool' || access.name !== 'image_edit') return null
+  if (access.kind !== 'tool' || (access.name !== 'image_edit' && !VIDEO_TOOLS.has(access.name))) return null
   for (const reference of access.references ?? []) {
     const path = imageReferencePath(reference)
     if (!path) continue
@@ -1455,10 +1463,40 @@ function imageAskReason(access) {
   ].join('\n')
 }
 
+/** Video image inputs: image, first_frame, last_frame, images, keyframes[].image. */
+export function videoReferences(args = {}) {
+  const references = []
+  for (const key of ['image', 'first_frame', 'last_frame']) {
+    if (typeof args?.[key] === 'string') references.push(args[key])
+  }
+  if (Array.isArray(args?.images)) references.push(...args.images.map(String))
+  if (Array.isArray(args?.keyframes)) {
+    for (const keyframe of args.keyframes) {
+      if (typeof keyframe?.image === 'string') references.push(keyframe.image)
+    }
+  }
+  return references
+}
+
+function videoAskReason(access) {
+  const host = process.env.CODSH_VIDEO_HOST || 'the configured video service'
+  const flat = String(access.prompt ?? '').replace(/\s+/gu, ' ').trim()
+  const prompt = flat.length > 60 ? `${flat.slice(0, 59)}…` : flat
+  const count = access.references?.length ?? 0
+  const sends = count > 0
+    ? `Starts one video job on ${host} with the prompt and ${count} image${count === 1 ? '' : 's'}.`
+    : `Starts one video job on ${host} with the prompt.`
+  return [
+    `Allow ${access.name} \`${prompt}\` → ${host}? y=allow once  n=reject`,
+    `${sends} codsh does not know its price; any charge is set by that service. Each video request asks again.`,
+  ].join('\n')
+}
+
 function askReason(access, policy, persistFailed) {
   if (access.kind === 'tool' && (access.name === 'image_gen' || access.name === 'image_edit')) {
     return imageAskReason(access)
   }
+  if (access.kind === 'tool' && VIDEO_TOOLS.has(access.name)) return videoAskReason(access)
   const subject = access.kind === 'bash'
     ? `bash \`${access.command}\``
     : access.kind === 'edit'
@@ -1563,6 +1601,9 @@ export function apply(ctx) {
     if (!process.env.CODSH_PERMISSION_POLICY) {
       if (exec.name === 'image_gen' || exec.name === 'image_edit') {
         return { kind: 'ask', reason: imageAskReason(accessFromTool(exec.name, exec.arguments ?? {})) }
+      }
+      if (VIDEO_TOOLS.has(exec.name)) {
+        return { kind: 'ask', reason: videoAskReason(accessFromTool(exec.name, exec.arguments ?? {})) }
       }
       if (exec.name !== 'write' && exec.name !== 'edit') return next()
       if (planFileEdit(ctx, exec)) return next()

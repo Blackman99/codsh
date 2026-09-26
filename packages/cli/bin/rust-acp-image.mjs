@@ -100,7 +100,7 @@ function unescapeXml(value) {
     .replaceAll('&amp;', '&')
 }
 
-function lastUserMessage(agent) {
+export function lastUserMessage(agent) {
   let messages = []
   try {
     messages = agent?.session?.deriveMessages?.() ?? []
@@ -181,7 +181,7 @@ export function sessionDirFor(agent, env = process.env) {
   return dirname(planFilePath(sessionId, env, cwd))
 }
 
-function stopChild(child) {
+export function stopChild(child) {
   if (!child?.pid) return
   try {
     process.kill(-child.pid, 'SIGTERM')

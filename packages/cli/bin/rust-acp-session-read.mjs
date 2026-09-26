@@ -80,7 +80,16 @@ const PASTED_IMAGE_FALLBACKS = /(?:\n<pasted-image id="\d+" media="image\/(?:png
 // instruction; resume shows the line the user typed.
 const IMAGINE_PREFIX = "Call the image_gen tool immediately, passing the user's prompt below verbatim — do not rewrite, embellish, or expand it. After the tool completes, briefly acknowledge and mention where the image was saved.\n\nPrompt: "
 
+// `/imagine-video <prompt>` (ticket 188) sends the reference video skill
+// followed by "\n\nUser prompt: <prompt>".
+const IMAGINE_VIDEO_PREFIX = '# Imagine Video\n\nVideo starts from an image'
+const IMAGINE_VIDEO_PROMPT = '\n\nUser prompt: '
+
 export function imagineTyped(text) {
+  if (text.startsWith(IMAGINE_VIDEO_PREFIX)) {
+    const at = text.lastIndexOf(IMAGINE_VIDEO_PROMPT)
+    if (at >= 0) return `/imagine-video ${text.slice(at + IMAGINE_VIDEO_PROMPT.length)}`
+  }
   return text.startsWith(IMAGINE_PREFIX) ? `/imagine ${text.slice(IMAGINE_PREFIX.length)}` : text
 }
 
@@ -558,7 +567,7 @@ export function projectTurns(events, options = {}) {
         diff: proposedDiff(name, args),
         result: '',
         // The Rust client titles image calls from their prompt (ticket 187).
-        ...(name === 'image_gen' || name === 'image_edit' ? { input: args } : {}),
+        ...(name === 'image_gen' || name === 'image_edit' || name === 'image_to_video' || name === 'reference_to_video' ? { input: args } : {}),
       }
       tools.set(id, tool)
       current.tools.push(tool)
