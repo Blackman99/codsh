@@ -93,6 +93,8 @@ const { defineTool } = await importFromDsh('@deepseek-ai/dsh-tools')
 export const MARK = '\u241esubagent\u241e'
 /** rust-acp-goal (ticket 180) takes its completion verifiers from here. */
 export const GOAL_VERIFIER = Symbol.for('codsh.rust.goal-verifier')
+/** #220: who a child agent is, for the main session's approval card. */
+export const SUBAGENT_LINEAGE = Symbol.for('codsh.rust.subagent-lineage')
 export const DEFAULT_MAX_CONCURRENT = 32
 export const LIMIT_MESSAGE = limit =>
   `Concurrent subagent limit reached: ${limit} subagents are already running for this session. Do not retry; spawning succeeds again when a running subagent finishes.`
@@ -1482,6 +1484,20 @@ export function apply(ctx) {
   // Goal completion verifiers (ticket 180): real dsh children of the goal's
   // agent, shown on the board like any other child. The goal plugin asks for
   // `execute` capability, so a verifier can read and run checks, never write.
+  publishLineage(ctx, {
+    describe(childId) {
+      const record = lineage.get(childId)
+      if (record === undefined) return undefined
+      return {
+        label: record.label,
+        type: record.type,
+        root: record.root,
+        parentSession: record.parentSession,
+        ...record.base?.workflow ? { workflow: record.base.workflow, workflowRun: record.base.workflowRun } : {},
+        ...record.base?.phase ? { phase: record.base.phase } : {},
+      }
+    },
+  })
   publishVerifier(ctx, error ? { unavailable: `subagent policy refused: ${error}` } : {
     spawn: async spec => {
       const plan = await planChild({ ...spec, noMessaging: true })
@@ -1489,6 +1505,13 @@ export function apply(ctx) {
       const settled = await runForeground(child, spec.signal)
       return { status: settled.status, text: settled.text, childId: settled.record.childId }
     },
+  })
+}
+
+function publishLineage(ctx, lookup) {
+  globalThis[SUBAGENT_LINEAGE] = lookup
+  ctx.on('dispose', () => {
+    if (globalThis[SUBAGENT_LINEAGE] === lookup) delete globalThis[SUBAGENT_LINEAGE]
   })
 }
 

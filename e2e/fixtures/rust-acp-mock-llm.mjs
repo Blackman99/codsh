@@ -540,8 +540,9 @@ function sandboxBashCommand(prefix) {
   ].join('; ')
 }
 
-// A child agent cannot answer an approval card, so its command avoids the
-// expansions and parentheses that make the permission layer ask (the Python
+// A child agent's ask would wait on the main session's approval line (#220),
+// so its command avoids the expansions and parentheses that make the
+// permission layer ask (the Python
 // read lives in the fixture's read_secret.py). Each step prints its own
 // error; the renames are undone unconditionally so the control run stays
 // comparable.

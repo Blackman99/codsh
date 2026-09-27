@@ -336,7 +336,7 @@ describe('rust-acp-control transport', () => {
       expect(process.env.CODSH_CONTROL_TOKEN).toBeUndefined()
       for (let i = 0; i < 100 && lines.length === 0; i++) await new Promise(resolve => setTimeout(resolve, 10))
       expect(JSON.parse(lines[0])).toEqual({ type: 'hello', token: 'secret-token' })
-      expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'agent/inbox/claimed', 'agent/inbox/discarded', 'agent/status', 'dispose', 'session/event', 'user-questions/request'])
+      expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'agent/inbox/claimed', 'agent/inbox/discarded', 'agent/status', 'approval/request', 'dispose', 'session/event', 'user-questions/request'])
     } finally {
       handlers.dispose?.()
       await new Promise(resolve => server.close(resolve))
@@ -351,8 +351,11 @@ describe('rust-acp-control transport', () => {
     const handlers = {}
     apply({ llm: {}, logger: { warn() {} }, get: () => undefined, on: (name, fn) => { handlers[name] = fn } })
     // No socket: steer and inbox listeners are not registered.
-    expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'dispose', 'session/event', 'user-questions/request'])
+    expect(Object.keys(handlers).sort()).toEqual(['agent/created', 'agent/disposed', 'approval/request', 'dispose', 'session/event', 'user-questions/request'])
     expect(process.env.CODSH_INTERACTION).toBeUndefined()
+    // #220: without a terminal a child's approval passes through to the old refusal.
+    const child = { id: 'c', session: { id: 'c', header: { origin: 'subagent', parentSession: 's-plain', delegationDepth: 1 } }, options: { subagentDepth: 1 } }
+    expect(await handlers['approval/request']({ agent: child, toolName: 'web_fetch' }, () => 'unavailable')).toBe('unavailable')
     const agent = fakeAgent('s-plain')
     handlers['agent/created']({ agent })
     await expect(handlers['user-questions/request']({ agent, questions: [{ id: 'q', question: 'x?' }] }, () => 'next'))

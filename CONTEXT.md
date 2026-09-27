@@ -388,6 +388,18 @@ beside it. The source checkout is only read; apply is explicit and merges per
 file against the worktree base; an isolated child sees a parent whose session
 header cwd is the worktree, and the permission listener checks its calls under
 both the worktree and the mapped checkout path.
+A child's approval (#220) rides the same `approval/request` waterfall as the
+main session. dsh-acp answers only for sessions it owns, so
+`rust-acp-child-approval.mjs` (wired in `rust-acp-control.mjs`) takes a
+child's request when the terminal UI owns its root session and the control
+channel is up: `child_approval` carries the child, its label, type, workflow
+and phase (from the subagent plugin's lineage, `codsh.rust.subagent-lineage`),
+the tool, and its input; the Rust client queues it (`child_approval.rs`)
+behind the main prompt and answers `child_approval_answer` with
+`allowed-once` or `rejected`, recording an `a` grant itself exactly as the
+main prompt does. The child's aborted call, its disposal, or the root's, close
+the request (`child_approval_closed`); a closed channel settles it as
+`unavailable`, and headless keeps the old refusal.
 Subagent messages and continuation (ticket 173) stay in the same plugin, with
 the pure pieces in `rust-acp-subagent-messages.mjs`. `[features]
 active_agent_messages` / `GROK_ACTIVE_AGENT_MESSAGES` (off by default) arrives as

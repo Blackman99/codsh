@@ -566,6 +566,14 @@ model and a fake SearXNG and page: the session offers and runs `web_search`
 and `web_fetch`, the `-p` init line lists them with `deep-research`,
 `GROK_DISABLE_WEB_SEARCH=1` leaves only fetch, and stray `CODSH_WEB_*` values
 without configuration register neither.
+Child approvals (#220): `python3 scripts/rust-child-approval-pty-test.py`
+(Linux and macOS, part of `test:rust:pty`) packs and installs the client, runs
+it in the default ask mode with no allow rules and no `CODSH_WEB_*`, and has a
+trusted project workflow's child call `web_fetch` against a loopback fake
+model and page: the main session's status line names the workflow, the child,
+the tool, and the URL; `y` fetches, `n` returns the refusal to the child, `a`
+writes the domain grant and the next fetch runs without asking, `/workflow
+stop` closes a waiting request, and a `-p` run keeps the refusal.
 `python3 scripts/rust-plugin-content-pty-test.py` runs on Linux
 and macOS through the repo launcher and the `pnpm run build:rust` binary: a
 temp plugin with a rule, skill, command, agent, and PreToolUse hook is

@@ -41,6 +41,9 @@
  *   and the closing user message; a flush adds the last messages of this
  *   session. Nothing is appended to the session. The answer names the route,
  *   what was sent (message and character counts), and the provider usage.
+ * - child_approval / child_approval_answer / child_approval_closed (#220):
+ *   a subagent's or workflow child's approval request, shown in the main
+ *   session's permission queue; see rust-acp-child-approval.mjs.
  *
  * The client passes a Unix socket path and a one-time token in the
  * environment. Both are removed from `process.env` before anything else runs,
@@ -49,6 +52,7 @@
 import { createConnection } from 'node:net'
 import { importFromDsh } from './rust-acp-dsh.mjs'
 import { createInteraction } from './rust-acp-interaction.mjs'
+import { createChildApprovals } from './rust-acp-child-approval.mjs'
 import { composeLedger } from './rust-usage.mjs'
 const { createUserMessage } = await importFromDsh('@deepseek-ai/dsh-llm')
 
@@ -216,6 +220,13 @@ export function createControl(ctx, send, options = {}) {
     connected: options.connected,
     agents,
     env: options.env,
+  })
+  // #220: a subagent's approval goes to this terminal's permission queue.
+  const childApprovals = createChildApprovals(ctx, send, {
+    interactive: options.interactive === true,
+    connected: options.connected,
+    agents,
+    ...options.lineage ? { lineage: options.lineage } : {},
   })
 
   const returnSteer = (messageId) => {
@@ -487,6 +498,7 @@ export function createControl(ctx, send, options = {}) {
     steers,
     sessions,
     interaction,
+    childApprovals,
     trackSession(session) {
       if (session && typeof session.id === 'string' && !sessions.has(session.id)) sessions.set(session.id, session)
     },
@@ -500,6 +512,7 @@ export function createControl(ctx, send, options = {}) {
     onDisposed(agent) {
       reclaim(agent)
       interaction.onDisposed(agent)
+      childApprovals.onDisposed(agent)
       if (agents.get(agent.session.id) === agent) agents.delete(agent.session.id)
     },
     onClaimed(agent, message) {
@@ -525,6 +538,7 @@ export function createControl(ctx, send, options = {}) {
       }
       if (request === null || typeof request !== 'object' || typeof request.id !== 'string') return
       if (interaction.handle(request)) return
+      if (childApprovals.handle(request)) return
       if (request.type === 'steer') steer(request)
       else if (request.type === 'btw') void btw(request)
       else if (request.type === 'btw_cancel') btws.get(request.id)?.abort()
@@ -543,6 +557,7 @@ export function createControl(ctx, send, options = {}) {
       for (const controller of btws.values()) controller.abort()
       for (const controller of memoryJobs.values()) controller.abort()
       interaction.close()
+      childApprovals.close()
     },
   }
 }
@@ -580,6 +595,8 @@ export function apply(ctx) {
   // The answerer is registered even without a terminal, so a plain prompt
   // gets the no-operator answer instead of "no answerer".
   ctx.on('user-questions/request', (request, next) => control.interaction.ask(request, next))
+  // Without a terminal this passes through, and the child's ask is refused as before.
+  ctx.on('approval/request', (request, next) => control.childApprovals.request(request, next))
   ctx.on('agent/created', ({ agent }) => control.onCreated(agent))
   ctx.on('agent/disposed', ({ agent }) => control.onDisposed(agent))
   ctx.on('session/event', (session, event) => {

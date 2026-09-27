@@ -1638,6 +1638,10 @@ export function apply(ctx) {
       toolName: exec.name,
       callId: exec.callId,
       reason: askReason(access, policy, false),
+      // #220: a subagent's ask is shown in the main session with its target,
+      // and settles when the child's call is aborted.
+      input: exec.arguments ?? {},
+      signal: exec.signal,
     }, () => 'unavailable')
     if (asked === 'allowed-always' || asked === 'allowed-session') {
       const saved = persistGrant(policy, access, true)

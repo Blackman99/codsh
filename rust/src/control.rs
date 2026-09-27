@@ -120,6 +120,15 @@ pub enum ControlEvent {
         id: String,
         outcome: Result<Box<crate::usage::Ledger>, String>,
     },
+    /// #220: a subagent or workflow child asks for approval. Only the main
+    /// session's approval line answers it.
+    ChildApproval(Box<crate::child_approval::Request>),
+    /// dsh closed a child's request (its call was aborted, the child went
+    /// away) or refused a late answer (`stale`).
+    ChildApprovalClosed {
+        id: String,
+        reason: String,
+    },
     /// The channel is gone (dsh exited, never connected, or failed the handshake).
     Closed(String),
 }
@@ -194,6 +203,38 @@ pub fn parse_event(line: &str) -> Option<ControlEvent> {
                         .unwrap_or("")
                         .to_string(),
                 }),
+        },
+        "child_approval" => {
+            let optional = |key: &str| {
+                value
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .filter(|text| !text.is_empty())
+                    .map(str::to_string)
+            };
+            let tool = text("tool");
+            if tool.is_empty() {
+                return None;
+            }
+            ControlEvent::ChildApproval(Box::new(crate::child_approval::Request {
+                id: id()?,
+                session_id: text("sessionId"),
+                child: text("child"),
+                label: text("label"),
+                agent_type: text("agentType"),
+                workflow: optional("workflow"),
+                phase: optional("phase"),
+                tool,
+                input: value
+                    .get("input")
+                    .filter(|input| input.is_object())
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            }))
+        }
+        "child_approval_closed" => ControlEvent::ChildApprovalClosed {
+            id: id()?,
+            reason: text("reason"),
         },
         "question_closed" => ControlEvent::QuestionClosed {
             id: id()?,
@@ -312,6 +353,11 @@ pub fn question_answer_message(id: &str, answers: Vec<Value>, comments: Option<&
         value["comments"] = json!(comments);
     }
     value
+}
+
+/// #220: the answer to a child's approval request: `allowed-once` or `rejected`.
+pub fn child_approval_answer_message(id: &str, outcome: &str) -> Value {
+    json!({ "type": "child_approval_answer", "id": id, "outcome": outcome })
 }
 
 /// Shift+X: the agent continues without an answer.
@@ -876,6 +922,53 @@ mod tests {
         assert_eq!(parse_event(r#"{"type":"ready"}"#), None);
         assert_eq!(parse_event(r#"{"type":"steer_claimed"}"#), None);
         assert_eq!(parse_event("not json"), None);
+    }
+
+    #[test]
+    fn child_approval_round_trip() {
+        let parsed = parse_event(
+            r#"{"type":"child_approval","id":"ca-1","sessionId":"s1","child":"c9","label":"researcher-2","agentType":"researcher","workflow":"deep-research","run":"r1","tool":"web_fetch","input":{"url":"https://example.org/"}}"#,
+        );
+        let Some(ControlEvent::ChildApproval(request)) = parsed else {
+            panic!("not a child approval: {parsed:?}");
+        };
+        assert_eq!(request.id, "ca-1");
+        assert_eq!(request.session_id, "s1");
+        assert_eq!(request.child, "c9");
+        assert_eq!(request.label, "researcher-2");
+        assert_eq!(request.agent_type, "researcher");
+        assert_eq!(request.workflow.as_deref(), Some("deep-research"));
+        assert_eq!(request.phase, None);
+        assert_eq!(request.tool, "web_fetch");
+        assert_eq!(
+            request.input,
+            serde_json::json!({"url":"https://example.org/"})
+        );
+        // A request with no tool or id is not shown.
+        assert_eq!(parse_event(r#"{"type":"child_approval","id":"x"}"#), None);
+        assert_eq!(
+            parse_event(r#"{"type":"child_approval","tool":"bash"}"#),
+            None
+        );
+        // A non-object input is dropped, not trusted.
+        let Some(ControlEvent::ChildApproval(request)) =
+            parse_event(r#"{"type":"child_approval","id":"y","tool":"bash","input":"rm"}"#)
+        else {
+            panic!("expected a child approval");
+        };
+        assert_eq!(request.input, serde_json::json!({}));
+        assert_eq!(request.workflow, None);
+        assert_eq!(
+            parse_event(r#"{"type":"child_approval_closed","id":"ca-1","reason":"aborted"}"#),
+            Some(ControlEvent::ChildApprovalClosed {
+                id: "ca-1".into(),
+                reason: "aborted".into()
+            })
+        );
+        assert_eq!(
+            child_approval_answer_message("ca-1", "allowed-once"),
+            serde_json::json!({"type":"child_approval_answer","id":"ca-1","outcome":"allowed-once"})
+        );
     }
 
     #[test]
