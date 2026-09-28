@@ -338,13 +338,16 @@ function* fileToolTurn(options) {
             : `printf 'STDOUT_${marker}\\n'; printf 'STDERR_${marker}\\n' >&2; printf '%s\\n' "$PWD"`
       // dsh on Windows offers `pwsh` instead of `bash` (#200).
       const windows = process.platform === 'win32'
+      // dsh 0.1.5-rc.3's sandboxed pwsh does not start in the workspace, so
+      // files are named by absolute path (dsh runs in the workspace).
+      const here = (name) => `'${join(process.cwd(), name).replaceAll("'", "''")}'`
       const pwshCommand = MODE === 'shell-fail'
         ? `Write-Output 'STDOUT_${marker}'; [Console]::Error.WriteLine('STDERR_${marker}'); exit 7`
         : MODE === 'shell-long'
-          ? `Set-Content -Path shell-started.txt -Value 'STARTED_${marker}'; Start-Sleep -Seconds 30; Set-Content -Path shell-finished.txt -Value 'FINISHED_${marker}'`
+          ? `Set-Content -LiteralPath ${here('shell-started.txt')} -Value 'STARTED_${marker}'; Start-Sleep -Seconds 30; Set-Content -LiteralPath ${here('shell-finished.txt')} -Value 'FINISHED_${marker}'`
           : MODE === 'shell-deny'
-            ? `Set-Content -Path denied-ran.txt -Value 'DENIED_RAN_${marker}'`
-            : `Write-Output 'STDOUT_${marker}'; [Console]::Error.WriteLine('STDERR_${marker}'); (Get-Location).Path`
+            ? `Set-Content -LiteralPath ${here('denied-ran.txt')} -Value 'DENIED_RAN_${marker}'`
+            : `Write-Output 'STDOUT_${marker}'; [Console]::Error.WriteLine('STDERR_${marker}'); Write-Output "PWD<$((Get-Location).Path)>"`
       const args = { command: windows ? pwshCommand : command, description: 'Run the shell probe' }
       if (workdir) args.workdir = workdir
       if (MODE === 'shell-fail') args.timeoutMs = 15000

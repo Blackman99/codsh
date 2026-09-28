@@ -345,9 +345,11 @@ def main():
             console.wait_visible('STDOUT_WIN200', 60)
             shown = console.wait_visible('RUST_ACP_SHELL_DONE', 60)
             assert 'STDERR_WIN200' in shown, shown
+            pwd = re.search(r'PWD<([^>]*)>', ''.join(shown.split('\n')))
             result = console.finish()
             assert result['exit'] == 0, result
-            return {'pwsh': shutil.which('pwsh'), 'powershell': shutil.which('powershell')}
+            return {'pwsh': shutil.which('pwsh'), 'powershell': shutil.which('powershell'),
+                    'workingDirectory': pwd.group(1) if pwd else None, 'workspace': str(cwd)}
         finally:
             console.close()
 
@@ -436,6 +438,8 @@ def main():
         with tarfile.open(tarball) as archive:
             archive.extractall(source, filter='data')
 
+        result = {}
+
         def variant(new_version, drop_native=False):
             copy = work / f'pkg-{new_version}'
             shutil.copytree(source / 'package', copy)
@@ -455,8 +459,22 @@ def main():
             return out / name
 
         def install(tar):
-            run([NPM, 'install', '-g', '--prefix', str(prefix), '--offline', '--ignore-scripts', '--no-audit', '--no-fund', str(tar)],
-                env=npm_env, cwd=work)
+            # A file under the prefix can stay busy for a moment after a launch
+            # (EBUSY while an antivirus scan or an exiting process holds it).
+            argv = [NPM, 'install', '-g', '--prefix', str(prefix), '--offline', '--ignore-scripts', '--no-audit', '--no-fund', str(tar)]
+            for attempt in range(6):
+                done = subprocess.run(argv, env=npm_env, cwd=work, capture_output=True, text=True, encoding='utf-8')
+                if done.returncode == 0:
+                    result.setdefault('installRetries', []).append(attempt)
+                    return
+                holders = subprocess.run(
+                    ['powershell', '-NoProfile', '-Command',
+                     f"Get-Process | Where-Object {{ $_.Path -like '{prefix}*' }} | ForEach-Object {{ \"$($_.Id) $($_.Path)\" }}"],
+                    capture_output=True, text=True, encoding='utf-8').stdout.strip()
+                print(f'npm install {tar.name} attempt {attempt + 1} failed ({done.returncode}); holders: {holders or "none"}\n'
+                      f'{done.stderr[-1500:]}', flush=True)
+                time.sleep(5)
+            raise AssertionError(f'npm install {tar.name} kept failing: {done.stderr[-3000:]}')
 
         def turn(prompt):
             return subprocess.run(client('-p', prompt), env={**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}, cwd=cwd,
@@ -477,7 +495,7 @@ def main():
         newer, broken = '99.0.1', '99.0.2'
         tar_newer, tar_broken = variant(newer), variant(broken, drop_native=True)
         isolated = home / '.codsh-rust'
-        result = {'version': version}
+        result.update(version=version)
         first = turn('TOKEN_BEFORE_UPDATE')
         assert first.returncode == 0 and 'RUST_ACP_ANSWER' in first.stdout, first.stdout + first.stderr
         assert json.loads((isolated / 'codsh-version.json').read_text(encoding='utf-8'))['lastVersion'] == version
