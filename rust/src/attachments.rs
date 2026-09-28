@@ -135,7 +135,7 @@ pub struct WorkspaceIndex {
 
 impl WorkspaceIndex {
     pub fn new(root: &Path) -> Self {
-        let root = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+        let root = dunce::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         let mut rules = Vec::new();
         collect_gitignore(&root, &root, &mut rules);
         Self { root, rules }
@@ -209,7 +209,7 @@ impl WorkspaceIndex {
         } else {
             self.root.join(path)
         };
-        let Ok(canonical) = fs::canonicalize(&candidate) else {
+        let Ok(canonical) = dunce::canonicalize(&candidate) else {
             return Err(AttachRefusal {
                 status: AttachStatus::Missing,
                 detail: "file not found".into(),
@@ -291,7 +291,7 @@ impl WorkspaceIndex {
             }
         };
         if meta.file_type().is_symlink() {
-            match fs::canonicalize(&full) {
+            match dunce::canonicalize(&full) {
                 Ok(target) if target.starts_with(&self.root) => {}
                 Ok(_) => {
                     return failure_attachment(

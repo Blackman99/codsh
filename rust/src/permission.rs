@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::Canonical;
 use crate::trust;
 use serde_json::{Value as JsonValue, json};
 use std::collections::HashSet;
@@ -660,7 +661,8 @@ pub fn access_from_tool(name: &str, args: &JsonValue) -> AccessKind {
         "read" | "read_file" | "list_dir" | "read_image" => AccessKind::Read(path),
         "grep" | "glob" => AccessKind::Grep { path },
         "write" | "edit" | "search_replace" => AccessKind::Edit(path.unwrap_or_default()),
-        "bash" | "run_terminal_cmd" | "run_terminal_command" => {
+        // dsh on Windows runs commands through its `pwsh` tool instead of bash.
+        "bash" | "pwsh" | "run_terminal_cmd" | "run_terminal_command" => {
             AccessKind::Bash(string_field(args, &["command"]).unwrap_or_default())
         }
         "web_fetch" => AccessKind::WebFetch(string_field(args, &["url"]).unwrap_or_default()),
@@ -1178,7 +1180,7 @@ fn inspect_path(path: &str, cwd: &Path) -> InspectedPath {
         cwd.join(path)
     };
     match abs.symlink_metadata() {
-        Ok(meta) if meta.file_type().is_symlink() => match abs.canonicalize() {
+        Ok(meta) if meta.file_type().is_symlink() => match abs.canonical() {
             Ok(resolved) => {
                 let mut forms = lexical;
                 let resolved_text = path_text(&resolved);
@@ -1216,7 +1218,7 @@ fn file_rule_applies(policy: &PermissionPolicy, tool: ToolFilter) -> bool {
 
 fn cwd_roots(cwd: &Path) -> Vec<PathBuf> {
     let mut roots = vec![normalize_lexically(cwd)];
-    if let Ok(real) = cwd.canonicalize() {
+    if let Ok(real) = cwd.canonical() {
         let real = normalize_lexically(&real);
         if !roots.contains(&real) {
             roots.push(real);

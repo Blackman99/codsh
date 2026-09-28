@@ -263,13 +263,13 @@ pub fn resolve(source: &Source, scope: &Scope) -> Result<Resolved, String> {
                     "workflow path is not trusted: {shown} (expected a non-symlink regular file)"
                 ));
             }
-            let canonical = std::fs::canonicalize(&candidate)
+            let canonical = dunce::canonicalize(&candidate)
                 .map_err(|error| format!("failed to read {shown}: {error}"))?;
-            let project = std::fs::canonicalize(project_root(&scope.cwd)).ok();
+            let project = dunce::canonicalize(project_root(&scope.cwd)).ok();
             let user = scope
                 .grok_home
                 .as_ref()
-                .and_then(|home| std::fs::canonicalize(home.join("workflows")).ok());
+                .and_then(|home| dunce::canonicalize(home.join("workflows")).ok());
             let in_user = user
                 .as_ref()
                 .is_some_and(|root| canonical.starts_with(root));
@@ -1966,7 +1966,7 @@ mod tests {
         assert_eq!(found.meta.name, "scan");
         assert_eq!(
             found.path.unwrap(),
-            std::fs::canonicalize(project.join("scan.rhai")).unwrap()
+            dunce::canonicalize(project.join("scan.rhai")).unwrap()
         );
         let error = resolve(&path("../scan.rhai"), &scope(false)).unwrap_err();
         assert!(

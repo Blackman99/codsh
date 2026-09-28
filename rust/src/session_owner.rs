@@ -81,11 +81,14 @@ fn try_lock(file: &File) -> io::Result<bool> {
     const LOCKFILE_FAIL_IMMEDIATELY: u32 = 0x0000_0001;
     const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x0000_0002;
     const ERROR_LOCK_VIOLATION: u32 = 33;
+    // Windows byte-range locks are mandatory: locking the owner record itself
+    // would stop every other reader (this client's still_held check, the
+    // scheduler's owner check) from reading it. Lock one byte far past it.
     let mut overlapped = Overlapped {
         internal: 0,
         internal_high: 0,
         offset: 0,
-        offset_high: 0,
+        offset_high: 0x7fff_ffff,
         h_event: core::ptr::null_mut(),
     };
     let ok = unsafe {

@@ -1235,6 +1235,31 @@ installed client completes a chat turn, a tool approval, a cancel and a resume
 in a real PTY (`scripts/rust-platform-test.py`, which also lists what that run
 does not cover).
 
+On Windows the client is an x64 PE (`win32-x64`, built with the static MSVC
+runtime, so no Visual C++ redistributable is needed) and runs in a Windows
+console. It was exercised through ConPTY on Windows Server 2022 and 2025; real
+Windows Terminal, conhost windows and VS Code were not driven. There is no
+Windows on Arm prebuild: an arm64 Node is refused as a platform the package
+does not carry. Install, `codsh --rust update`, rollback and
+the Rust Home (`%USERPROFILE%\.codsh-rust`) work as on macOS and Linux; npm
+cannot replace `codsh-rust.exe` while a codsh session is still running (EBUSY),
+so close codsh first and run the install again. dsh runs shell commands on
+Windows through its `pwsh` tool, not bash. dsh 0.1.5-rc.3 confines those
+commands with its own ACL sandbox (`workspace-write` by default), whose
+restricted token cannot enter a workspace inside your user profile: PowerShell
+then starts in its own install directory and writes are denied, so keep
+projects outside `%USERPROFILE%` or set dsh's sandbox mode yourself. The codsh
+filesystem/network sandbox profiles are refused on Windows, and the shared
+server, `--remote` identity and `wrap` (Unix sockets or a PTY) are not
+available there. The Windows
+prebuild is built on `windows-2022` and installed from the packed tarball on
+`windows-2022` and `windows-2025` runners without a Rust toolchain, where the
+installed client completes a headless and an interactive turn (CJK and
+characters typed as Alt codes), a file approval, a `pwsh` command, a cancel that
+ends the whole process tree, a resume, and install/update/refusal/rollback
+through a real ConPTY (`scripts/rust-windows-pty-test.py`, which lists what it
+does not cover).
+
 ## `/ship`: One Sentence to Verified Code
 
 ```sh

@@ -8,8 +8,12 @@
 //! On macOS a `restrict_network` profile denies `network*` in the same Seatbelt
 //! profile. Linux Landlock/seccomp network blocking is a different mechanism
 //! and is not claimed from a macOS run: a profile that asks for it refuses
-//! startup there. Windows confinement is not implemented.
+//! startup there. Windows confinement is not implemented: every non-`off`
+//! profile refuses startup there (#200).
+#![cfg_attr(not(unix), allow(dead_code))]
 
+use crate::Canonical;
+#[cfg(unix)]
 use nono::{AccessMode, CapabilitySet, Sandbox};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -171,7 +175,7 @@ fn paths_same(left: &Path, right: &Path) -> bool {
     if left == right {
         return true;
     }
-    match (left.canonicalize(), right.canonicalize()) {
+    match (left.canonical(), right.canonical()) {
         (Ok(left), Ok(right)) => left == right,
         _ => false,
     }
@@ -226,7 +230,15 @@ pub fn prepare(
     if name.is_empty() || name == "off" {
         return Ok(None);
     }
+    #[cfg(not(unix))]
+    return Err(Refusal {
+        message: format!(
+            "refusing sandbox profile {name}: kernel confinement is not implemented on Windows; use sandbox profile off"
+        ),
+    });
+    #[cfg(unix)]
     let support = Sandbox::support_info();
+    #[cfg(unix)]
     if !support.is_supported {
         return Err(Refusal {
             message: format!(
@@ -367,6 +379,17 @@ pub fn activate_shell_env(
     Ok(())
 }
 
+#[cfg(not(unix))]
+pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
+    Err(Refusal {
+        message: format!(
+            "refusing sandbox profile {}: kernel confinement is not implemented on Windows",
+            prepared.name
+        ),
+    })
+}
+
+#[cfg(unix)]
 pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
     if ACTIVE.get().is_some() {
         return Ok(());
@@ -626,6 +649,7 @@ fn mechanism_name() -> &'static str {
     }
 }
 
+#[cfg(unix)]
 fn grant(
     caps: CapabilitySet,
     path: &Path,
@@ -727,7 +751,7 @@ fn resolve_through_existing_ancestor(path: &Path) -> Result<PathBuf, Refusal> {
             }
         }
     }
-    let canonical = existing.canonicalize().map_err(|error| Refusal {
+    let canonical = existing.canonical().map_err(|error| Refusal {
         message: format!(
             "refusing sandbox: cannot resolve {} for a deny rule of {} ({error}); a dangling symlink cannot be denied at its real path",
             existing.display(),
@@ -1069,6 +1093,7 @@ fn append_segment_regex(regex: &mut String, segment: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(unix)]
 fn pin_directory(
     caps: CapabilitySet,
     path: &Path,
@@ -1140,7 +1165,7 @@ fn apply_with_tail(caps: &CapabilitySet, tail: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn apply_with_tail(caps: &CapabilitySet, _tail: &str) -> Result<(), String> {
     Sandbox::apply(caps)
         .map(|_| ())
@@ -1324,6 +1349,7 @@ fn explicit_keychain_db(caps: &CapabilitySet) -> bool {
     })
 }
 
+#[cfg(unix)]
 fn deny_subpath(
     caps: CapabilitySet,
     path: &Path,
@@ -1360,6 +1386,7 @@ fn deny_subpath(
     }
 }
 
+#[cfg(unix)]
 fn deny_glob(
     caps: CapabilitySet,
     glob: &DenyGlob,
@@ -1403,6 +1430,7 @@ fn deny_glob(
     }
 }
 
+#[cfg(unix)]
 fn access_name(mode: AccessMode) -> &'static str {
     match mode {
         AccessMode::Read => "read",
@@ -2850,14 +2878,14 @@ mod tests {
         let prepared = prepare("project", &root, &home, None, true)
             .unwrap()
             .unwrap();
-        let inside_env = root.join(".env").canonicalize().unwrap();
-        let deep_env = root.join("nested/.env").canonicalize().unwrap();
-        let inside_pem = root.join("certs/a.pem").canonicalize().unwrap();
-        let deep_pem = root.join("certs/nested/a.pem").canonicalize().unwrap();
-        let outside_env = outside.join(".env").canonicalize().unwrap();
-        let outside_pem = outside.join("certs/a.pem").canonicalize().unwrap();
-        let prefix_env = prefixed.join(".env").canonicalize().unwrap();
-        let prefix_pem = prefixed.join("certs/a.pem").canonicalize().unwrap();
+        let inside_env = root.join(".env").canonical().unwrap();
+        let deep_env = root.join("nested/.env").canonical().unwrap();
+        let inside_pem = root.join("certs/a.pem").canonical().unwrap();
+        let deep_pem = root.join("certs/nested/a.pem").canonical().unwrap();
+        let outside_env = outside.join(".env").canonical().unwrap();
+        let outside_pem = outside.join("certs/a.pem").canonical().unwrap();
+        let prefix_env = prefixed.join(".env").canonical().unwrap();
+        let prefix_pem = prefixed.join("certs/a.pem").canonical().unwrap();
         let effects = seatbelt_glob_effects(
             &prepared.read_denied_globs,
             &[
@@ -2932,10 +2960,10 @@ mod tests {
         let prepared = prepare("project", &root, &home, None, true)
             .unwrap()
             .unwrap();
-        let file_a = root.join("filea.txt").canonicalize().unwrap();
-        let file_b = root.join("fileb.txt").canonicalize().unwrap();
-        let note_b = root.join("noteb.txt").canonicalize().unwrap();
-        let note_c = root.join("notec.txt").canonicalize().unwrap();
+        let file_a = root.join("filea.txt").canonical().unwrap();
+        let file_b = root.join("fileb.txt").canonical().unwrap();
+        let note_b = root.join("noteb.txt").canonical().unwrap();
+        let note_c = root.join("notec.txt").canonical().unwrap();
         let effects = seatbelt_glob_effects(
             &prepared.read_denied_globs,
             &[&file_a, &file_b, &note_b, &note_c],
@@ -2978,11 +3006,11 @@ mod tests {
         }
         let globs = vec![split_glob("*.pem", &root), split_glob("a^?.txt", &root)];
         let paths = [
-            root.join("x.pem").canonicalize().unwrap(),
-            root.join("a^b.txt").canonicalize().unwrap(),
-            root.join("ab.txt").canonicalize().unwrap(),
-            decoy.join("x.pem").canonicalize().unwrap(),
-            decoy.join("a^b.txt").canonicalize().unwrap(),
+            root.join("x.pem").canonical().unwrap(),
+            root.join("a^b.txt").canonical().unwrap(),
+            root.join("ab.txt").canonical().unwrap(),
+            decoy.join("x.pem").canonical().unwrap(),
+            decoy.join("a^b.txt").canonical().unwrap(),
         ];
         let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
         let effects = seatbelt_glob_effects(&globs, &refs);
@@ -3009,8 +3037,8 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let glob = split_glob(&format!("{}/**/*.key", link.display()), &base);
         assert_eq!(glob.root, link);
-        let key = real.join("nested/x.key").canonicalize().unwrap();
-        let ok = real.join("ok.txt").canonicalize().unwrap();
+        let key = real.join("nested/x.key").canonical().unwrap();
+        let ok = real.join("ok.txt").canonical().unwrap();
         let effects = seatbelt_glob_effects(&[glob], &[&key, &ok]);
         assert_eq!(
             effects.get(&key).map(String::as_str),

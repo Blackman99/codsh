@@ -370,6 +370,24 @@ and `libgcc_s`. `build:rust` reads the ELF's DT_NEEDED libraries and newest
 they differ from the binary, and the launcher refuses an older glibc, a
 non-glibc (musl) system or a missing library with the distribution packages to
 install, before any Home is created (#199).
+The Windows client (#200) is `x86_64-pc-windows-msvc`, built on `windows-2022`
+by `rust-native.yml` with `+crt-static`, staged as `native/win32-x64` and
+required by `release.yml`. Windows-specific code paths: `dunce` canonical paths
+(no `\\?\` verbatim prefixes reach dsh or the Homes), the ACP control channel on
+a loopback TCP port with a token instead of a Unix socket, `taskkill /T /F` for
+process trees, a session-owner lock on one byte far past the record (mandatory
+byte-range locks would make the owner file unreadable), key releases handled
+only for the voice chord (Windows reports a release for every key), a release
+with no press before it (an Alt code, or a ConPTY character that is not on the
+keyboard layout) typed as the character, and no kitty keyboard push/pop. A
+Linux box can check the Windows build with `rustup target add
+x86_64-pc-windows-gnu` and `cargo clippy --target x86_64-pc-windows-gnu`; the
+real run is `scripts/rust-windows-pty-test.py` on a Windows runner (Python with
+`pywinpty`), which the `windows` job of `rust-platforms.yml` runs on the
+integration branch and on branches whose name contains `windows`. It installs
+the packed tarball with registry dsh into a clean prefix after removing the Rust
+toolchain and drives the installed client through ConPTY; the evidence artifact
+is `windows-evidence-<os>`.
 `build:rust` passes the `codsh-cli` version to the build
 (`CODSH_PACKAGE_VERSION`), so `codsh --rust --version`, the ACP `clientInfo` and
 `artifact.json` all name the package version; a plain `cargo build` reports the

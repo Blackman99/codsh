@@ -80,12 +80,12 @@ workspace = true
 anstyle.workspace = true
 base64 = "0.22"
 crossterm = { workspace = true, features = ["bracketed-paste"] }
+dunce = "1.0.5"
 ed25519-dalek = "2"
 getrandom = "0.3"
 ignore.workspace = true
 jsonschema = { version = "=0.30.0", default-features = false }
 native-tls = "0.2"
-nono = { version = "=0.53.0", default-features = false }
 ratatui = { workspace = true, features = ["unstable-widget-ref"] }
 regex = "1.12.4"
 rusqlite = { version = "=0.37.0", features = ["bundled"] }
@@ -109,6 +109,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+nono = { version = "=0.53.0", default-features = false }
 signal-hook = "0.3"
 libc = "0.2"
 

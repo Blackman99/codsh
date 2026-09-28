@@ -105,6 +105,20 @@ use xai_ratatui_inline::{
     Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
 };
 
+/// A canonical path in the form other programs accept. On Windows std's
+/// `canonicalize` returns a `\\?\C:\…` verbatim path, which Node's realpath
+/// (dsh) rejects and users never type; `dunce` drops that prefix whenever
+/// the plain form means the same file. Elsewhere this is std's canonicalize.
+pub(crate) trait Canonical {
+    fn canonical(&self) -> std::io::Result<PathBuf>;
+}
+
+impl Canonical for Path {
+    fn canonical(&self) -> std::io::Result<PathBuf> {
+        dunce::canonicalize(self)
+    }
+}
+
 /// The product version this client reports (ticket 66 / #198). `pnpm run
 /// build:rust` bakes in the `codsh-cli` package version, so the staged client,
 /// its `artifact.json` and the launcher that verifies it name one version; a
@@ -116,6 +130,43 @@ pub(crate) const CODSH_VERSION: &str = match option_env!("CODSH_PACKAGE_VERSION"
 };
 
 const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept.";
+
+/// The kitty keyboard protocol push. crossterm refuses it on Windows (it has
+/// no legacy-console equivalent) and one refused command aborts a whole
+/// `execute!`, so startup failed there; Windows consoles do not implement the
+/// protocol, so it is skipped on Windows (#200).
+struct PushKeys(KeyboardEnhancementFlags);
+
+impl crossterm::Command for PushKeys {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if cfg!(windows) {
+            return Ok(());
+        }
+        crossterm::Command::write_ansi(&PushKeyboardEnhancementFlags(self.0), f)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The matching pop; a no-op on Windows like [`PushKeys`].
+struct PopKeys;
+
+impl crossterm::Command for PopKeys {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if cfg!(windows) {
+            return Ok(());
+        }
+        crossterm::Command::write_ansi(&PopKeyboardEnhancementFlags, f)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
 
 struct TerminalGuard {
     alt: bool,
@@ -133,7 +184,7 @@ impl TerminalGuard {
                 EnableBracketedPaste,
                 EnableFocusChange,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(
+                PushKeys(
                     KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
                 ),
@@ -145,7 +196,7 @@ impl TerminalGuard {
                 EnableBracketedPaste,
                 EnableFocusChange,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(
+                PushKeys(
                     KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
                 ),
@@ -193,7 +244,7 @@ impl TerminalGuard {
     fn suspend(&mut self) -> io::Result<()> {
         let _ = execute!(
             io::stdout(),
-            PopKeyboardEnhancementFlags,
+            PopKeys,
             DisableMouseCapture,
             DisableBracketedPaste,
             DisableFocusChange,
@@ -222,9 +273,7 @@ impl TerminalGuard {
                     EnableBracketedPaste,
                     EnableFocusChange,
                     EnableMouseCapture,
-                    PushKeyboardEnhancementFlags(
-                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-                    ),
+                    PushKeys(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,),
                     Hide
                 )?;
                 self.alt = true;
@@ -236,9 +285,7 @@ impl TerminalGuard {
                     EnableBracketedPaste,
                     EnableFocusChange,
                     EnableMouseCapture,
-                    PushKeyboardEnhancementFlags(
-                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-                    ),
+                    PushKeys(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,),
                     Show
                 )?;
                 self.alt = false;
@@ -254,7 +301,7 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = execute!(
             io::stdout(),
-            PopKeyboardEnhancementFlags,
+            PopKeys,
             DisableMouseCapture,
             DisableBracketedPaste,
             DisableFocusChange,
@@ -272,7 +319,7 @@ impl Drop for TerminalGuard {
 fn restore_terminal() {
     let _ = execute!(
         io::stdout(),
-        PopKeyboardEnhancementFlags,
+        PopKeys,
         DisableMouseCapture,
         DisableBracketedPaste,
         DisableFocusChange,
@@ -2810,10 +2857,10 @@ fn known_resume_session(mode: &LaunchMode, effective: &config::EffectiveConfig) 
         LaunchMode::Resume(id) => Some(id.clone()),
         LaunchMode::Continue => session_owner::read_last_session(&effective.dsh_home)
             .filter(|(_, last_cwd)| {
-                let last = last_cwd.canonicalize().unwrap_or(last_cwd.clone());
+                let last = last_cwd.canonical().unwrap_or(last_cwd.clone());
                 let now = effective
                     .cwd
-                    .canonicalize()
+                    .canonical()
                     .unwrap_or_else(|_| effective.cwd.clone());
                 last == now
             })
@@ -3011,8 +3058,8 @@ fn resolve_resume(
         }
         LaunchMode::Continue => {
             if let Some((id, last_cwd)) = session_owner::read_last_session(dsh_home) {
-                let last = last_cwd.canonicalize().unwrap_or(last_cwd);
-                let now = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+                let last = last_cwd.canonical().unwrap_or(last_cwd);
+                let now = cwd.canonical().unwrap_or_else(|_| cwd.to_path_buf());
                 if last == now {
                     return Ok(Some(id));
                 }
@@ -4517,7 +4564,7 @@ fn sync_effective_cwd(effective: &mut config::EffectiveConfig, launch: &Launch) 
     let Ok(cwd) = std::env::current_dir() else {
         return;
     };
-    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let cwd = cwd.canonical().unwrap_or(cwd);
     if cwd != effective.cwd {
         *effective = load_runtime_config(launch);
         let home = std::env::var_os("HOME")
@@ -4616,7 +4663,7 @@ fn apply_next_cwd(effective: &config::EffectiveConfig, raw: &str) -> Result<Stri
             effective.cwd.display()
         ));
     }
-    let canonical = path.canonicalize().unwrap_or(path);
+    let canonical = path.canonical().unwrap_or(path);
     std::env::set_current_dir(&canonical).map_err(|error| error.to_string())?;
     Ok(format!(
         "next new agent cwd: {} (existing session stays {})",
@@ -8319,7 +8366,7 @@ fn anchor_input_paths(launch: &mut Launch, base: &Path) {
 }
 
 fn enter_cwd(path: &Path) -> io::Result<()> {
-    let target = path.canonicalize().map_err(|error| {
+    let target = path.canonical().map_err(|error| {
         io::Error::other(format!("couldn't use --cwd {}: {error}", path.display()))
     })?;
     if !target.is_dir() {
@@ -9053,9 +9100,15 @@ fn kill_group(pid: u32) {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    // Windows has no process groups: end the whole tree under dsh (#200).
+    #[cfg(windows)]
     {
-        let _ = pid;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 
@@ -9074,8 +9127,8 @@ fn worktree_resume_source(mode: &LaunchMode, dsh_home: &Path) -> io::Result<Opti
             ..
         } => {
             let last = session_owner::read_last_session(dsh_home).filter(|(_, last_cwd)| {
-                last_cwd.canonicalize().unwrap_or_else(|_| last_cwd.clone())
-                    == cwd.canonicalize().unwrap_or_else(|_| cwd.clone())
+                last_cwd.canonical().unwrap_or_else(|_| last_cwd.clone())
+                    == cwd.canonical().unwrap_or_else(|_| cwd.clone())
             });
             return match last {
                 Some((id, _)) => Ok(Some(id)),
@@ -9876,6 +9929,8 @@ fn run() -> io::Result<()> {
     // Kitty event types are requested. A terminal that never emits a release
     // still cannot stop hold-to-talk; the first release flips this on.
     let mut voice_release_supported = false;
+    #[cfg(windows)]
+    let mut unpaired = UnpairedReleases::default();
     composer.set_workspace(&effective.cwd);
     // The composer starts empty. Like the reference, an unsent draft lives
     // in this process only: a sent prompt must never come back on the next
@@ -10935,12 +10990,22 @@ fn run() -> io::Result<()> {
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
-        match event::read()? {
+        let event = event::read()?;
+        #[cfg(windows)]
+        let event = match event {
+            Event::Key(key) => Event::Key(unpaired.normalize(key)),
+            other => other,
+        };
+        match event {
             Event::Key(key) if key.kind == KeyEventKind::Release => {
                 voice_release_supported = true;
+                // Only the voice chord acts on release. Windows consoles report a
+                // release for every key; handing those to the composer typed each
+                // character twice.
                 if matches!(overlay, Overlay::None)
                     && ui_overlay.is_none()
                     && matches!(nav.overlay, NavOverlay::None)
+                    && prompt_edit::is_voice_chord(&key)
                 {
                     let host = HostContext {
                         inflight,
@@ -12304,6 +12369,55 @@ fn run() -> io::Result<()> {
     drop_connection(&mut client, &mut owner);
     subagents::cleanup(&effective.dsh_home);
     Ok(())
+}
+
+/// Windows consoles deliver a character that is not on the keyboard layout
+/// (ConPTY input such as "✓", or an Alt+numpad code) only on the Alt key's
+/// release, which crossterm reports as a `Release` of that character with no
+/// press before it. Such a release is the typed character; a release that
+/// matches an earlier press is only the key going up. Every printable ASCII
+/// character is on the layout ConPTY uses, so only non-ASCII releases count.
+#[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct UnpairedReleases {
+    held: std::collections::VecDeque<char>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl UnpairedReleases {
+    /// A release that never comes cannot grow this without bound.
+    const LIMIT: usize = 32;
+
+    fn normalize(&mut self, key: event::KeyEvent) -> event::KeyEvent {
+        let KeyCode::Char(ch) = key.code else {
+            return key;
+        };
+        if ch.is_ascii() {
+            return key;
+        }
+        let same = |held: &char| held.to_lowercase().eq(ch.to_lowercase());
+        match key.kind {
+            KeyEventKind::Press => {
+                self.held.push_back(ch);
+                if self.held.len() > Self::LIMIT {
+                    self.held.pop_front();
+                }
+                key
+            }
+            KeyEventKind::Repeat => key,
+            KeyEventKind::Release => match self.held.iter().position(same) {
+                Some(index) => {
+                    self.held.remove(index);
+                    key
+                }
+                None => event::KeyEvent::new_with_kind(
+                    key.code,
+                    key.modifiers - KeyModifiers::ALT,
+                    KeyEventKind::Press,
+                ),
+            },
+        }
+    }
 }
 
 /// Default seconds a quit may spend tearing down before codsh force-exits.
@@ -15201,6 +15315,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn windows_unpaired_release_types_the_character() {
+        use crossterm::event::KeyEvent;
+        let mut unpaired = UnpairedReleases::default();
+        let key = |ch, kind| KeyEvent::new_with_kind(KeyCode::Char(ch), KeyModifiers::NONE, kind);
+        // An Alt+numpad code: only the release carries the character.
+        let typed = unpaired.normalize(key('✓', KeyEventKind::Release));
+        assert_eq!(typed.kind, KeyEventKind::Press);
+        assert_eq!(typed.code, KeyCode::Char('✓'));
+        // A layout key: the release after the press stays a release.
+        assert_eq!(
+            unpaired.normalize(key('中', KeyEventKind::Press)).kind,
+            KeyEventKind::Press
+        );
+        assert_eq!(
+            unpaired.normalize(key('中', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // Shift let go first: the release reports the other case.
+        unpaired.normalize(key('É', KeyEventKind::Press));
+        assert_eq!(
+            unpaired.normalize(key('é', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // ASCII releases are never characters.
+        assert_eq!(
+            unpaired.normalize(key('a', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // The Alt of the numpad code does not reach the composer.
+        let alt =
+            KeyEvent::new_with_kind(KeyCode::Char('✓'), KeyModifiers::ALT, KeyEventKind::Release);
+        assert_eq!(unpaired.normalize(alt).modifiers, KeyModifiers::NONE);
+    }
+
+    #[test]
     fn memory_notice_retires_a_stale_busy_refusal_only() {
         // Issue #186 follow-up: "Dream is already running…" stayed under
         // "Dream completed" until the next command.
@@ -17583,7 +17732,7 @@ enabled = {enabled}
             catalog_session(home.path(), &live, &cwd);
             // The target exists and is closed in the agent store. The agent still
             // refuses this id, which must be observed before session/close.
-            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let canonical = cwd.canonical().unwrap_or_else(|_| cwd.clone());
             let mut shared: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(&store_path)
                     .unwrap_or_else(|_| "{\"sessions\":{}}".into()),
@@ -17710,7 +17859,7 @@ enabled = {enabled}
                 .new_session(&cwd, Duration::from_secs(2))
                 .expect("live session");
             catalog_session(home.path(), &live, &cwd);
-            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let canonical = cwd.canonical().unwrap_or_else(|_| cwd.clone());
             let mut shared: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(&store_path)
                     .unwrap_or_else(|_| "{\"sessions\":{}}".into()),

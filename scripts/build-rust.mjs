@@ -26,8 +26,12 @@ const cli = JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'ut
 // The client reports the codsh-cli version it ships in (CODSH_VERSION in
 // rust/src/main.rs), not the internal crate version, so `codsh --rust
 // --version`, the ACP clientInfo and artifact.json agree (#198).
+// Windows (#200): link the C runtime statically, so the client needs no
+// Visual C++ Redistributable (VCRUNTIME140.dll) on the user's machine.
+const msvc = target.endsWith('-pc-windows-msvc') ? `CARGO_TARGET_${target.toUpperCase().replaceAll('-', '_')}_RUSTFLAGS` : undefined
 execFileSync('cargo', ['build', '--manifest-path', manifest, '--locked', '--release', '-p', 'codsh-rust', ...(requested ? ['--target', requested] : [])], {
-  stdio: 'inherit', env: { ...process.env, CODSH_PACKAGE_VERSION: cli.version },
+  stdio: 'inherit',
+  env: { ...process.env, CODSH_PACKAGE_VERSION: cli.version, ...(msvc && process.env[msvc] === undefined ? { [msvc]: '-C target-feature=+crt-static' } : {}) },
 })
 const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', target], { encoding: 'utf8', maxBuffer: 20_000_000 }))
 const nodes = new Map(metadata.resolve.nodes.map(node => [node.id, node]))
