@@ -48,19 +48,18 @@ jobs:
           for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
           node scripts/build-ship-extension.mjs
       - name: Check the package a release would publish (dry run)
-        run: pnpm run check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64 --json | tee package-check.json
-      - name: Pack codsh-cli (not published)
         run: |
           mkdir -p packed
+          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64 --json | tee packed/package-check.json
+      - name: Pack codsh-cli (not published)
+        run: |
           (cd packages/cli && npm pack --ignore-scripts --pack-destination ../../packed)
           ls -l packed
           tar -tzf packed/codsh-cli-*.tgz | grep -E '^package/native/[^/]+/(codsh-rust|artifact.json)$'
       - uses: actions/upload-artifact@v4
         with:
           name: codsh-cli-package
-          path: |
-            packed/*.tgz
-            package-check.json
+          path: packed/
           if-no-files-found: error
 
   macos-install:
@@ -159,7 +158,9 @@ jobs:
         run: |
           prefix="$RUNNER_TEMP/clean-prefix"
           export npm_config_cache="$RUNNER_TEMP/npm-cache"
-          npm install -g --prefix "$prefix" --ignore-scripts --no-audit --no-fund packed/codsh-cli-*.tgz
+          tarball=$(ls "$PWD"/packed/codsh-cli-*.tgz)
+          echo "installing $tarball"
+          npm install -g --prefix "$prefix" --ignore-scripts --no-audit --no-fund "$tarball"
           dsh_dir=$(node -p "require('fs').realpathSync(require('path').dirname(require.resolve('@deepseek-ai/dsh/package.json')))")
           mkdir -p "$prefix/lib/node_modules/@deepseek-ai"
           ln -s "$dsh_dir" "$prefix/lib/node_modules/@deepseek-ai/dsh"
