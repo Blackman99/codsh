@@ -57,11 +57,16 @@ class MacClipboard:
         script = f'set the clipboard to (read (POSIX file "{path}") as «class PNGf»)'
         subprocess.run(['osascript', '-e', script], check=True, timeout=20)
 
+    # The harness reads and writes as UTF-8 itself. The client gets no LANG
+    # from this harness, so a CJK /copy also proves it does not depend on one.
+    UTF8 = {**os.environ, 'LC_ALL': 'en_US.UTF-8'}
+
     def set_text(self, text):
-        subprocess.run(['pbcopy'], input=text.encode(), check=True, timeout=10)
+        subprocess.run(['pbcopy'], input=text.encode(), check=True, timeout=10, env=self.UTF8)
 
     def get_text(self):
-        return subprocess.run(['pbpaste'], capture_output=True, timeout=10).stdout.decode(errors='replace')
+        return subprocess.run(['pbpaste'], capture_output=True, timeout=10,
+                              env=self.UTF8).stdout.decode(errors='replace')
 
     def env(self):
         return {}

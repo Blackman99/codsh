@@ -267,6 +267,24 @@ fn native_input(label: &str, text: &str) -> Vec<u8> {
     text.as_bytes().to_vec()
 }
 
+/// Environment for the native helper. pbcopy decodes stdin with the locale's
+/// character set; without a UTF-8 locale (LANG unset, as under launchd or a
+/// bare CI shell) CJK lands on the pasteboard as MacRoman mojibake.
+fn native_env(label: &str, env: &EnvMap) -> EnvMap {
+    let mut env = env.clone();
+    if label == "pbcopy" {
+        let effective = ["LC_ALL", "LC_CTYPE", "LANG"]
+            .iter()
+            .find_map(|key| env.get(*key).filter(|value| !value.is_empty()).cloned())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if !(effective.contains("utf-8") || effective.contains("utf8")) {
+            env.insert("LC_ALL".into(), "en_US.UTF-8".into());
+        }
+    }
+    env
+}
+
 fn run_tool(program: &Path, args: &[String], env: &EnvMap, input: &[u8]) -> Result<(), String> {
     let spawn = || {
         Command::new(program)
@@ -343,7 +361,7 @@ pub fn copy(text: &str, ctx: &CopyContext, out: &mut dyn Write) -> CopyReport {
         Some(tool) => match run_tool(
             &tool.program,
             &tool.args,
-            &ctx.env,
+            &native_env(&tool.label, &ctx.env),
             &native_input(&tool.label, text),
         ) {
             Ok(()) => native_ok = true,
@@ -522,6 +540,26 @@ pub fn plan_json(ctx: &CopyContext, plan: &Plan) -> Value {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn pbcopy_always_decodes_utf8() {
+        let env = |pairs: &[(&str, &str)]| -> EnvMap {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let bare = native_env("pbcopy", &env(&[("PATH", "/usr/bin")]));
+        assert_eq!(bare.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
+        let latin = native_env("pbcopy", &env(&[("LANG", "en_US.UTF-8"), ("LC_ALL", "C")]));
+        assert_eq!(latin.get("LC_ALL").map(String::as_str), Some("en_US.UTF-8"));
+        let utf8 = native_env("pbcopy", &env(&[("LANG", "zh_CN.UTF-8")]));
+        assert_eq!(utf8.get("LC_ALL"), None);
+        let ctype = native_env("pbcopy", &env(&[("LC_CTYPE", "UTF-8")]));
+        assert_eq!(ctype.get("LC_ALL"), None);
+        let other = native_env("xclip", &env(&[]));
+        assert_eq!(other.get("LC_ALL"), None);
+    }
+
     #[test]
     fn clip_exe_gets_utf16le_with_a_bom_and_others_get_utf8() {
         let text = "a中✓";

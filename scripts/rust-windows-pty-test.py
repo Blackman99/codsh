@@ -585,7 +585,9 @@ def main():
 
     def get_clipboard():
         return run(['powershell', '-NoProfile', '-Command',
-                    '[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw'], timeout=60).stdout
+                    # UTF-8 without a preamble, so a BOM in the result is the clipboard's own.
+                    '[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false; Get-Clipboard -Raw'],
+                   timeout=60).stdout
 
     def keys_history():
         console = Console('keys', cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}, output)
@@ -631,6 +633,7 @@ def main():
                 time.sleep(0.5)
             assert 'TOKEN_CLIP' in copied, f'/copy did not reach the clipboard: {copied!r}\n{console.visible()}'
             assert '中文剪贴' in copied, f'CJK was mangled on the way to clip.exe: {copied!r}'
+            assert not copied.startswith('\ufeff'), f'the byte-order mark reached the clipboard text: {copied[:40]!r}'
             # An image paste cannot be read here yet: Ctrl+V and an empty
             # bracketed paste must both say so, and attach nothing.
             console.write('\x16')
