@@ -138,6 +138,9 @@ jobs:
           node -p process.arch
           npm install -g --prefix "$RUNNER_TEMP/dsh-x64" --no-audit --no-fund "@deepseek-ai/dsh@$version"
           echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
+          # dsh's session lock is a native addon; show which build the x64 Node loads.
+          ls "$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/" | grep node-addon || true
+          (cd "$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh" && node --input-type=module -e "const m = await import('@deepseek-ai/node-addon-system/flock'); console.log('flock addon', Object.keys(m))") || true
       - name: Record the environment
         run: |
           mkdir -p evidence

@@ -220,8 +220,14 @@ api_backend = "chat_completions"
             return run([str(launcher), '--rust', *args], check=False, cwd=cwd, env=env or base_env, timeout=timeout)
 
         def dsh_log():
-            log = isolated / 'dsh' / 'acp-stderr.log'
-            return f'\n--- {log} (tail) ---\n' + '\n'.join(log.read_text(errors='replace').splitlines()[-60:]) if log.exists() else f'\n(no {log})'
+            # Every log dsh wrote under its home, newest last, for a failed first turn.
+            root = isolated / 'dsh'
+            logs = sorted((p for p in root.rglob('*') if p.is_file() and ('log' in p.name or p.suffix == '.log')),
+                          key=lambda p: p.stat().st_mtime) if root.exists() else []
+            if not logs:
+                return f'\n(no log under {root})'
+            return ''.join(f'\n--- {log} (tail) ---\n' + '\n'.join(log.read_text(errors='replace').splitlines()[-60:])
+                           for log in logs[-4:])
 
         def assert_refused(result, *needles):
             assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
@@ -253,7 +259,8 @@ api_backend = "chat_completions"
         assert 'INSTALL_TURN_1' in first.stdout, first.stdout
         assert 'updated' not in first.stderr and 'earlier version' not in first.stderr, first.stderr
         overlay = (isolated / 'dsh/rust-file-approval.yml').read_text()
-        assert f"file://{package}/bin/rust-acp-hooks.mjs" in overlay, overlay
+        # The launcher names its plugins by real path (/tmp is /private/tmp on macOS).
+        assert f"file://{package.resolve()}/bin/rust-acp-hooks.mjs" in overlay, overlay
         stamp = json.loads((isolated / 'codsh-version.json').read_text())
         assert stamp['lastVersion'] == version
         results['headless_turn'] = first.stdout.strip()
