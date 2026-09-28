@@ -181,9 +181,10 @@ class Session:
         while self.process.poll() is None:
             if time.monotonic() > deadline:
                 self.kill_group()
+                # Python < 3.12 allows no backslash inside an f-string expression.
+                unanswered = bytes(self.data).count(b'\x1b[6n') - self.cursor_replies
                 raise TimeoutError(
-                    f'{self.name}: quit hung after Ctrl+Q; unanswered CSI 6n queries='
-                    f'{bytes(self.data).count(b"\x1b[6n") - self.cursor_replies}'
+                    f'{self.name}: quit hung after Ctrl+Q; unanswered CSI 6n queries={unanswered}'
                 )
             self.pump(0.15)
         self.pump(0.2)
