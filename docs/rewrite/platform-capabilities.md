@@ -58,6 +58,14 @@ the registry dsh, records OS / terminal versions, and uploads
 - Ad-hoc signature only; no Developer ID or notarization.
 - Doctor can list microphones; opening the mic from this process is
   unverified (avfoundation / TCC). Recording uses `CODSH_VOICE_FIXTURE`.
+  The CI runner lists only virtual devices (Apple Virtual Sound Device,
+  Null Audio Device); that is a listing, not a recording.
+- A closed terminal window is detected without SIGHUP: macOS does not report
+  POLLHUP on the PTY slave, so stdin that stays readable with nothing pending
+  (FIONREAD 0) for three checks 200 ms apart counts as a hangup; the client
+  exits 129 and dsh ends with it.
+- `/copy` forces a UTF-8 locale for `pbcopy`; without one (LANG unset, as
+  under launchd or a bare CI shell) CJK reached the pasteboard as MacRoman.
 
 ### Windows
 

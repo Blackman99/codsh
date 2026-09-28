@@ -13,4 +13,7 @@ refused features are `refused` / `unavailable`, never a silent pass. Related:
 `docs/rewrite/platform-capabilities.md`, `scripts/rust-clipboard-pty-test.py`,
 `scripts/rust-tmux-pty-test.py`. Windows `/copy` sends UTF-16LE to `clip.exe`
 so CJK survives; an unreachable Linux display is no longer reported as an
-empty clipboard.
+empty clipboard. macOS `/copy` forces a UTF-8 locale for `pbcopy` so CJK is not
+turned into MacRoman, and a closed terminal window now ends the client on
+macOS too (stdin readable with nothing pending counts as a hangup when no
+POLLHUP arrives).
