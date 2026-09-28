@@ -284,6 +284,26 @@ fn restore_terminal() {
     let _ = io::stdout().flush();
 }
 
+/// Waits up to `idle` for a terminal event, returning early (false) as soon as
+/// `wake` reports other work: an answer dsh sent is painted within one slice
+/// instead of after the rest of an idle tick (#202).
+fn wait_for_input(idle: Duration, wake: impl Fn() -> bool) -> io::Result<bool> {
+    const SLICE: Duration = Duration::from_millis(8);
+    let deadline = Instant::now() + idle;
+    loop {
+        if wake() {
+            return Ok(false);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        if event::poll(remaining.min(SLICE))? {
+            return Ok(true);
+        }
+    }
+}
+
 fn open_terminal(mode: ScreenMode) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     let backend = CrosstermBackend::new(io::stdout());
     match mode {
@@ -10932,7 +10952,9 @@ fn run() -> io::Result<()> {
             }
             continue;
         }
-        if !event::poll(Duration::from_millis(80))? {
+        if !wait_for_input(Duration::from_millis(80), || {
+            client.as_ref().is_some_and(AcpClient::has_unread)
+        })? {
             continue;
         }
         match event::read()? {
