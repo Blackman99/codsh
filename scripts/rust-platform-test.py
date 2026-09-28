@@ -80,6 +80,8 @@ def environment():
         'libc': capture([NODE, '-p', "process.report.getReport().header.glibcVersionRuntime || 'not glibc'"]) if sys.platform == 'linux' else None,
         'term': os.environ.get('TERM'), 'term_program': os.environ.get('TERM_PROGRAM'),
         'toolchain_on_path': {tool: shutil.which(tool) for tool in ('cargo', 'rustc', 'rustup')},
+        # The install step's dsh: a registry install (CI) or the checkout's.
+        'install_dsh': os.environ.get('CODSH_INSTALL_TEST_DSH') or 'checkout node_modules',
         'ci': os.environ.get('GITHUB_ACTIONS') == 'true',
     }
     if sys.platform == 'linux':
