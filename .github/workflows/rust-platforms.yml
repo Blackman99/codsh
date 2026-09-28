@@ -65,6 +65,9 @@ jobs:
   macos-install:
     name: macOS install ${{ matrix.name }}
     needs: [native, package]
+    # Every platform on the integration branch; on a ci/** evidence branch
+    # only the platform its name carries (ci/198-macos-…), to spare runners.
+    if: github.ref_name == 'rewrite/grok-dsh-20260920' || contains(github.ref_name, 'macos')
     strategy:
       fail-fast: false
       matrix:
