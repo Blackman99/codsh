@@ -1,3 +1,4 @@
+use crate::Canonical;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Write};
@@ -1269,7 +1270,7 @@ impl AcpClient {
         if self.remote {
             return cwd.to_string_lossy().into_owned();
         }
-        cwd.canonicalize()
+        cwd.canonical()
             .unwrap_or_else(|_| cwd.to_path_buf())
             .to_string_lossy()
             .into_owned()
@@ -3396,7 +3397,7 @@ mod tests {
             .expect("current");
         let target = "closed-same-directory-target";
         let cwd = std::env::temp_dir()
-            .canonicalize()
+            .canonical()
             .unwrap_or_else(|_| std::env::temp_dir());
         let mut shared: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&store_path).unwrap_or_else(|_| "{\"sessions\":{}}".into()),

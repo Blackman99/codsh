@@ -1638,7 +1638,7 @@ fn push_file(
     if !path.is_file() || (respect_gitignore && gitignored_file(path)) {
         return;
     }
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let key = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !seen.insert(key) {
         return;
     }

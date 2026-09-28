@@ -2058,8 +2058,8 @@ fn forget_plugin_names(
 
 fn remove_dir_if_managed(path: &Path, install_dir: &Path) -> Result<(), PluginError> {
     let canonical_install =
-        fs::canonicalize(install_dir).unwrap_or_else(|_| install_dir.to_path_buf());
-    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        dunce::canonicalize(install_dir).unwrap_or_else(|_| install_dir.to_path_buf());
+    let canonical_path = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !canonical_path.starts_with(&canonical_install) {
         return Err(PluginError::fail(format!(
             "refusing to delete unmanaged path {}",
@@ -2706,8 +2706,8 @@ fn component_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
     let normalized =
         normalize_rel(trimmed).map_err(|_| "must stay inside the plugin".to_string())?;
     let candidate = root.join(normalized);
-    let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
-    if let Ok(canonical) = fs::canonicalize(&candidate)
+    let canonical_root = dunce::canonicalize(root).map_err(|error| error.to_string())?;
+    if let Ok(canonical) = dunce::canonicalize(&candidate)
         && !canonical.starts_with(&canonical_root)
     {
         return Err("escapes the plugin root".into());
@@ -4183,8 +4183,8 @@ fn fnv1a32(bytes: &[u8]) -> u32 {
 fn contained_join(root: &Path, rel: &str) -> Result<PathBuf, PluginError> {
     let normalized = normalize_rel(rel)?;
     let candidate = root.join(&normalized);
-    let canonical_root = fs::canonicalize(root).map_err(io_fail)?;
-    let canonical = fs::canonicalize(&candidate).unwrap_or(candidate.clone());
+    let canonical_root = dunce::canonicalize(root).map_err(io_fail)?;
+    let canonical = dunce::canonicalize(&candidate).unwrap_or(candidate.clone());
     if !canonical.starts_with(&canonical_root) {
         return Err(PluginError::fail(
             "marketplace path escapes marketplace root",
@@ -4420,6 +4420,7 @@ fn io_fail(error: io::Error) -> PluginError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Canonical;
     use tempfile::TempDir;
 
     fn ctx(dir: &TempDir) -> Context {
@@ -6521,7 +6522,7 @@ mod tests {
         // The checked-in extension (manifest and hooks; the build adds the command).
         let extensions = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../packages/cli/extensions")
-            .canonicalize()
+            .canonical()
             .unwrap();
         env.env.insert(
             BUNDLED_EXTENSIONS_ENV.into(),

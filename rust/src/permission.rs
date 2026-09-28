@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::Canonical;
 use crate::trust;
 use serde_json::{Value as JsonValue, json};
 use std::collections::HashSet;
@@ -1178,7 +1179,7 @@ fn inspect_path(path: &str, cwd: &Path) -> InspectedPath {
         cwd.join(path)
     };
     match abs.symlink_metadata() {
-        Ok(meta) if meta.file_type().is_symlink() => match abs.canonicalize() {
+        Ok(meta) if meta.file_type().is_symlink() => match abs.canonical() {
             Ok(resolved) => {
                 let mut forms = lexical;
                 let resolved_text = path_text(&resolved);
@@ -1216,7 +1217,7 @@ fn file_rule_applies(policy: &PermissionPolicy, tool: ToolFilter) -> bool {
 
 fn cwd_roots(cwd: &Path) -> Vec<PathBuf> {
     let mut roots = vec![normalize_lexically(cwd)];
-    if let Ok(real) = cwd.canonicalize() {
+    if let Ok(real) = cwd.canonical() {
         let real = normalize_lexically(&real);
         if !roots.contains(&real) {
             roots.push(real);

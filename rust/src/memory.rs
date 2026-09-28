@@ -7,6 +7,7 @@
 //! and rebuilt from those notes; a foreign SQLite file and a human note are
 //! never overwritten.
 
+use crate::Canonical;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
@@ -216,7 +217,7 @@ pub fn workspace_identity(cwd: &Path) -> String {
 }
 
 fn canonical_path(path: &Path) -> String {
-    fs::canonicalize(path)
+    dunce::canonicalize(path)
         .unwrap_or_else(|_| path.to_path_buf())
         .display()
         .to_string()
@@ -268,7 +269,7 @@ fn commondir(git_dir: &Path) -> Option<PathBuf> {
     } else {
         git_dir.join(raw)
     };
-    fs::canonicalize(&path).ok().or(Some(path))
+    dunce::canonicalize(&path).ok().or(Some(path))
 }
 
 fn origin_from_config(path: &Path) -> Option<String> {
@@ -626,10 +627,10 @@ pub fn forget_note(store: &Store, note: &NoteRef) -> Result<(), MemoryError> {
 }
 
 fn path_in_store(store: &Store, path: &Path) -> bool {
-    let Ok(root) = store.root.canonicalize() else {
+    let Ok(root) = store.root.canonical() else {
         return false;
     };
-    let Ok(target) = path.canonicalize() else {
+    let Ok(target) = path.canonical() else {
         return false;
     };
     target.starts_with(root)
