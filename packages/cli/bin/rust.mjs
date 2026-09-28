@@ -495,6 +495,13 @@ export async function launchRust(args) {
       'TMUX', 'TMUX_PANE', 'STY', 'ZELLIJ', 'BYOBU_BACKEND', 'BYOBU_CONFIG_DIR', 'BYOBU_TTY', 'BYOBU_SESSION', 'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'XAUTHORITY', 'container', 'TERM_PROGRAM_VERSION', 'LC_TERMINAL', 'LC_TERMINAL_VERSION', 'ITERM_SESSION_ID', 'KITTY_WINDOW_ID', 'GHOSTTY_RESOURCES_DIR', 'WEZTERM_PANE', 'WEZTERM_EXECUTABLE', 'ALACRITTY_WINDOW_ID', 'ALACRITTY_SOCKET', 'ZED_TERM', 'TERMINAL_EMULATOR', 'WT_SESSION', 'VTE_VERSION', 'CURSOR_TRACE_ID', 'GROK_COPY_FILE', 'GROK_CLIPBOARD_NO_OSC52', 'GROK_OSC52_SINK', 'LC_GROK_OSC52_SINK', 'GROK_EXIT_TIMEOUT_SECS']) {
       if (process.env[key] !== undefined) env[key] = process.env[key]
     }
+    // Windows (#200): temp dirs, the command interpreter and app data roots
+    // that Node, dsh and its shell children need there.
+    if (process.platform === 'win32') {
+      for (const key of ['TEMP', 'TMP', 'COMSPEC', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA', 'PROGRAMFILES', 'SYSTEMDRIVE']) {
+        if (process.env[key] !== undefined) env[key] = process.env[key]
+      }
+    }
     if (process.env.GROK_SANDBOX !== undefined) env.GROK_SANDBOX = process.env.GROK_SANDBOX
     for (const [key, value] of Object.entries(process.env)) {
       if (value !== undefined && (key === 'XAI_API_KEY' || key.endsWith('_API_KEY'))) env[key] = value

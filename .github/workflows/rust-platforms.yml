@@ -50,7 +50,7 @@ jobs:
       - name: Check the package a release would publish (dry run)
         run: |
           mkdir -p packed
-          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64,linux-arm64 --json | tee packed/package-check.json
+          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64,linux-arm64,win32-x64 --json | tee packed/package-check.json
       - name: Pack codsh-cli (not published)
         run: |
           (cd packages/cli && npm pack --ignore-scripts --pack-destination ../../packed)
@@ -342,5 +342,54 @@ jobs:
         if: always()
         with:
           name: linux-container-evidence-${{ strategy.job-index }}
+          path: evidence
+          if-no-files-found: warn
+
+  # Native Windows (#200): the packed product installed with npm on a runner
+  # without a Rust toolchain, driven through ConPTY (pywinpty) inside cmd.exe.
+  windows:
+    name: Windows ${{ matrix.os }}
+    needs: [native, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - run: python -m pip install pywinpty==2.0.15
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Remove the Rust toolchain
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup" -ErrorAction SilentlyContinue
+          foreach ($tool in 'cargo', 'rustc', 'rustup') {
+            if (Get-Command $tool -ErrorAction SilentlyContinue) { Write-Error "$tool still on PATH"; exit 1 }
+          }
+          "no cargo, rustc or rustup on PATH"
+      - name: Windows run through ConPTY
+        shell: pwsh
+        run: |
+          $package = (Get-ChildItem packed\codsh-cli-*.tgz | Select-Object -First 1).FullName
+          python scripts/rust-windows-pty-test.py --package $package --output "$PWD\evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-evidence-${{ matrix.os }}
           path: evidence
           if-no-files-found: warn
