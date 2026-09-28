@@ -219,6 +219,10 @@ api_backend = "chat_completions"
         def codsh(*args, env=None, timeout=90):
             return run([str(launcher), '--rust', *args], check=False, cwd=cwd, env=env or base_env, timeout=timeout)
 
+        def dsh_log():
+            log = isolated / 'dsh' / 'acp-stderr.log'
+            return f'\n--- {log} (tail) ---\n' + '\n'.join(log.read_text(errors='replace').splitlines()[-60:]) if log.exists() else f'\n(no {log})'
+
         def assert_refused(result, *needles):
             assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
             for needle in needles:
@@ -245,7 +249,7 @@ api_backend = "chat_completions"
 
         # 2. A headless turn through the launcher's own plugin overlay.
         first = codsh('-p', 'first installed turn')
-        assert first.returncode == 0, first.stdout + first.stderr
+        assert first.returncode == 0, first.stdout + first.stderr + dsh_log()
         assert 'INSTALL_TURN_1' in first.stdout, first.stdout
         assert 'updated' not in first.stderr and 'earlier version' not in first.stderr, first.stderr
         overlay = (isolated / 'dsh/rust-file-approval.yml').read_text()

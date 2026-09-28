@@ -122,12 +122,22 @@ jobs:
         if: matrix.rosetta
         run: |
           /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license
+          echo "CODSH_TEST_TOOL_NODE=$(node -p process.execPath)" >> "$GITHUB_ENV"
           version=$(node -p process.version)
           curl -fsSLO "https://nodejs.org/dist/$version/node-$version-darwin-x64.tar.gz"
           curl -fsSL "https://nodejs.org/dist/$version/SHASUMS256.txt" | grep " node-$version-darwin-x64.tar.gz\$" | shasum -a 256 -c -
           mkdir -p "$RUNNER_TEMP/node-x64"
           tar -C "$RUNNER_TEMP/node-x64" --strip-components=1 -xzf "node-$version-darwin-x64.tar.gz"
           echo "$RUNNER_TEMP/node-x64/bin" >> "$GITHUB_PATH"
+      - name: dsh for the x64 Node, from the registry
+        if: matrix.rosetta
+        # The checkout's dependencies were installed for arm64 (dsh loads
+        # per-platform addons); someone on an x64 Node installs dsh with it.
+        run: |
+          version=$(node -p "require('./node_modules/@deepseek-ai/dsh/package.json').version")
+          node -p process.arch
+          npm install -g --prefix "$RUNNER_TEMP/dsh-x64" --no-audit --no-fund "@deepseek-ai/dsh@$version"
+          echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
       - name: Record the environment
         run: |
           mkdir -p evidence

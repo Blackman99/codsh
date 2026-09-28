@@ -16,6 +16,9 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = subprocess.check_output(['node', '-p', 'process.execPath'], text=True).strip()
+# The terminal emulator is a test tool, not the product: under Rosetta the
+# product runs on an x64 Node while the checkout's tools were installed for arm64.
+TOOL_NODE = os.environ.get('CODSH_TEST_TOOL_NODE') or NODE
 SESSION_RE = __import__('re').compile(r'session ([0-9a-f-]{8,})')
 
 
@@ -37,7 +40,7 @@ def overlay_text():
 def emulate(data, rows, cols):
     emulator = ROOT / 'e2e/vt.ts'
     payload = json.dumps({'rows': rows, 'cols': cols, 'bytes': __import__('base64').b64encode(data).decode()})
-    raw = run([NODE, '--import', 'tsx', '-e',
+    raw = run([TOOL_NODE, '--import', 'tsx', '-e',
                f"import {{ Terminal }} from {json.dumps(emulator.as_uri())}; "
                "let input=''; for await (const chunk of process.stdin) input+=chunk; "
                "const spec=JSON.parse(input); const t=new Terminal(spec.rows,spec.cols); "
