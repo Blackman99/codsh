@@ -64,8 +64,8 @@ def serve():
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required')
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY evidence required; Windows uses scripts/rust-windows-pty-test.py')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-voice-', dir='/tmp'))
     server = serve()
     host, port = server.server_address

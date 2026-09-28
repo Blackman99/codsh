@@ -461,11 +461,12 @@ jobs:
 
   capability-matrix:
     # Three-platform capability matrix (#201). Records OS/terminal versions and
-    # runs the installed-product checks that prove keys, cancel, sandbox,
-    # terminal restore, clipboard/voice honesty and Windows ConPTY. Missing
-    # devices and refused features are recorded as refused/unavailable, never
-    # as a silent pass. Runs on the integration branch and on branches whose
-    # name contains "matrix".
+    # runs the installed-product checks: keys, mouse, shell, cancel, screen
+    # modes, terminal restore, the real clipboard (pasteboard / X11 under
+    # xvfb / Windows), voice doctor without fixtures, sandbox profiles, SSH,
+    # real tmux and the Windows ConPTY harness. Missing devices and refused
+    # features are recorded as refused/unavailable, never as a silent pass.
+    # Runs on the integration branch and on branches whose name has "matrix".
     name: Capability matrix (${{ matrix.name }})
     needs: [native, package]
     if: github.ref == 'refs/heads/rewrite/grok-dsh-20260920' || contains(github.ref_name, 'matrix')
@@ -483,22 +484,50 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           name: codsh-cli-package
           path: packed
-      - name: Install the packed product with the registry dsh
+      - name: Stage the natives a release would carry
+        shell: bash
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Terminal tools (tmux, X11 clipboard, OpenSSH)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux xclip xvfb openssh-server openssh-client >/dev/null
+          tmux -V; xclip -version 2>&1 | head -1; /usr/sbin/sshd -V 2>&1 | head -1 || true
+      - name: Terminal tools (tmux)
+        if: runner.os == 'macOS'
+        run: |
+          command -v tmux || brew install tmux
+          tmux -V
+      - name: Install the packed product with the registry dsh, as a user does
         shell: bash
         run: |
           tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
           prefix="$RUNNER_TEMP/matrix-prefix"
           npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
-          echo "MATRIX_PREFIX=$prefix" >> "$GITHUB_ENV"
-          echo "PATH=$prefix/bin:$PATH" >> "$GITHUB_ENV"
-          if [ "${{ runner.os }}" = "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ]; then
             echo "CODSH_MATRIX_LAUNCHER=$prefix/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
           else
             echo "CODSH_MATRIX_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
@@ -511,19 +540,15 @@ jobs:
           New-Item -ItemType Directory -Force evidence | Out-Null
           python scripts/rust-windows-pty-test.py --package (Get-ChildItem packed/codsh-cli-*.tgz).FullName --output "$PWD\evidence"
       - name: Capability matrix
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
-          python3 -m pip install --quiet 'pyte==0.8.2' || python -m pip install --quiet 'pyte==0.8.2'
           mkdir -p evidence
-          # Stage the native binary from the installed package so sandbox probes find it.
-          key=$(node -p "process.platform + '-' + (process.arch === 'x64' ? 'x64' : process.arch)")
-          mkdir -p "packages/cli/native/$key"
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp -R "$MATRIX_PREFIX/node_modules/codsh-cli/native/$key/." "packages/cli/native/$key/" || true
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python scripts/rust-capability-matrix.py --output "$PWD/evidence"
           else
-            cp -R "$MATRIX_PREFIX/lib/node_modules/codsh-cli/native/$key/." "packages/cli/native/$key/" || true
+            python scripts/rust-capability-matrix.py --output "$PWD/evidence"
           fi
-          python3 scripts/rust-capability-matrix.py --output "$PWD/evidence" || python scripts/rust-capability-matrix.py --output "$PWD/evidence"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

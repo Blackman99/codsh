@@ -6,17 +6,15 @@ prove what this platform can and cannot do. A green cell is never invented:
 missing devices, missing privileges and refused features are recorded as
 `refused` or `unavailable` with the exact message, never as a silent pass.
 
-Rows cover: keys (CJK + Alt-code where applicable), mouse (PTY harness),
-clipboard text (fake helper or OSC 52), clipboard image (honest refusal on
-Windows / empty paste), microphone authorization (fixture with no device),
-process cancel, sandbox profiles, terminal restore, wrap / tmux / SSH where
-the platform supports them, and the Windows-specific notes from #200.
+Rows: keys (prompt PTY), mouse (nav), shell, cancel, screen modes, terminal
+restore / hangup / early-quit, clipboard (real pasteboard / X11 / Windows),
+voice doctor without fixtures, sandbox profiles, remote SSH, real tmux, and
+the Windows ConPTY harness (including the #200 notes).
 
 Usage (after packing or with CODSH_MATRIX_LAUNCHER pointing at an install):
     python3 scripts/rust-capability-matrix.py --output DIR
 """
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -29,13 +27,6 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = shutil.which('node') or subprocess.check_output(['node', '-p', 'process.execPath'], text=True).strip()
-
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def capture(argv, timeout=20):
@@ -56,8 +47,10 @@ def environment():
         'term_program': os.environ.get('TERM_PROGRAM'),
         'tmux': bool(shutil.which('tmux')),
         'ssh': bool(shutil.which('ssh')),
+        'sshd': bool(shutil.which('sshd') or Path('/usr/sbin/sshd').is_file()),
         'ci': os.environ.get('GITHUB_ACTIONS') == 'true',
         'runner': os.environ.get('RUNNER_NAME') or os.environ.get('ImageOS'),
+        'matrix_launcher': os.environ.get('CODSH_MATRIX_LAUNCHER'),
     }
     if sys.platform == 'linux':
         release = Path('/etc/os-release')
@@ -68,6 +61,8 @@ def environment():
         info['bwrap'] = bool(shutil.which('bwrap'))
         info['xclip'] = bool(shutil.which('xclip'))
         info['wl_copy'] = bool(shutil.which('wl-copy'))
+        info['display'] = os.environ.get('DISPLAY')
+        info['xauthority'] = bool(os.environ.get('XAUTHORITY'))
     elif sys.platform == 'darwin':
         info['os'] = f"macOS {capture(['sw_vers', '-productVersion'])} ({capture(['sw_vers', '-buildVersion'])})"
         info['rosetta'] = capture(['sysctl', '-in', 'sysctl.proc_translated']) == '1'
@@ -87,10 +82,11 @@ def cell(status, detail=None, seconds=None):
     return row
 
 
-def run_script(script, env=None, timeout=1800):
+def run_script(script, env=None, timeout=1800, argv=None):
     started = time.monotonic()
+    cmd = [sys.executable, str(ROOT / 'scripts' / script), *(argv or [])]
     result = subprocess.run(
-        [sys.executable, str(ROOT / 'scripts' / script)],
+        cmd,
         cwd=ROOT,
         env={**os.environ, **(env or {})},
         capture_output=True,
@@ -98,42 +94,9 @@ def run_script(script, env=None, timeout=1800):
         timeout=timeout,
     )
     seconds = time.monotonic() - started
-    tail = (result.stdout + result.stderr).strip().splitlines()[-8:]
-    return result.returncode, seconds, tail
-
-
-def voice_no_device(output):
-    """Doctor with an empty device list must say no microphone, not pass."""
-    started = time.monotonic()
-    env = {
-        **os.environ,
-        'CODSH_VOICE_DEVICES': '',  # empty → voice.no-input-device
-        'HOME': str(output / 'voice-home'),
-    }
-    (output / 'voice-home').mkdir(parents=True, exist_ok=True)
-    # Drive /voice doctor through the packed launcher when available; otherwise
-    # call the unit path via a tiny Node/Python harness is too heavy — use the
-    # PTY voice test's doctor path when the platform allows, else the binary.
-    binary = native_binary()
-    if binary is None:
-        return cell('unavailable', 'no native binary for voice doctor', time.monotonic() - started)
-    # Headless: codsh-rust --help does not expose doctor; use the voice module
-    # via a one-shot that the voice PTY already covers on macOS/Linux.
-    code, seconds, tail = run_script('rust-voice-pty-test.py', env={
-        'CODSH_VOICE_DEVICES': '[]',
-    }, timeout=600)
-    # The voice PTY is macOS-gated in the script; on Linux we still want the
-    # honest finding. Probe via a tiny Rust/Node bridge is overkill: record
-    # what the platform script said.
-    text = '\n'.join(tail)
-    if 'macOS PTY evidence required' in text:
-        # Direct diagnose via a small Python binding is unavailable; document.
-        return cell('unavailable', 'voice PTY harness is macOS-gated; Linux/Windows voice.platform-unverified is the documented finding in voice.rs', seconds)
-    if code == 0 and ('no microphone' in text.lower() or 'no-input-device' in text or 'voice pty ok' in text.lower()):
-        return cell('ok', {'tail': tail, 'note': 'fixture path; authorization honesty covered by CODSH_VOICE_DEVICES'}, seconds)
-    if code == 0:
-        return cell('ok', {'tail': tail}, seconds)
-    return cell('fail', {'exit': code, 'tail': tail}, seconds)
+    combined = (result.stdout + result.stderr).strip()
+    tail = combined.splitlines()[-12:]
+    return result.returncode, seconds, tail, combined
 
 
 def native_binary():
@@ -144,12 +107,134 @@ def native_binary():
     }.get(sys.platform)
     if not key:
         return None
-    staged = ROOT / 'packages/cli/native' / key / ('codsh-rust.exe' if sys.platform == 'win32' else 'codsh-rust')
-    debug = ROOT / 'rust/target/debug' / ('codsh-rust.exe' if sys.platform == 'win32' else 'codsh-rust')
-    for candidate in (staged, debug):
+    name = 'codsh-rust.exe' if sys.platform == 'win32' else 'codsh-rust'
+    for candidate in (
+        ROOT / 'packages/cli/native' / key / name,
+        ROOT / 'rust/target/debug' / name,
+        ROOT / 'rust/target/release' / name,
+    ):
         if candidate.is_file():
             return candidate
     return None
+
+
+def classify_script(code, seconds, tail, combined, *, ok_markers=(), unavailable_markers=(), refused_markers=()):
+    text = combined or '\n'.join(tail)
+    lower = text.lower()
+    for marker in unavailable_markers:
+        if marker.lower() in lower:
+            return cell('unavailable', {'tail': tail, 'marker': marker}, seconds)
+    for marker in refused_markers:
+        if marker.lower() in lower:
+            return cell('refused', {'tail': tail, 'marker': marker}, seconds)
+    if code == 0 and (not ok_markers or any(m.lower() in lower for m in ok_markers)):
+        return cell('ok', {'tail': tail}, seconds)
+    return cell('fail', {'exit': code, 'tail': tail}, seconds)
+
+
+def keys_prompt(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows keys covered by ConPTY harness (editing/history)')
+    code, seconds, tail, combined = run_script('rust-prompt-pty-test.py', timeout=1200)
+    return classify_script(code, seconds, tail, combined, ok_markers=('PASS: rust prompt-edit',))
+
+
+def mouse_nav(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows mouse covered by ConPTY harness')
+    code, seconds, tail, combined = run_script('rust-nav-pty-test.py', timeout=900)
+    return classify_script(code, seconds, tail, combined)
+
+
+def shell_tools(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows shell covered by ConPTY harness (pwsh)')
+    code, seconds, tail, combined = run_script('rust-shell-pty-test.py', timeout=900)
+    return classify_script(code, seconds, tail, combined, ok_markers=('PASS: rust dsh shell',))
+
+
+def cancel_turn(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows cancel covered by ConPTY harness')
+    code, seconds, tail, combined = run_script('rust-cancel-pty-test.py', timeout=900)
+    return classify_script(code, seconds, tail, combined, ok_markers=('PASS: rust dsh cancel',))
+
+
+def screen_modes(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows screen modes covered by ConPTY harness')
+    code, seconds, tail, combined = run_script('rust-screen-pty-test.py', timeout=1200)
+    return classify_script(code, seconds, tail, combined)
+
+
+def terminal_suite(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Unix PTY harness; Windows uses ConPTY scripts/rust-windows-pty-test.py')
+    code, seconds, tail, combined = run_script('rust-terminal-pty-test.py', timeout=1200)
+    return classify_script(code, seconds, tail, combined)
+
+
+def clipboard_real(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'Windows clipboard covered by ConPTY harness (/copy + empty paste notice)')
+    code, seconds, tail, combined = run_script('rust-clipboard-pty-test.py', timeout=900)
+    text = combined.lower()
+    if 'unavailable:' in text:
+        reason = next((line for line in (combined or '').splitlines() if line.startswith('UNAVAILABLE:')), 'unavailable')
+        return cell('unavailable', reason, seconds)
+    return classify_script(code, seconds, tail, combined, ok_markers=('PASS: rust real clipboard',))
+
+
+def voice_doctor(output):
+    """Doctor without CODSH_VOICE_DEVICES: never invent a microphone."""
+    started = time.monotonic()
+    binary = native_binary()
+    launcher = os.environ.get('CODSH_MATRIX_LAUNCHER')
+    env = {**os.environ}
+    env.pop('CODSH_VOICE_DEVICES', None)
+    env.pop('CODSH_VOICE_FIXTURE', None)
+    home = output / 'voice-home'
+    home.mkdir(parents=True, exist_ok=True)
+    env['HOME'] = str(home)
+    if launcher:
+        argv = [NODE, launcher, '--rust', 'voice', 'doctor', '--json']
+    elif binary:
+        argv = [str(binary), 'voice', 'doctor', '--json']
+    else:
+        return cell('unavailable', 'no launcher or native binary for voice doctor', time.monotonic() - started)
+    try:
+        result = subprocess.run(argv, cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        return cell('fail', {'error': str(error)}, time.monotonic() - started)
+    seconds = time.monotonic() - started
+    try:
+        report = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return cell('fail', {'exit': result.returncode, 'stdout': result.stdout[-800:], 'stderr': result.stderr[-800:]}, seconds)
+    finding = report.get('finding')
+    devices = report.get('devices') or []
+    if finding in ('voice.platform-unverified', 'voice.no-input-device', 'voice.permission-denied'):
+        # Honest outcomes: platform unverified, no mic, or denied. Never a pass.
+        return cell('refused' if finding == 'voice.permission-denied' else 'unavailable', {
+            'finding': finding,
+            'platform': report.get('platform'),
+            'supported': report.get('supported'),
+            'devices': len(devices),
+            'evidence': report.get('evidence'),
+            'nextSteps': report.get('nextSteps'),
+        }, seconds)
+    if finding is None and devices and report.get('supported'):
+        # A real device list is fine; recording itself stays unverified on macOS.
+        return cell('ok', {
+            'finding': None,
+            'platform': report.get('platform'),
+            'devices': [d.get('name') if isinstance(d, dict) else d for d in devices[:5]],
+            'permission': report.get('permission'),
+            'note': 'listing only; live capture remains unverified (CODSH_VOICE_FIXTURE path)',
+        }, seconds)
+    if finding is None and not devices:
+        return cell('fail', {'error': 'doctor reported no finding and no devices', 'report': report}, seconds)
+    return cell('fail', {'report': report}, seconds)
 
 
 def sandbox_profiles(output):
@@ -159,23 +244,22 @@ def sandbox_profiles(output):
     binary = native_binary()
     if binary is None:
         return cell('unavailable', 'no native binary', time.monotonic() - started)
-    # A quick refuse/accept probe: workspace profile must start; a bad glob must refuse.
     work = Path(tempfile.mkdtemp(prefix='codsh-matrix-sandbox-', dir=str(output)))
     try:
         home = work / 'home'
         home.mkdir()
-        grok = home / '.grok'; dsh = home / 'dsh'
+        grok = home / '.grok'
+        dsh = home / 'dsh'
         env = {**os.environ, 'HOME': str(home), 'GROK_HOME': str(grok), 'DSH_HOME': str(dsh)}
-        grok.mkdir(parents=True); dsh.mkdir(parents=True)
+        grok.mkdir(parents=True)
+        dsh.mkdir(parents=True)
         report = work / 'report.json'
-        # Start and quit immediately under --sandbox off (always allowed).
         off = subprocess.run(
             [str(binary), '--sandbox', 'off', '--version'],
             env=env, capture_output=True, text=True, timeout=30,
         )
         if off.returncode != 0:
-            return cell('fail', {'off': off.stderr[-500:]}, time.monotonic() - started)
-        # Unsupported glob must refuse before any policy (Linux and macOS).
+            return cell('fail', {'off': (off.stderr or off.stdout)[-500:]}, time.monotonic() - started)
         bad = grok / 'sandbox.toml'
         bad.write_text('[profiles.bad]\nextends = "workspace"\ndeny = ["**.pem"]\n')
         refused = subprocess.run(
@@ -186,11 +270,9 @@ def sandbox_profiles(output):
         if refused.returncode == 0:
             return cell('fail', {'unexpected': 'bad glob was accepted', 'msg': msg}, time.monotonic() - started)
         detail = {'refused_bad_glob': msg[-400:], 'off_ok': True}
-        # A workspace profile with no exotic globs must start and confine a probe
-        # child: outside write denied, workspace write allowed.
         probe = work / 'probe.py'
         probe.write_text(
-            "import os,sys\n"
+            "import os\n"
             "outside=os.environ['MATRIX_OUTSIDE']; workspace=os.environ['MATRIX_WORKSPACE']\n"
             "results={}\n"
             "try:\n"
@@ -203,8 +285,10 @@ def sandbox_profiles(output):
             "  results['workspace_write']=f'denied:{e.errno}'\n"
             "print(results)\n"
         )
-        ws = work / 'workspace'; ws.mkdir(exist_ok=True)
-        outside = work / 'outside'; outside.mkdir(exist_ok=True)
+        ws = work / 'workspace'
+        ws.mkdir(exist_ok=True)
+        outside = work / 'outside'
+        outside.mkdir(exist_ok=True)
         bad.unlink(missing_ok=True)
         bad.write_text('[profiles.matrix]\nextends = "workspace"\n')
         env2 = {**env, 'MATRIX_OUTSIDE': str(outside), 'MATRIX_WORKSPACE': str(ws)}
@@ -220,95 +304,63 @@ def sandbox_profiles(output):
                 'A plain workspace profile is probed here; exotic deny globs and the known bubblewrap gap stay documented.'
             )
         if confined.returncode != 0 and 'refusing sandbox' in (confined.stderr + confined.stdout):
-            # Platform cannot enforce this profile: honest refusal, not a fail.
             return cell('refused', detail, time.monotonic() - started)
         if confined.returncode != 0:
             return cell('fail', detail, time.monotonic() - started)
-        if "outside_write']='allowed'" in detail['workspace_probe_out'] or "outside_write': 'allowed'" in detail['workspace_probe_out']:
+        out = detail['workspace_probe_out']
+        if "outside_write']='allowed'" in out or "outside_write': 'allowed'" in out:
             return cell('fail', {**detail, 'error': 'outside write was allowed under workspace profile'}, time.monotonic() - started)
         return cell('ok', detail, time.monotonic() - started)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def terminal_suite(output):
-    """wrap / doctor / hangup / early-quit / early-keys on Unix."""
+def remote_ssh(output):
     if sys.platform == 'win32':
-        return cell('unavailable', 'Unix PTY harness; Windows uses ConPTY scripts/rust-windows-pty-test.py')
-    # Temporarily allow Linux for scripts that still gate on darwin where the
-    # checks themselves are portable (terminal-pty already allows linux).
-    code, seconds, tail = run_script('rust-terminal-pty-test.py', timeout=1200)
-    text = '\n'.join(tail)
-    if code == 0:
-        return cell('ok', {'tail': tail}, seconds)
-    return cell('fail', {'exit': code, 'tail': tail}, seconds)
+        return cell('refused', 'shared server, --remote and wrap are not available on Windows')
+    if not shutil.which('ssh') or not (shutil.which('sshd') or Path('/usr/sbin/sshd').is_file()):
+        return cell('unavailable', 'no local ssh/sshd for the loopback remote PTY harness')
+    code, seconds, tail, combined = run_script('rust-remote-pty-test.py', timeout=1200)
+    if 'SKIP' in combined and 'OpenSSH' in combined:
+        return cell('unavailable', {'tail': tail}, seconds)
+    return classify_script(code, seconds, tail, combined)
+
+
+def tmux_real(output):
+    if sys.platform == 'win32':
+        return cell('unavailable', 'tmux scenario is Unix-only')
+    if not shutil.which('tmux'):
+        return cell('unavailable', 'tmux is not installed')
+    code, seconds, tail, combined = run_script('rust-tmux-pty-test.py', timeout=900)
+    text = combined.lower()
+    if 'unavailable:' in text:
+        reason = next((line for line in combined.splitlines() if line.startswith('UNAVAILABLE:')), 'unavailable')
+        return cell('unavailable', reason, seconds)
+    return classify_script(code, seconds, tail, combined, ok_markers=('PASS: rust tmux',))
 
 
 def windows_conpty(output):
     if sys.platform != 'win32':
         return cell('unavailable', 'Windows ConPTY only')
-    # The workflow may already have run rust-windows-pty-test.py into --output.
     report = output / 'windows-report.json'
     if report.is_file():
         payload = json.loads(report.read_text(encoding='utf-8'))
-        return cell('ok' if payload.get('ok') else 'fail', {'report': str(report), 'steps': [
-            {'name': s.get('name'), 'ok': s.get('ok')} for s in payload.get('steps', [])
-        ]})
+        return cell('ok' if payload.get('ok') else 'fail', {
+            'report': str(report),
+            'steps': [{'name': s.get('name'), 'ok': s.get('ok')} for s in payload.get('steps', [])],
+        })
     package = os.environ.get('CODSH_MATRIX_PACKAGE')
     if not package:
         packed = list((ROOT / 'packed').glob('codsh-cli-*.tgz')) if (ROOT / 'packed').is_dir() else []
         package = str(packed[0]) if packed else None
     if not package:
         return cell('unavailable', 'no packed codsh-cli tarball for the ConPTY harness')
-    started = time.monotonic()
-    result = subprocess.run(
-        [sys.executable, str(ROOT / 'scripts/rust-windows-pty-test.py'), '--package', package, '--output', str(output)],
-        cwd=ROOT, capture_output=True, text=True, timeout=2400,
+    code, seconds, tail, combined = run_script(
+        'rust-windows-pty-test.py',
+        argv=['--package', package, '--output', str(output)],
+        timeout=2400,
     )
-    seconds = time.monotonic() - started
-    tail = (result.stdout + result.stderr).strip().splitlines()[-12:]
-    return cell('ok' if result.returncode == 0 else 'fail', {'exit': result.returncode, 'tail': tail}, seconds)
-
-
-def platform_flows(output):
-    if sys.platform == 'win32':
-        return cell('unavailable', 'covered by windows ConPTY matrix row')
-    code, seconds, tail = run_script('rust-platform-test.py', env={
-        # Reuse install-check + turn + approval + cancel + resume when the
-        # packed product is available; otherwise the step records failure.
-    }, timeout=2400)
-    # Prefer a lighter subset when packing is expensive: turn/cancel only via direct scripts.
-    if code != 0 and any('macOS PTY' in line or 'No package' in line or 'npm pack' in line for line in tail):
-        results = {}
-        for name, script in (('turn', 'rust-turn-pty-test.py'), ('approval', 'rust-permission-pty-test.py'),
-                             ('cancel', 'rust-cancel-pty-test.py'), ('resume', 'rust-resume-pty-test.py')):
-            c, s, t = run_script(script, timeout=900)
-            results[name] = cell('ok' if c == 0 else 'fail', {'tail': t}, s)
-        ok = all(r['status'] == 'ok' for r in results.values())
-        return cell('ok' if ok else 'fail', results, seconds)
-    return cell('ok' if code == 0 else 'fail', {'tail': tail}, seconds)
-
-
-def clipboard_image_honesty(output):
-    """Empty paste / image paste must not pretend success on Windows."""
-    if sys.platform == 'win32':
-        return cell('refused', 'clipboard image paste is not available on Windows in this client yet; nothing was attached')
-    if sys.platform == 'linux':
-        return cell('unavailable', 'Linux image clipboard read is not wired (empty paste is Ignore); text clipboard covered by wrap/xclip fake in terminal-pty')
-    # macOS: the image PTY covers real pasteboard when CODSH_CLIPBOARD_IMAGE is set.
-    return cell('ok', 'macOS empty-paste reads the pasteboard; CODSH_CLIPBOARD_IMAGE fixture used in rust-image-pty-test.py')
-
-
-def remote_ssh(output):
-    if sys.platform == 'win32':
-        return cell('refused', 'shared server, --remote and wrap are not available on Windows')
-    if not shutil.which('ssh') or not shutil.which('sshd'):
-        return cell('unavailable', 'no local ssh/sshd for the loopback remote PTY harness')
-    code, seconds, tail = run_script('rust-remote-pty-test.py', timeout=1200)
-    text = '\n'.join(tail)
-    if 'macOS PTY evidence required' in text:
-        return cell('unavailable', 'remote PTY script still gated; Linux is allowed in the script preamble — check gate', seconds)
-    return cell('ok' if code == 0 else 'fail', {'tail': tail}, seconds)
+    return cell('ok' if code == 0 else 'fail', {'exit': code, 'tail': tail}, seconds)
 
 
 def main():
@@ -324,12 +376,17 @@ def main():
         'notes': [],
     }
     checks = [
+        ('keys_prompt', keys_prompt),
+        ('mouse_nav', mouse_nav),
+        ('shell_tools', shell_tools),
+        ('cancel_turn', cancel_turn),
+        ('screen_modes', screen_modes),
         ('terminal_restore_hangup_early_quit', terminal_suite),
+        ('clipboard_real', clipboard_real),
+        ('voice_doctor', voice_doctor),
         ('sandbox_profiles', sandbox_profiles),
-        ('clipboard_image', clipboard_image_honesty),
-        ('voice_no_device', voice_no_device),
-        ('first_phase_flows', platform_flows),
         ('remote_ssh', remote_ssh),
+        ('tmux_real', tmux_real),
         ('windows_conpty', windows_conpty),
     ]
     for name, fn in checks:
@@ -337,33 +394,36 @@ def main():
         try:
             report['cells'][name] = fn(output)
         except Exception as error:  # noqa: BLE001
-            report['cells'][name] = cell('fail', {'error': str(error)[:2000]})
+            report['cells'][name] = cell('fail', {'error': f'{type(error).__name__}: {error}'[:2000]})
         status = report['cells'][name]['status']
-        print(f'{status.upper()} {name} {json.dumps(report["cells"][name], ensure_ascii=False)[:300]}', flush=True)
+        print(f'{status.upper()} {name} {json.dumps(report["cells"][name], ensure_ascii=False)[:400]}', flush=True)
         print('::endgroup::', flush=True)
-    # Platform-wide notes that must appear even when a cell is ok.
     if sys.platform == 'win32':
         report['notes'].extend([
             'dsh 0.1.5-rc.3 Windows ACL sandbox (workspace-write by default) cannot enter a workspace inside %USERPROFILE%; keep projects outside the profile or set dsh sandbox yourself.',
             'npm update fails with EBUSY while codsh-rust.exe is still running; close the client first.',
             'No win32-arm64 prebuild; no Windows Terminal / conhost / VS Code driving in CI (ConPTY harness only).',
+            'codsh sandbox profiles are refused on Windows; shared server, --remote and wrap are unavailable.',
         ])
     if sys.platform == 'linux':
         report['notes'].extend([
             'bubblewrap workspace-profile gap: filesystem_sandbox unit tests document the known Linux limit; matrix records refuse messages for unsupported globs.',
-            'Real GNOME Terminal / wl-copy / xclip against a display server are not driven in CI.',
+            'Empty bracketed paste on Linux matches the reference (Ignore); Ctrl+V reads the image clipboard via xclip/wl-paste when a display is reachable.',
+            'Real GNOME Terminal against a desktop session is not driven in CI; X11 is exercised under xvfb-run when available.',
+            'voice.platform-unverified: Linux capture is not exercised; doctor must not invent a microphone.',
         ])
     if sys.platform == 'darwin':
         report['notes'].extend([
             'Ad-hoc signature only; no Developer ID or notarization.',
             'Microphone capture from this process is unverified (avfoundation / TCC); doctor lists devices, recording uses CODSH_VOICE_FIXTURE.',
         ])
-    # A matrix run is green when every cell is ok, refused, or unavailable —
-    # never when any cell is fail. Refused/unavailable are honest outcomes.
     report['ok'] = all(c['status'] in ('ok', 'refused', 'unavailable') for c in report['cells'].values())
     (output / 'capability-matrix.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(json.dumps({'ok': report['ok'], 'environment': report['environment'],
-                      'summary': {k: v['status'] for k, v in report['cells'].items()}}, indent=2))
+    print(json.dumps({
+        'ok': report['ok'],
+        'environment': report['environment'],
+        'summary': {k: v['status'] for k, v in report['cells'].items()},
+    }, indent=2))
     sys.exit(0 if report['ok'] else 1)
 
 

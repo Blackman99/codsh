@@ -253,6 +253,20 @@ pub fn osc52_sequence(text: &str) -> String {
     )
 }
 
+/// Bytes for the native helper's stdin. clip.exe reads plain bytes in the
+/// console's OEM code page, so UTF-8 CJK arrives as mojibake; UTF-16LE with a
+/// byte-order mark is the form it takes as Unicode.
+fn native_input(label: &str, text: &str) -> Vec<u8> {
+    if label.eq_ignore_ascii_case("clip.exe") || label.eq_ignore_ascii_case("clip") {
+        let mut bytes = vec![0xFF, 0xFE];
+        for unit in text.encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        return bytes;
+    }
+    text.as_bytes().to_vec()
+}
+
 fn run_tool(program: &Path, args: &[String], env: &EnvMap, input: &[u8]) -> Result<(), String> {
     let spawn = || {
         Command::new(program)
@@ -326,7 +340,12 @@ pub fn copy(text: &str, ctx: &CopyContext, out: &mut dyn Write) -> CopyReport {
     let mut failures = Vec::new();
     let mut native_ok = false;
     match &plan.native {
-        Some(tool) => match run_tool(&tool.program, &tool.args, &ctx.env, text.as_bytes()) {
+        Some(tool) => match run_tool(
+            &tool.program,
+            &tool.args,
+            &ctx.env,
+            &native_input(&tool.label, text),
+        ) {
             Ok(()) => native_ok = true,
             Err(error) => failures.push(format!("native: {error}")),
         },
@@ -503,6 +522,21 @@ pub fn plan_json(ctx: &CopyContext, plan: &Plan) -> Value {
 
 #[cfg(all(test, unix))]
 mod tests {
+    #[test]
+    fn clip_exe_gets_utf16le_with_a_bom_and_others_get_utf8() {
+        let text = "a中✓";
+        assert_eq!(native_input("pbcopy", text), text.as_bytes());
+        assert_eq!(native_input("xclip", text), text.as_bytes());
+        let bytes = native_input("clip.exe", text);
+        assert_eq!(&bytes[..2], &[0xFF, 0xFE]);
+        let units: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        assert_eq!(String::from_utf16(&units).unwrap(), text);
+        assert_eq!(&native_input("clip", "x")[..], &[0xFF, 0xFE, b'x', 0]);
+    }
+
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
