@@ -19,7 +19,15 @@ screen_spec = importlib.util.spec_from_file_location(
 screen = importlib.util.module_from_spec(screen_spec)
 screen_spec.loader.exec_module(screen)
 NODE = resume.NODE
-Session = screen.Session
+
+
+def Session(*args, **kwargs):
+    # Wide enough that the echoed answer never wraps; a hard wrap splits CJK
+    # mid-token and the join below cannot tell it from a word wrap.
+    kwargs.setdefault('cols', 140)
+    return screen.Session(*args, **kwargs)
+
+
 dsh_bin = resume.dsh_bin
 overlay_text = resume.overlay_text
 run = resume.run
@@ -109,8 +117,8 @@ def write_editor(path, body):
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required')
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY evidence required; Windows uses scripts/rust-windows-pty-test.py')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-prompt-', dir='/tmp'))
     dsh = dsh_bin()
     overlay = overlay_text()

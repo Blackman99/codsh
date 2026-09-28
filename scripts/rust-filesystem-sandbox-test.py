@@ -41,7 +41,8 @@ def main():
     if platform.system() not in {"Darwin", "Linux"}:
         return fail(f"filesystem confinement is not supported on {platform.system()}")
     root = Path(__file__).resolve().parents[1]
-    staged = root / "packages" / "cli" / "native" / f"{sys.platform}-{platform.machine()}" / "codsh-rust"
+    arch = {"x86_64": "x64", "AMD64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine(), platform.machine())
+    staged = root / "packages" / "cli" / "native" / f"{sys.platform}-{arch}" / "codsh-rust"
     debug = root / "rust" / "target" / "debug" / "codsh-rust"
     binary = debug if debug.is_file() and (not staged.is_file() or debug.stat().st_mtime >= staged.stat().st_mtime) else staged
     if not binary.is_file():

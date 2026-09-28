@@ -85,8 +85,8 @@ def finish(opened):
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required; Linux and Windows are unverified')
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY evidence required; Windows uses scripts/rust-windows-pty-test.py')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-shell-', dir='/tmp'))
     dsh = dsh_bin()
     overlay = overlay_text()

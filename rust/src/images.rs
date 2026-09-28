@@ -189,6 +189,9 @@ fn read_linux_clipboard() -> Result<ImageBytes, ImageRefusal> {
             "clipboard image helper is unavailable (xclip)",
         ));
     };
+    if let Some(detail) = display_failure("xclip", &types) {
+        return Err(refuse(AttachStatus::Permission, &detail));
+    }
     let listed = String::from_utf8_lossy(&types.stdout);
     let Some(media) = IMAGE_MEDIA_TYPES
         .iter()
@@ -211,6 +214,42 @@ fn read_linux_clipboard() -> Result<ImageBytes, ImageRefusal> {
     sniff_image(&bytes.stdout)
 }
 
+/// An empty clipboard also exits non-zero, so only a helper that could not
+/// reach the display server is a failure of its own. Saying "clipboard has
+/// no image" then would send the user looking in the wrong place.
+fn display_failure(tool: &str, output: &std::process::Output) -> Option<String> {
+    display_failure_text(
+        tool,
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+fn display_failure_text(tool: &str, success: bool, stderr: &str) -> Option<String> {
+    if success {
+        return None;
+    }
+    let lower = stderr.to_ascii_lowercase();
+    let unreachable = [
+        "can't open display",
+        "cannot open display",
+        "authorization required",
+        "failed to connect to a wayland server",
+        "no protocol specified",
+    ];
+    if !unreachable.iter().any(|needle| lower.contains(needle)) {
+        return None;
+    }
+    let first = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("");
+    Some(format!(
+        "{tool} cannot reach the display server ({first}); check DISPLAY/WAYLAND_DISPLAY and XAUTHORITY. Nothing was attached"
+    ))
+}
+
 fn read_wayland_clipboard() -> Result<ImageBytes, ImageRefusal> {
     let types = Command::new("wl-paste").arg("-l").output().map_err(|_| {
         refuse(
@@ -218,6 +257,9 @@ fn read_wayland_clipboard() -> Result<ImageBytes, ImageRefusal> {
             "clipboard image helper is unavailable (wl-paste)",
         )
     })?;
+    if let Some(detail) = display_failure("wl-paste", &types) {
+        return Err(refuse(AttachStatus::Permission, &detail));
+    }
     let listed = String::from_utf8_lossy(&types.stdout);
     let Some(media) = IMAGE_MEDIA_TYPES
         .iter()
@@ -759,6 +801,37 @@ mod tests {
         assert!(!value.contains(['<', '>', '\n']), "{value}");
         assert!(fallback.ends_with("\">\n</pasted-image>\n"), "{fallback}");
         let _ = fs::remove_dir_all(home.parent().unwrap());
+    }
+
+    #[test]
+    fn unreachable_display_is_not_reported_as_an_empty_clipboard() {
+        assert_eq!(display_failure_text("xclip", true, ""), None);
+        // An empty selection exits non-zero too; that stays "no image".
+        assert_eq!(
+            display_failure_text("xclip", false, "Error: target TARGETS not available\n"),
+            None
+        );
+        assert_eq!(
+            display_failure_text("wl-paste", false, "Nothing is copied\n"),
+            None
+        );
+        let detail = display_failure_text(
+            "xclip",
+            false,
+            "Authorization required, but no authorization protocol specified\nError: Can't open display: :99\n",
+        )
+        .unwrap();
+        assert!(
+            detail.starts_with("xclip cannot reach the display server (Authorization required"),
+            "{detail}"
+        );
+        assert!(detail.contains("XAUTHORITY"), "{detail}");
+        assert!(detail.ends_with("Nothing was attached"), "{detail}");
+        assert!(
+            display_failure_text("wl-paste", false, "Failed to connect to a Wayland server\n")
+                .unwrap()
+                .starts_with("wl-paste cannot reach")
+        );
     }
 
     #[test]

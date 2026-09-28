@@ -27,6 +27,12 @@ def run(argv, **kwargs):
 
 
 def dsh_bin():
+    # Prefer an installed product's dsh (CI matrix / ConPTY) over resolving
+    # through the workspace package.json, which is absent from a clean checkout
+    # that only downloaded the packed tarball.
+    override = os.environ.get('DSH_BIN')
+    if override:
+        return override
     script = "import { createRequire } from 'node:module'; import { dirname, join } from 'node:path'; import { readFileSync } from 'node:fs'; const r=createRequire(process.argv[1]); const m=r.resolve('@deepseek-ai/dsh/package.json'); const bin=JSON.parse(readFileSync(m,'utf8')).bin; process.stdout.write(join(dirname(m), typeof bin==='string'?bin:bin.dsh))"
     return run([NODE, '--input-type=module', '-e', script, str(ROOT / 'package.json')], cwd=ROOT).stdout
 
@@ -244,8 +250,8 @@ class Session:
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required')
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY evidence required; Windows uses scripts/rust-windows-pty-test.py')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-screen-', dir='/tmp'))
     dsh = dsh_bin()
     overlay = overlay_text()

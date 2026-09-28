@@ -12606,12 +12606,24 @@ fn arm_hangup_watchdog(
 ) {
     std::thread::spawn(move || {
         let mut since: Option<Instant> = None;
+        let mut eof_checks = 0u32;
         loop {
             std::thread::sleep(Duration::from_millis(200));
             if loop_done.load(Ordering::Relaxed) {
                 return;
             }
-            if since.is_none() && (hangup.load(Ordering::Relaxed) || stdin_hung_up()) {
+            let gone = match stdin_probe() {
+                HangupProbe::Hung => true,
+                HangupProbe::EofCandidate => {
+                    eof_checks += 1;
+                    eof_checks >= HANGUP_EOF_CHECKS
+                }
+                HangupProbe::Live => {
+                    eof_checks = 0;
+                    false
+                }
+            };
+            if since.is_none() && (hangup.load(Ordering::Relaxed) || gone) {
                 stopping.store(true, Ordering::Relaxed);
                 since = Some(Instant::now());
             }
@@ -12622,16 +12634,53 @@ fn arm_hangup_watchdog(
     });
 }
 
-/// True when stdin is a terminal whose other side has gone away.
+/// Consecutive "readable but nothing to read" checks (200 ms apart) that count
+/// as a hangup. A live terminal in raw mode is readable only while bytes are
+/// pending, and the reader drains them long before the third check.
 #[cfg(unix)]
-fn stdin_hung_up() -> bool {
+const HANGUP_EOF_CHECKS: u32 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HangupProbe {
+    Live,
+    /// stdin reads as end-of-file: readable with no bytes pending.
+    EofCandidate,
+    Hung,
+}
+
+/// Classify one poll of stdin. Linux reports POLLHUP once the PTY master is
+/// gone; macOS does not, but the slave then polls readable forever while
+/// FIONREAD stays 0 (every read returns 0), which is what crossterm spins on.
+#[cfg(unix)]
+fn hangup_probe(ready: i32, revents: i16, pending: Option<i32>) -> HangupProbe {
+    if ready <= 0 {
+        return HangupProbe::Live;
+    }
+    if revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0 {
+        return HangupProbe::Hung;
+    }
+    if revents & libc::POLLIN != 0 && pending == Some(0) {
+        return HangupProbe::EofCandidate;
+    }
+    HangupProbe::Live
+}
+
+/// Probe stdin without reading from it.
+#[cfg(unix)]
+fn stdin_probe() -> HangupProbe {
     let mut fd = libc::pollfd {
         fd: 0,
-        events: 0,
+        events: libc::POLLIN,
         revents: 0,
     };
     let ready = unsafe { libc::poll(&mut fd, 1, 0) };
-    ready > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
+    let mut pending: libc::c_int = 0;
+    let pending = if unsafe { libc::ioctl(0, libc::FIONREAD, &mut pending) } == 0 {
+        Some(pending)
+    } else {
+        None
+    };
+    hangup_probe(ready, fd.revents, pending)
 }
 
 /// Default seconds a quit may spend tearing down before codsh force-exits.
@@ -15526,6 +15575,23 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn hangup_probe_sees_pollhup_and_a_readable_empty_stdin() {
+        assert_eq!(hangup_probe(0, 0, Some(0)), HangupProbe::Live);
+        assert_eq!(hangup_probe(1, libc::POLLHUP, None), HangupProbe::Hung);
+        assert_eq!(hangup_probe(1, libc::POLLNVAL, Some(0)), HangupProbe::Hung);
+        // Typed bytes waiting for the reader are a live terminal.
+        assert_eq!(hangup_probe(1, libc::POLLIN, Some(3)), HangupProbe::Live);
+        // macOS after the master closes: readable, nothing pending.
+        assert_eq!(
+            hangup_probe(1, libc::POLLIN, Some(0)),
+            HangupProbe::EofCandidate
+        );
+        // FIONREAD unsupported: never guess.
+        assert_eq!(hangup_probe(1, libc::POLLIN, None), HangupProbe::Live);
+    }
+
     use super::*;
 
     #[test]

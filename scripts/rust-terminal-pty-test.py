@@ -97,6 +97,9 @@ case "$*" in
 esac
 '''
 
+# The native copy tool the client picks here: pbcopy on macOS, xclip under X11.
+CLIP_TOOL = 'pbcopy' if sys.platform == 'darwin' else 'xclip'
+
 FAKE_CLIP = '''#!/bin/sh
 printf '%s\\n' "$*" >> "{log}.args"
 cat >> "{log}"
@@ -222,7 +225,7 @@ def check_wrap(env, cwd, work, isolated_grok, results):
     clip = work / 'wrap-clip.log'
     fakebin = work / 'wrapbin'
     fakebin.mkdir()
-    executable(fakebin / 'xclip', FAKE_CLIP.format(log=clip, code=0))
+    executable(fakebin / CLIP_TOOL, FAKE_CLIP.format(log=clip, code=0))
     wrap_env = {**env, 'PATH': f'{fakebin}:{env["PATH"]}', 'DISPLAY': ':155'}
     for key in ('GROK_OSC52_SINK', 'LC_GROK_OSC52_SINK', 'SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY', 'TMUX'):
         wrap_env.pop(key, None)
@@ -252,13 +255,16 @@ def check_wrap(env, cwd, work, isolated_grok, results):
         results['wrap_drop_exit_code'] = True
         entries = clip_entries(clip)
         assert entries == [COPY_TEXT], entries
-        assert 'clipboard' in (clip.parent / 'wrap-clip.log.args').read_text()
+        if CLIP_TOOL == 'xclip':
+            assert 'clipboard' in (clip.parent / 'wrap-clip.log.args').read_text()
         backup = isolated_grok / 'last-copy.txt'
         assert backup.read_text() == COPY_TEXT, backup
         assert 'forwarded 1 clipboard copy (last: confirmed)' in text, text[-2000:]
-        # The remote's copy is not relayed raw; Linux also sends one local OSC 52 leg.
+        # The remote's copy is not relayed raw; Linux also sends one local OSC 52
+        # leg, a local macOS terminal gets none (pbcopy is the trusted route).
         encoded = base64.b64encode(COPY_TEXT.encode())
-        assert data.count(b'\x1b]52;c;' + encoded + b'\x07') == 1, data[-3000:]
+        local_legs = 0 if sys.platform == 'darwin' else 1
+        assert data.count(b'\x1b]52;c;' + encoded + b'\x07') == local_legs, data[-3000:]
         assert b'\x1bPtmux;' not in data, data[-3000:]
         results['wrap_osc52_forwarded_once'] = True
         tail = data[data.rindex(b'GOT:hello-through-wrap'):]
@@ -396,7 +402,7 @@ def check_tui(env, cwd, work, isolated_grok, output, results):
     clip = work / 'tui-clip.log'
     fakebin = work / 'tuibin'
     fakebin.mkdir()
-    executable(fakebin / 'xclip', FAKE_CLIP.format(log=clip, code=0))
+    executable(fakebin / CLIP_TOOL, FAKE_CLIP.format(log=clip, code=0))
     (isolated_grok / 'config.toml').write_text(CONFIG.format(hooklog=hooklog))
     tui_env = {**env, 'PATH': f'{fakebin}:{env["PATH"]}', 'DISPLAY': ':155', 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}
     session = Session('terminal-tui', LAUNCHER, cwd, tui_env, output,
@@ -441,7 +447,7 @@ def check_tui(env, cwd, work, isolated_grok, output, results):
 
         session.send_slash('/copy')
         shown = session.wait_visible('Copied!', 15)
-        assert 'systemclipboard(xclip)' in ''.join(shown.split()), shown
+        assert f'systemclipboard({CLIP_TOOL})' in ''.join(shown.split()), shown
         entries = clip_entries(clip)
         assert entries and entries[-1].startswith('RUST_ACP_ANSWER'), entries
         assert (isolated_grok / 'last-copy.txt').read_text() == entries[-1]
@@ -484,7 +490,10 @@ def check_tui(env, cwd, work, isolated_grok, output, results):
         assert 'last-copy.txt' in shown.replace('\n', ''), shown
         assert 'Copied!' not in shown, shown
         assert b'\x1b]52;' not in bytes(broken.data), 'OSC 52 written despite GROK_CLIPBOARD_NO_OSC52'
-        assert len(clip_entries(clip)) == before
+        if sys.platform != 'darwin':
+            # macOS still runs pbcopy over SSH (the remote Mac's clipboard); it
+            # is not counted as delivered, which the checks above prove.
+            assert len(clip_entries(clip)) == before
         assert 'NO_ROUTE_TURN' in (isolated_grok / 'last-copy.txt').read_text()
         results['tui_copy_unreachable_is_honest'] = True
         results['tui_no_route_exit'] = broken.finish(expect_alt_leave=True)
@@ -594,7 +603,7 @@ def check_hangup(env, cwd, output, results, signal_launcher):
         session.master = os.open('/dev/null', os.O_RDWR)
         if signal_launcher:
             os.kill(session.process.pid, signal.SIGHUP)
-        deadline = closed + 10
+        deadline = closed + 20
         left = tree
         while time.monotonic() < deadline:
             time.sleep(0.1)

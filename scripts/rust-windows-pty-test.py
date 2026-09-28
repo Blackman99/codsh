@@ -8,11 +8,13 @@ mode is read before the client starts and after it quits in the same console:
 the client must hand it back unchanged, and the shell must still take a line.
 
 Scenarios: install-check, headless turn, interactive turn with Unicode,
-file tool with approval in a workspace path with spaces and CJK, Git Bash
-shell tool, cancel of a running shell (the whole process tree must end),
-resume with --continue, a sandbox profile refusal, and install / update /
-refused broken installs / rollback of the packed product with the Rust Home
-kept and the legacy Homes untouched.
+file tool with approval in a workspace path with spaces and CJK, the
+PowerShell (pwsh) shell tool, cancel of a running shell (the whole process
+tree must end), resume with --continue, a sandbox profile refusal, key
+editing and history, `/copy` read back with Get-Clipboard (CJK included),
+the clipboard-image notice on Ctrl+V / empty paste, voice doctor without a
+device fixture, and install / update / refused broken installs / rollback of
+the packed product with the Rust Home kept and the legacy Homes untouched.
 
 Usage (Windows, from the repository after `pnpm install` and `npm pack`):
     python scripts/rust-windows-pty-test.py --package <codsh-cli-*.tgz> --output <dir>
@@ -32,6 +34,7 @@ import tarfile
 import tempfile
 import threading
 import time
+import traceback
 
 ROOT = Path(__file__).resolve().parent.parent
 NODE = shutil.which('node')
@@ -58,6 +61,8 @@ def screen_text(data, rows, cols):
 
 
 def dsh_bin():
+    if os.environ.get('DSH_BIN'):
+        return os.environ['DSH_BIN']
     script = ("import { createRequire } from 'node:module'; import { dirname, join } from 'node:path'; "
               "import { readFileSync } from 'node:fs'; const r=createRequire(process.argv[1]); "
               "const m=r.resolve('@deepseek-ai/dsh/package.json'); const bin=JSON.parse(readFileSync(m,'utf8')).bin; "
@@ -166,9 +171,22 @@ class Console:
 
 
 def tree_pids(root_pid):
-    """PIDs of `root_pid` and all its descendants (CIM)."""
-    table = run(['powershell', '-NoProfile', '-Command',
-                 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name)" }']).stdout
+    """PIDs of `root_pid` and all its descendants (CIM).
+
+    The CIM query can stall for a while on a busy runner; bound it and retry
+    so one slow query does not hang the step.
+    """
+    argv = ['powershell', '-NoProfile', '-Command',
+            'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name)" }']
+    table = None
+    for attempt in range(3):
+        try:
+            table = run(argv, timeout=60).stdout
+            break
+        except subprocess.TimeoutExpired:
+            if attempt == 2:
+                raise
+            time.sleep(1)
     children = {}
     names = {}
     for line in table.splitlines():
@@ -271,7 +289,7 @@ def main():
             report['steps'].append({'name': name, 'ok': True, 'seconds': round(time.monotonic() - started, 1), 'detail': detail})
             print(f'PASS {name} ({time.monotonic() - started:.1f}s)', flush=True)
         except Exception as error:  # noqa: BLE001 - recorded, then the run fails
-            message = str(error)
+            message = f'{error!r}\n{traceback.format_exc()}'
             text = f'{message[:5000]}\n{dsh_log()}'
             report['steps'].append({'name': name, 'ok': False, 'seconds': round(time.monotonic() - started, 1), 'error': text})
             print(f'FAIL {name} ({time.monotonic() - started:.1f}s)\n{text}', flush=True)
@@ -565,9 +583,90 @@ def main():
         result['legacyUntouched'] = True
         return result
 
+    def get_clipboard():
+        return run(['powershell', '-NoProfile', '-Command',
+                    # UTF-8 without a preamble, so a BOM in the result is the clipboard's own.
+                    '[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false; Get-Clipboard -Raw'],
+                   timeout=60).stdout
+
+    def keys_history():
+        console = Console('keys', cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}, output)
+        try:
+            console.start(client())
+            console.wait_visible('Connected to dsh ACP', 90)
+            console.write('TOKEN_KEY_ABC')
+            console.wait_visible('TOKEN_KEY_ABC', 20)
+            console.write('\x7f\x7f\x7f')
+            time.sleep(0.5)
+            console.write('XYZ 中文')
+            console.wait_visible('TOKEN_KEY_XYZ 中文', 20)
+            console.write('\r')
+            shown = console.wait_visible('latest=TOKEN_KEY_XYZ', 60)
+            assert 'TOKEN_KEY_ABC' not in shown.split('latest=')[-1], shown
+            console.write('\x1b[A')
+            shown = console.wait_visible('history browse', 20)
+            draft = shown.split('Draft')[-1] if 'Draft' in shown else shown
+            assert 'TOKEN_KEY_XYZ' in draft, shown
+            console.write('\x03')
+            time.sleep(0.3)
+            result = console.finish()
+            assert result['exit'] == 0, result
+            return {'backspace': 'ABC -> XYZ', 'history': 'Up recalled TOKEN_KEY_XYZ 中文'}
+        finally:
+            console.close()
+
+    def clipboard():
+        console = Console('clipboard', cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}, output)
+        try:
+            console.start(client())
+            console.wait_visible('Connected to dsh ACP', 90)
+            console.write('TOKEN_CLIP 中文剪贴\r')
+            console.wait_visible('latest=TOKEN_CLIP', 60)
+            run(['powershell', '-NoProfile', '-Command', "Set-Clipboard -Value 'stale'"], timeout=60)
+            console.write('/copy\r')
+            deadline = time.monotonic() + 30
+            copied = ''
+            while time.monotonic() < deadline:
+                copied = get_clipboard()
+                if 'TOKEN_CLIP' in copied:
+                    break
+                time.sleep(0.5)
+            assert 'TOKEN_CLIP' in copied, f'/copy did not reach the clipboard: {copied!r}\n{console.visible()}'
+            # Get-Clipboard may surface the UTF-16 BOM clip.exe needs; strip it.
+            copied = copied.lstrip('\ufeff')
+            assert '中文剪贴' in copied, f'CJK was mangled on the way to clip.exe: {copied!r}'
+            # An image paste cannot be read here yet: Ctrl+V and an empty
+            # bracketed paste must both say so, and attach nothing.
+            console.write('\x16')
+            shown = console.wait_visible('not available on Windows', 20)
+            assert '[Image #' not in shown, shown
+            # The draft is empty: another Ctrl+C here would quit the client.
+            console.write('\x1b[200~\x1b[201~')
+            time.sleep(1.5)
+            empty_paste = console.visible()
+            result = console.finish()
+            assert result['exit'] == 0, result
+            return {
+                'copied': copied.strip()[:200],
+                'ctrl_v': 'clipboard image paste is not available on Windows in this client yet; nothing was attached',
+                'empty_paste_attached_nothing': '[Image #' not in empty_paste,
+            }
+        finally:
+            console.close()
+
+    def voice_doctor():
+        env = {k: v for k, v in base_env.items() if k not in ('CODSH_VOICE_DEVICES', 'CODSH_VOICE_FIXTURE')}
+        done = run(client('voice', 'doctor', '--json'), env=env, cwd=cwd, timeout=120)
+        report = json.loads(done.stdout)
+        assert report['recording'] is False, report
+        assert report['finding'] == 'voice.platform-unverified', report
+        assert report['supported'] is False and not report['devices'], report
+        return {k: report[k] for k in ('platform', 'finding', 'supported', 'permission', 'nextSteps')}
+
     for name, fn in (('install-check', install_check), ('headless', headless), ('turn', interactive_turn),
                      ('file-approval', file_approval), ('shell', shell_tool), ('cancel', cancel_tree),
                      ('resume', resume), ('sandbox-refused', sandbox_refused),
+                     ('keys-history', keys_history), ('clipboard', clipboard), ('voice-doctor', voice_doctor),
                      ('install-update-rollback', install_update_rollback)):
         step(name, fn)
     report['ok'] = all(item['ok'] for item in report['steps'])
@@ -577,7 +676,8 @@ def main():
             shutil.copy(log, output / f'dsh-{log.name}')
     report['untested'] = [
         'real terminal emulators other than the ConPTY harness (Windows Terminal, conhost window, VS Code) (#201)',
-        'clipboard, notifications, microphone (#201)',
+        'clipboard image read (Ctrl+V / empty paste say it is unavailable); desktop notifications',
+        'microphone capture (voice doctor reports voice.platform-unverified)',
         'filesystem/network sandbox profiles: refused on Windows, not implemented',
         'shared server, remote identity and wrap (Unix sockets / PTY): unavailable on Windows (#201)',
         'win32-arm64 (no prebuilt)',

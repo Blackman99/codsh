@@ -458,3 +458,100 @@ jobs:
           name: macos-perf
           path: evidence/perf
           if-no-files-found: warn
+
+  capability-matrix:
+    # Three-platform capability matrix (#201). Records OS/terminal versions and
+    # runs the installed-product checks: keys, mouse, shell, cancel, screen
+    # modes, terminal restore, the real clipboard (pasteboard / X11 under
+    # xvfb / Windows), voice doctor without fixtures, sandbox profiles, SSH,
+    # real tmux and the Windows ConPTY harness. Missing devices and refused
+    # features are recorded as refused/unavailable, never as a silent pass.
+    # Runs on the integration branch and on branches whose name has "matrix".
+    name: Capability matrix (${{ matrix.name }})
+    needs: [native, package]
+    if: github.ref == 'refs/heads/rewrite/grok-dsh-20260920' || contains(github.ref_name, 'matrix')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+          - name: macos-arm64
+            os: macos-15
+          - name: windows-x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Stage the natives a release would carry
+        shell: bash
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Terminal tools (tmux, X11 clipboard, OpenSSH)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tmux xclip xvfb openssh-server openssh-client >/dev/null
+          tmux -V; xclip -version 2>&1 | head -1; /usr/sbin/sshd -V 2>&1 | head -1 || true
+      - name: Terminal tools (tmux)
+        if: runner.os == 'macOS'
+        run: |
+          command -v tmux || brew install tmux
+          tmux -V
+      - name: Install the packed product with the registry dsh, as a user does
+        shell: bash
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          prefix="$RUNNER_TEMP/matrix-prefix"
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "CODSH_MATRIX_LAUNCHER=$prefix/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          else
+            echo "CODSH_MATRIX_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          fi
+      - name: Windows ConPTY driver
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install pywinpty==2.0.15
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          python scripts/rust-windows-pty-test.py --package (Get-ChildItem packed/codsh-cli-*.tgz).FullName --output "$PWD\evidence"
+      - name: Capability matrix
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          mkdir -p evidence
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python scripts/rust-capability-matrix.py --output "$PWD/evidence"
+          else
+            python scripts/rust-capability-matrix.py --output "$PWD/evidence"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capability-matrix-${{ matrix.name }}
+          path: evidence
+          if-no-files-found: warn

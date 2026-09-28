@@ -288,14 +288,22 @@ def main():
             leaders = json.loads(listed.stdout)
             assert len(leaders) == 1, listed
             os.kill(leaders[0]['pid'], signal.SIGTERM)
-            shown = wait_until(c, lambda s: 'Remote workspace disconnected' in s, 'restart disconnect', 30)
+            # Wait for the whole notice, not its first words: a snapshot taken
+            # mid-frame can still show the rest of an older row.
+            shown = wait_until(c, lambda s: 'Remote workspace disconnected' in s
+                               and 'retried' in s.replace('\n', ''), 'restart disconnect', 30)
             flat = shown.replace('\n', '')
             assert 'unknown' in flat and 'not retried' in flat, shown
             results['restart_unknown'] = True
             time.sleep(4)
             c.send_slash('/reconnect')
-            shown = wait_until(c, lambda s: 'resumed it from saved history' in s.replace('\n', ''), 'resume after restart', 40)
-            assert 'unknown' in shown.replace('\n', ''), shown
+            def resumed(s):
+                flat = s.replace('\n', '')
+                at = flat.rfind('resumed it from saved history')
+                return at >= 0 and 'retried' in flat[at:]
+            shown = wait_until(c, resumed, 'resume after restart', 40)
+            flat = shown.replace('\n', '')
+            assert 'unknown' in flat[flat.rfind('resumed it from saved history'):], shown
             time.sleep(4)
             assert (ws_c / 'shell-count.txt').read_text() == 'RAN\n', (ws_c / 'shell-count.txt').read_text()
             results['restart_no_retry'] = True

@@ -545,9 +545,10 @@ On macOS, Ctrl+V reads an image from the clipboard. A terminal delivers Cmd+V
 as a bracketed paste; an empty one (what an image-only clipboard sends) reads
 the clipboard image the same way, and a paste that is only whitespace inserts
 nothing. Windows clipboard images are not implemented yet: Alt+V and an empty
-paste say so and attach nothing (left to the Windows and cross-platform
-tickets #200/#201). Linux reads through `xclip` or `wl-paste` and is likewise
-unverified here. Pasting or dropping the
+paste say so and attach nothing (#200/#201). Linux reads through `xclip` or
+`wl-paste` when a display is reachable (CI drives X11 under `xvfb-run`); an
+unreachable display is reported as such, not as an empty clipboard. Empty
+bracketed paste on Linux matches the reference and inserts nothing. Pasting or dropping the
 absolute path or `file://` URL of an image file attaches that file as an image;
 a relative name, prose, or a mix with other paths keeps the existing text or
 `@file` handling. A bracketed paste that starts with `codsh-image:` or
@@ -645,12 +646,13 @@ returns first; inside tmux the sequence is wrapped for passthrough.
 `task_complete` are not implemented and produce a config warning.
 `GROK_EXIT_TIMEOUT_SECS` (default 20, `0` disables) force-exits a quit whose
 teardown hangs, restoring the terminal first, with a hard exit 5 seconds
-later. Not verified here: macOS `pbcopy`, Windows `clip.exe`, real terminals
-(iTerm2, Kitty, Ghostty, WezTerm, Alacritty, Apple Terminal, Windows Terminal,
-editor terminals) accepting OSC 52 or showing OSC 9/99/777, a real tmux
-server, real SSH through wrap, and wl-copy/xclip on a real display; the tests
-use fake tools, a fake `tmux`, and a fake remote program on real PTYs, and
-never touch the user's terminal or tmux config.
+later. Verified under #201: macOS `pbcopy`/`pbpaste`, Linux `xclip` under
+X11 (`xvfb-run`), Windows `clip.exe` (UTF-16LE so CJK survives), a real tmux
+server (`scripts/rust-tmux-pty-test.py`), and loopback OpenSSH remote PTY.
+Still not verified here: iTerm2 / Kitty / Ghostty / WezTerm / Alacritty /
+Apple Terminal / Windows Terminal / editor terminals accepting OSC 52 or
+showing OSC 9/99/777, wrap over a real SSH hop, and wl-copy on a Wayland
+desktop; those stay out of CI.
 `chips=false` only means the current draft has no attachment. Unicode, large paste, and resize keep an unsent draft. A refused
 submit, including first-run with no provider, puts that draft back and still
 shows `Execution unavailable` on a narrow screen. Failed
@@ -1271,6 +1273,13 @@ and dsh instead of leaving them spinning. Remaining differences against the
 reference (dsh turn start, no ACP token streaming, process-tree RSS of the
 Node launcher + dsh) are recorded in that directory and need an explicit
 decision before the ticket can close.
+
+The three-platform capability matrix (`scripts/rust-capability-matrix.py`, the
+`capability-matrix` job, `docs/rewrite/platform-capabilities.md`) records OS
+and terminal versions and the real effect of keys, mouse, shell, cancel,
+screen modes, terminal restore, the real clipboard, voice doctor without
+fixtures, sandbox, SSH, tmux and Windows ConPTY. Missing devices and refused
+features are listed as refused or unavailable, never as a silent pass.
 
 ## `/ship`: One Sentence to Verified Code
 
