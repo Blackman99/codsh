@@ -1915,6 +1915,13 @@ impl AcpClient {
     }
 
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
+        self.pump_until(timeout, None)
+    }
+
+    /// `pump`, returning as soon as the response to `until` has arrived
+    /// instead of at the end of the slice (#202: every synchronous request,
+    /// session/close at quit included, waited up to 50 ms longer than dsh).
+    fn pump_until(&mut self, timeout: Duration, until: Option<u64>) -> Vec<AcpEvent> {
         let mut events = std::mem::take(&mut self.held);
         events.extend(self.renew_identity_when_due());
         let deadline = Instant::now() + timeout;
@@ -1933,7 +1940,12 @@ impl AcpClient {
                 self.take_unread();
             }
             match received {
-                Ok(Line::Text(line)) => events.extend(self.handle_line(&line)),
+                Ok(Line::Text(line)) => {
+                    events.extend(self.handle_line(&line));
+                    if until.is_some_and(|id| self.completed.contains_key(&id)) {
+                        break;
+                    }
+                }
                 Ok(Line::Stderr(text)) => events.push(stderr_event(text)),
                 Ok(Line::Eof) => {
                     let detail = self
@@ -2081,7 +2093,7 @@ impl AcpClient {
                 });
             }
             let goal_lines = self
-                .pump(Duration::from_millis(50))
+                .pump_until(Duration::from_millis(50), Some(id))
                 .into_iter()
                 .filter(|event| matches!(event, AcpEvent::Goal { .. }));
             self.held.extend(goal_lines);
