@@ -1,0 +1,30 @@
+# Temporary probe for #200: what the Rust client needs to build on native Windows.
+name: Windows probe
+on:
+  push:
+    branches: ['ci/200-probe']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust 1.98.1
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc -vV
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+      - name: cargo check (all targets, keep going)
+        shell: bash
+        run: |
+          cargo check --manifest-path rust/Cargo.toml --locked --workspace --all-targets --keep-going --message-format short 2>&1 | tee check.log || true
+          grep -c '^rust.*error' check.log || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-check-log
+          path: check.log
