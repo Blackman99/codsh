@@ -358,10 +358,18 @@ Prebuilt packaging (ticket 66) keeps every platform's client inside the one
 would be a separate, owner-approved release-layout change. Because
 `packages/cli/native/` is not committed, `release.yml` now calls the reusable
 `.github/workflows/rust-native.yml` (darwin-arm64 on `macos-15`, darwin-x64 on
-`macos-15-intel`, linux-x64 on `ubuntu-22.04` for a low glibc floor), stages
-the three directories plus the generated Ship extension, and runs
-`check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64` before the
-Changesets step; a missing or mismatched platform stops the publish.
+`macos-15-intel`, linux-x64 on `ubuntu-22.04` and linux-arm64 on
+`ubuntu-22.04-arm` for a glibc 2.35 floor), stages the four directories plus
+the generated Ship extension, and runs `check:rust-package -- --require
+darwin-arm64,darwin-x64,linux-x64,linux-arm64` before the Changesets step; a
+missing or mismatched platform stops the publish. On Linux the `openssl` crate
+is built `vendored` (static OpenSSL 3, license in
+`licenses/openssl-src-*/OPENSSL-LICENSE.txt`), so the client needs only glibc
+and `libgcc_s`. `build:rust` reads the ELF's DT_NEEDED libraries and newest
+`GLIBC_*` version into `artifact.json` `runtime`; `check:rust-package` fails if
+they differ from the binary, and the launcher refuses an older glibc, a
+non-glibc (musl) system or a missing library with the distribution packages to
+install, before any Home is created (#199).
 `build:rust` passes the `codsh-cli` version to the build
 (`CODSH_PACKAGE_VERSION`), so `codsh --rust --version`, the ACP `clientInfo` and
 `artifact.json` all name the package version; a plain `cargo build` reports the
@@ -421,7 +429,16 @@ rewrite branch and `ci/**`) builds every native directory, packs the
 multi-platform `codsh-cli` (never published), and on `macos-15` (arm64),
 `macos-15-intel` and `macos-15` with an x64 Node under Rosetta removes the Rust
 toolchain, installs that tarball into a clean prefix, and runs this script;
-the two native jobs also run `scripts/rust-pty-test.py`. `scripts/rust-update.spec.mjs`
+the two native jobs also run `scripts/rust-pty-test.py`. The Linux jobs run
+`scripts/rust-platform-test.py` (a clean `install-check`, this install test, and
+the turn, approval, cancel and resume PTY tests, which now run on Linux as well
+as macOS) on `ubuntu-22.04`, `ubuntu-24.04` and `ubuntu-22.04-arm` without a
+Rust toolchain, and its `install-check,install` steps inside clean
+`node:22-bookworm-slim`, `node:24-trixie-slim` and `fedora:41` containers
+(no libssl); `node:22-bullseye-slim` (glibc 2.31) and `node:22-alpine` (musl)
+must be refused before any Home is created. `platform-report.json` records the
+OS release, kernel, C library, Node and terminal, every step, and an
+`untested` list; #200 and #201 reuse it. `scripts/rust-update.spec.mjs`
 covers installer selection (`CODSH_INSTALLER`, then the pnpm/Yarn/Bun global
 directory, then `npm_config_user_agent`, then npm) and `codsh --rust update`
 against a fake registry and package manager.

@@ -134,8 +134,9 @@ def exercise(name, launcher, cwd, env, output, action='stream', cols=100, rows=3
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required')
+    # macOS and Linux (#199); native Windows has no POSIX PTY (ticket 68).
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY required')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-turn-', dir='/tmp'))
     dsh = dsh_bin()
     overlay = overlay_text()

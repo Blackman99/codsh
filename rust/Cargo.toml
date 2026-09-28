@@ -112,5 +112,10 @@ tokio-util.workspace = true
 signal-hook = "0.3"
 libc = "0.2"
 
+# #199: the prebuilt Linux client carries OpenSSL (native-tls/ureq) statically,
+# so it needs no libssl.so.3 from the distribution; only glibc and libgcc_s.
+[target.'cfg(target_os = "linux")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [dev-dependencies]
 tempfile = "3"

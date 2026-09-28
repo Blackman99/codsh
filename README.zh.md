@@ -701,7 +701,7 @@ agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本
 
 携带客户端的包照常用 `npm install -g @deepseek-ai/dsh codsh-cli` 安装（Node
 22.19+，无需 Rust 工具链）。每个支持的平台在 `codsh-cli` 内有自己的预编译目录
-（macOS 为 `darwin-arm64` 与 `darwin-x64`，Linux 为 `linux-x64`）；Apple 芯片上请
+（macOS 为 `darwin-arm64` 与 `darwin-x64`，Linux 为 `linux-x64` 与 `linux-arm64`）；Apple 芯片上请
 使用 arm64 版 Node.js，在 Rosetta 下运行的 x64 Node 会选用 Intel 版本。
 `codsh --rust install-check`（脚本可加 `--json`）在不启动任何程序、不写入任何文件
 的情况下检查安装：本平台客户端、其 SHA-256 与可执行文件 CPU、是否属于当前
@@ -723,6 +723,18 @@ code profile，那部分留给普通 `codsh`。旧命令 `codsh update` 使用�
 （`.github/workflows/rust-native.yml`），并在已移除 Rust 工具链的运行器上从打包好的
 tarball 安装验证，包括 Rosetta 下的 x64 Node（`.github/workflows/rust-platforms.yml`）；
 产物只有 ad-hoc 签名，没有 Developer ID 签名或公证。
+
+Linux 上客户端需要 x64 或 arm64、glibc 2.35 或更新（Ubuntu 22.04+、Debian 12+、
+Fedora 36+、RHEL 10+），以及所有 glibc 发行版都自带的 `libgcc_s`；OpenSSL 已编译进
+客户端，无需安装 `libssl`，也不需要图形界面、账号或 Rust 工具链。这些要求记录在
+`artifact.json` 中并在启动前检查：glibc 过旧、Alpine 等 musl 系统或缺少共享库时会
+拒绝启动并说明应安装什么（这些系统上普通 `codsh` 仍可使用），`codsh --rust
+install-check` 会显示检测到的 glibc。安装、更新（`codsh --rust update`）、回退以及
+Rust Home `~/.codsh-rust` 的行为与 macOS 相同。Linux 预编译产物在 Ubuntu 22.04 运行器
+上构建，并在 Ubuntu 22.04/24.04（x64 与 arm64）以及无 Rust 工具链、无 libssl 的干净
+Debian 12、Debian 13、Fedora 41 容器中从打包好的 tarball 安装；安装后的客户端在真实
+PTY 中完成对话、工具审批、取消与恢复（`scripts/rust-platform-test.py`，它也会列出该
+次运行未覆盖的能力）。
 
 ## `/ship`：一句话到已验证代码
 

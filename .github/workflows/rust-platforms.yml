@@ -50,7 +50,7 @@ jobs:
       - name: Check the package a release would publish (dry run)
         run: |
           mkdir -p packed
-          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64 --json | tee packed/package-check.json
+          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64,linux-arm64 --json | tee packed/package-check.json
       - name: Pack codsh-cli (not published)
         run: |
           (cd packages/cli && npm pack --ignore-scripts --pack-destination ../../packed)
@@ -200,5 +200,147 @@ jobs:
         if: always()
         with:
           name: macos-evidence-${{ matrix.os }}-${{ matrix.rosetta && 'rosetta' || 'native' }}
+          path: evidence
+          if-no-files-found: warn
+
+  linux-platform:
+    name: Linux ${{ matrix.name }}
+    needs: [native, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x64 Ubuntu 22.04
+            os: ubuntu-22.04
+          - name: x64 Ubuntu 24.04
+            os: ubuntu-24.04
+          - name: arm64 Ubuntu 22.04
+            os: ubuntu-22.04-arm
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - name: Stage the natives a release would carry
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Remove the Rust toolchain
+        run: |
+          rm -rf "$HOME/.cargo" "$HOME/.rustup"
+          for tool in cargo rustc rustup; do
+            while found=$(command -v "$tool"); do rm -f "$found" 2>/dev/null || sudo rm -f "$found"; hash -r; done
+          done
+          if command -v cargo || command -v rustc || command -v rustup; then exit 1; fi
+          echo "no cargo, rustc or rustup on PATH"
+      - name: Platform run (install-check, install/update/rollback, turn, approval, cancel, resume)
+        run: python3 scripts/rust-platform-test.py --output "$PWD/evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-evidence-${{ matrix.os }}
+          path: evidence
+          if-no-files-found: warn
+
+  linux-containers:
+    name: Linux clean system ${{ matrix.image }}
+    needs: [native, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Supported: glibc at or above the recorded floor, no libssl, no Rust.
+          - image: node:22-bookworm-slim
+            expect: ok
+            python: apt
+          - image: node:24-trixie-slim
+            expect: ok
+            python: apt
+          - image: fedora:41
+            expect: ok
+            python: dnf
+          # Refused with the fix, before any Home is created.
+          - image: node:22-bullseye-slim
+            expect: glibc
+          - image: node:22-alpine
+            expect: libc
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - name: Stage the natives a release would carry
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Run in ${{ matrix.image }}
+        env:
+          IMAGE: ${{ matrix.image }}
+          EXPECT: ${{ matrix.expect }}
+          PYTHON: ${{ matrix.python }}
+        run: |
+          mkdir -p evidence
+          cat > evidence/run.sh <<'SCRIPT'
+          set -eu
+          case "${PYTHON:-}" in
+            apt) apt-get update -qq && apt-get install -y -qq python3 >/dev/null ;;
+            dnf) dnf install -y -q nodejs npm python3 >/dev/null ;;
+          esac
+          cat /etc/os-release | head -2
+          node -p 'process.version + " " + process.arch + " glibc=" + (process.report.getReport().header.glibcVersionRuntime || "none")'
+          ldd --version 2>&1 | head -1 || true
+          for tool in cargo rustc rustup; do if command -v "$tool"; then echo "unexpected $tool"; exit 1; fi; done
+          ls /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib64/libssl.so.3 2>/dev/null || echo "no libssl.so.3 on this system"
+          if [ "$EXPECT" = ok ]; then
+            python3 scripts/rust-platform-test.py --only install-check,install --output "$PWD/evidence/platform"
+          else
+            work=$(mktemp -d)
+            (cd packages/cli && npm pack --ignore-scripts --pack-destination "$work" >/dev/null)
+            npm install -g --prefix "$work/prefix" --offline --ignore-scripts --no-audit --no-fund "$work"/codsh-cli-*.tgz >/dev/null 2>&1
+            export HOME="$work/home" && mkdir -p "$HOME"
+            set +e
+            "$work/prefix/bin/codsh" --rust install-check --json > evidence/install-check.json
+            check=$?
+            "$work/prefix/bin/codsh" --rust -p hello > evidence/launch.txt 2>&1
+            launch=$?
+            set -e
+            cat evidence/install-check.json evidence/launch.txt
+            test "$check" = 1 && test "$launch" = 1
+            node -e "const r=require('./evidence/install-check.json'); if (r.runtime.code !== process.env.EXPECT) { console.error('expected', process.env.EXPECT, 'got', r.runtime.code); process.exit(1) }"
+            test ! -e "$HOME/.codsh-rust" && echo "no Rust Home was created"
+          fi
+          SCRIPT
+          docker run --rm -e EXPECT -e PYTHON -v "$PWD:$PWD" -w "$PWD" "$IMAGE" sh evidence/run.sh 2>&1 | tee evidence/container.log
+          exit "${PIPESTATUS[0]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-container-evidence-${{ strategy.job-index }}
           path: evidence
           if-no-files-found: warn
