@@ -1272,6 +1272,12 @@ reference (dsh turn start, no ACP token streaming, process-tree RSS of the
 Node launcher + dsh) are recorded in that directory and need an explicit
 decision before the ticket can close.
 
+The three-platform capability matrix (`scripts/rust-capability-matrix.py`, the
+`capability-matrix` job) records OS and terminal versions and the real effect of
+keys, cancel, sandbox, terminal restore, clipboard and microphone honesty, and
+Windows ConPTY. Missing devices and refused features are listed as refused or
+unavailable, never as a silent pass.
+
 ## `/ship`: One Sentence to Verified Code
 
 ```sh

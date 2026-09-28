@@ -406,6 +406,12 @@ reports with the method and the breakdown. The pinned reference is the macOS arm
 dsh and the launcher (with and without SIGHUP), and that Ctrl+Q while dsh is
 still starting quits at once without leaving dsh behind and that text typed
 during startup is kept.
+The three-platform capability matrix (#201) is `scripts/rust-capability-matrix.py`
+plus the `capability-matrix` job of `rust-platforms.yml` (Linux, macOS, Windows).
+It records the OS and terminal, runs the installed-product checks this platform
+supports, and writes `capability-matrix.json`. Cells are `ok`, `refused` or
+`unavailable` — a missing microphone or a refused sandbox profile is never a
+silent pass. Branches whose name contains `matrix` also run the job.
 `build:rust` passes the `codsh-cli` version to the build
 (`CODSH_PACKAGE_VERSION`), so `codsh --rust --version`, the ACP `clientInfo` and
 `artifact.json` all name the package version; a plain `cargo build` reports the

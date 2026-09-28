@@ -37,7 +37,8 @@ def fail(message):
 
 
 def binary_path(root):
-    staged = root / "packages" / "cli" / "native" / f"{sys.platform}-{platform.machine()}" / "codsh-rust"
+    arch = {"x86_64": "x64", "AMD64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(platform.machine(), platform.machine())
+    staged = root / "packages" / "cli" / "native" / f"{sys.platform}-{arch}" / "codsh-rust"
     debug = root / "rust" / "target" / "debug" / "codsh-rust"
     if debug.is_file() and (not staged.is_file() or debug.stat().st_mtime >= staged.stat().st_mtime):
         return debug

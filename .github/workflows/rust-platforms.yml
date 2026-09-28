@@ -458,3 +458,75 @@ jobs:
           name: macos-perf
           path: evidence/perf
           if-no-files-found: warn
+
+  capability-matrix:
+    # Three-platform capability matrix (#201). Records OS/terminal versions and
+    # runs the installed-product checks that prove keys, cancel, sandbox,
+    # terminal restore, clipboard/voice honesty and Windows ConPTY. Missing
+    # devices and refused features are recorded as refused/unavailable, never
+    # as a silent pass. Runs on the integration branch and on branches whose
+    # name contains "matrix".
+    name: Capability matrix (${{ matrix.name }})
+    needs: [native, package]
+    if: github.ref == 'refs/heads/rewrite/grok-dsh-20260920' || contains(github.ref_name, 'matrix')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+          - name: macos-arm64
+            os: macos-15
+          - name: windows-x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Install the packed product with the registry dsh
+        shell: bash
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          prefix="$RUNNER_TEMP/matrix-prefix"
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
+          echo "MATRIX_PREFIX=$prefix" >> "$GITHUB_ENV"
+          echo "PATH=$prefix/bin:$PATH" >> "$GITHUB_ENV"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            echo "CODSH_MATRIX_LAUNCHER=$prefix/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          else
+            echo "CODSH_MATRIX_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          fi
+      - name: Windows ConPTY driver
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install pywinpty==2.0.15
+          New-Item -ItemType Directory -Force evidence | Out-Null
+          python scripts/rust-windows-pty-test.py --package (Get-ChildItem packed/codsh-cli-*.tgz).FullName --output "$PWD\evidence"
+      - name: Capability matrix
+        shell: bash
+        run: |
+          python3 -m pip install --quiet 'pyte==0.8.2' || python -m pip install --quiet 'pyte==0.8.2'
+          mkdir -p evidence
+          # Stage the native binary from the installed package so sandbox probes find it.
+          key=$(node -p "process.platform + '-' + (process.arch === 'x64' ? 'x64' : process.arch)")
+          mkdir -p "packages/cli/native/$key"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp -R "$MATRIX_PREFIX/node_modules/codsh-cli/native/$key/." "packages/cli/native/$key/" || true
+          else
+            cp -R "$MATRIX_PREFIX/lib/node_modules/codsh-cli/native/$key/." "packages/cli/native/$key/" || true
+          fi
+          python3 scripts/rust-capability-matrix.py --output "$PWD/evidence" || python scripts/rust-capability-matrix.py --output "$PWD/evidence"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capability-matrix-${{ matrix.name }}
+          path: evidence
+          if-no-files-found: warn
