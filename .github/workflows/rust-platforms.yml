@@ -210,6 +210,7 @@ jobs:
   linux-platform:
     name: Linux ${{ matrix.name }}
     needs: [native, package]
+    if: github.ref_name == 'rewrite/grok-dsh-20260920' || contains(github.ref_name, 'linux')
     strategy:
       fail-fast: false
       matrix:
@@ -250,6 +251,11 @@ jobs:
           done
           if command -v cargo || command -v rustc || command -v rustup; then exit 1; fi
           echo "no cargo, rustc or rustup on PATH"
+      - name: dsh from the registry, as a user installs it
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          npm install -g --prefix "$RUNNER_TEMP/dsh-registry" --no-audit --no-fund "@deepseek-ai/dsh@$tested"
+          echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-registry/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
       - name: Platform run (install-check, install/update/rollback, turn, approval, cancel, resume)
         run: python3 scripts/rust-platform-test.py --output "$PWD/evidence"
       - uses: actions/upload-artifact@v4
@@ -262,6 +268,7 @@ jobs:
   linux-containers:
     name: Linux clean system ${{ matrix.image }}
     needs: [native, package]
+    if: github.ref_name == 'rewrite/grok-dsh-20260920' || contains(github.ref_name, 'linux')
     strategy:
       fail-fast: false
       matrix:
@@ -322,6 +329,10 @@ jobs:
           for tool in cargo rustc rustup; do if command -v "$tool"; then echo "unexpected $tool"; exit 1; fi; done
           ls /usr/lib/x86_64-linux-gnu/libssl.so.3 /usr/lib64/libssl.so.3 2>/dev/null || echo "no libssl.so.3 on this system"
           if [ "$EXPECT" = ok ]; then
+            # The dsh a user installs on this system (codsh.testedDsh from the registry).
+            tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+            npm install -g --prefix /tmp/dsh-registry --no-audit --no-fund "@deepseek-ai/dsh@$tested" >/dev/null
+            export CODSH_INSTALL_TEST_DSH=/tmp/dsh-registry/lib/node_modules/@deepseek-ai/dsh
             python3 scripts/rust-platform-test.py --only install-check,install --output "$PWD/evidence/platform"
           else
             work=$(mktemp -d)
