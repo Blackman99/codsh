@@ -699,8 +699,13 @@ agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本
 缺少对应平台产物时会提供明确错误，不会静默回退。这不代表正式发布或默认版本
 切换。构建、安装产物验证和平台限制见 [贡献指南](CONTRIBUTING.md)。
 
-携带客户端的包照常用 `npm install -g @deepseek-ai/dsh codsh-cli` 安装（Node
-22.19+，无需 Rust 工具链）。每个支持的平台在 `codsh-cli` 内有自己的预编译目录
+携带客户端的包用 `npm install -g @deepseek-ai/dsh@0.1.5-rc.3 codsh-cli` 安装
+（Node 22.19+，无需 Rust 工具链）。请写明 dsh 版本：它是这个 codsh-cli 测试时用的
+版本（package.json 中的 `codsh.testedDsh`）。不写版本会装上注册表最新版（目前为
+0.1.7-rc.2），其首个 Rust 回合以 ACP internal error 失败；写
+`@deepseek-ai/dsh@0.1.5-rc.2` 则会经 `^` 范围拉入 0.1.5-rc.3 子包，混合依赖树无法
+启动。`install-check` 会把测试版本与实际找到的版本并列显示，缺少或过旧 dsh 时的每条
+恢复提示都给出带版本的命令。每个支持的平台在 `codsh-cli` 内有自己的预编译目录
 （macOS 为 `darwin-arm64` 与 `darwin-x64`，Linux 为 `linux-x64`）；Apple 芯片上请
 使用 arm64 版 Node.js，在 Rosetta 下运行的 x64 Node 会选用 Intel 版本。
 `codsh --rust install-check`（脚本可加 `--json`）在不启动任何程序、不写入任何文件

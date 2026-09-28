@@ -53,6 +53,6 @@ export async function importFromDsh(name, entry = process.argv[1]) {
     return import(pathToFileURL(resolved).href)
   }
   throw new Error(`codsh: cannot load ${name} from the running dsh (looked from ${tried.join(', ')}). `
-    + 'The dsh runtime is incomplete or too old: reinstall it with npm install -g @deepseek-ai/dsh, '
+    + `The dsh runtime is incomplete or too old: reinstall it with npm install -g @deepseek-ai/dsh${process.env.CODSH_TESTED_DSH ? `@${process.env.CODSH_TESTED_DSH}` : ''}, `
     + 'or point DSH_BIN at a complete dsh.')
 }

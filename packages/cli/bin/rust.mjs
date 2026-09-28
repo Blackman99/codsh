@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dshFloorProblem, dshPackage, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
+import { dshFloorProblem, dshInstallLine, dshPackage, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
 
 const requireFromHere = createRequire(import.meta.url)
 
@@ -134,15 +134,16 @@ function installCheck(args) {
   const artifact = verifyArtifact({ nativeRoot, version: OWN.version })
   const dshBin = findDsh()
   const need = OWN.codsh?.requiresDsh
+  const tested = OWN.codsh?.testedDsh
   const owner = dshPackage(dshBin)
   const reachable = isAbsolute(dshBin) ? existsSync(dshBin) : whichOnPath(dshBin) !== undefined
   const dshProblem = !reachable
     ? {
         ok: false, code: 'dsh-missing',
         message: `no dsh runtime found (DSH_BIN=${dshBin}) — the Rust client runs its turns through dsh.`,
-        recovery: [`install one:      npm install -g @deepseek-ai/dsh${need ? `   (${need} or newer)` : ''}`, 'or point at one:  DSH_BIN=/path/to/dsh codsh --rust'],
+        recovery: [dshInstallLine(need, tested), 'or point at one:  DSH_BIN=/path/to/dsh codsh --rust'],
       }
-    : dshFloorProblem(dshBin, need, OWN.version)
+    : dshFloorProblem(dshBin, need, OWN.version, tested)
   let stamp
   try {
     stamp = JSON.parse(readFileSync(join(realpathSync(homedir()), '.codsh-rust', 'codsh-version.json'), 'utf8'))
@@ -157,7 +158,9 @@ function installCheck(args) {
       ? { ok: true, key: artifact.key, binary: artifact.binary, target: artifact.manifest.target, version: artifact.manifest.version ?? null, sha256: artifact.sha256, format: artifact.header.format, cpus: artifact.header.cpus }
       : { ok: false, code: artifact.code, message: artifact.message, recovery: artifact.recovery },
     dsh: {
-      ok: dshProblem === undefined, entry: dshBin, version: owner?.version ?? null, requires: need ?? null,
+      ok: dshProblem === undefined, entry: dshBin, version: owner?.version ?? null, requires: need ?? null, tested: tested ?? null,
+      // A readable dsh other than the tested one still runs; say so (#198).
+      ...(owner?.version && tested && owner.version !== tested ? { note: `not the dsh this codsh-cli was tested with (${tested}); if a turn fails: npm install -g @deepseek-ai/dsh@${tested}` } : {}),
       ...(dshProblem === undefined ? {} : { code: dshProblem.code, message: dshProblem.message, recovery: dshProblem.recovery }),
     },
     home: { path: join(realpathSync(homedir()), '.codsh-rust'), lastVersion: stamp?.lastVersion ?? null, previousVersion: stamp?.previousVersion ?? null },
@@ -170,7 +173,7 @@ function installCheck(args) {
       ? `Rust client: ok · ${artifact.key} (${artifact.manifest.target ?? 'unknown target'}) · ${artifact.header.format} ${artifact.header.cpus.join('+')} · sha256 ${artifact.sha256.slice(0, 12)}…`
       : `Rust client: ${artifact.code} · ${artifact.message}`)
     console.log(dshProblem === undefined
-      ? `dsh: ok · ${dshBin}${owner ? ` · ${owner.version}` : ' · version not readable'}${need ? ` (needs ${need}+)` : ''}`
+      ? `dsh: ok · ${dshBin}${owner ? ` · ${owner.version}` : ' · version not readable'}${need ? ` (needs ${need}+)` : ''}${result.dsh.note ? `\n  note: ${result.dsh.note}` : ''}`
       : `dsh: ${dshProblem.code} · ${dshProblem.message}`)
     console.log(`Rust Home: ${result.home.path}${stamp?.lastVersion ? ` · last used by ${stamp.lastVersion}` : ' · not used yet'}`)
     for (const line of [...(artifact.ok ? [] : artifact.recovery), ...(dshProblem?.recovery ?? [])]) console.log(`  ${line}`)
@@ -435,7 +438,7 @@ export async function launchRust(args) {
       || (args[0] === 'help' && args.length === 2 && args[1] === 'completions')
     const dshBin = findDsh()
     if (!helpOnly) {
-      const floor = dshFloorProblem(dshBin, OWN.codsh?.requiresDsh, OWN.version)
+      const floor = dshFloorProblem(dshBin, OWN.codsh?.requiresDsh, OWN.version, OWN.codsh?.testedDsh)
       if (floor !== undefined) {
         report(floor)
         return 1
@@ -459,6 +462,7 @@ export async function launchRust(args) {
       DSH_PROFILE: 'rust',
       DSH_BIN: dshBin,
       CODSH_REQUIRES_DSH: OWN.codsh?.requiresDsh ?? '',
+      CODSH_TESTED_DSH: OWN.codsh?.testedDsh ?? '',
       CODSH_NODE: process.execPath,
       DSH_TELEMETRY_DISABLED: '1',
       DSH_TELEMETRY_MODE: 'OFF',

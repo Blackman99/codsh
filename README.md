@@ -1178,8 +1178,15 @@ artifact reports an actionable error, never falls back silently. No published
 release or default cutover is implied. See [Contributing](CONTRIBUTING.md) for
 build, installed-product verification, and platform limitations.
 
-Installing a package that carries the client is the ordinary
-`npm install -g @deepseek-ai/dsh codsh-cli` (Node 22.19+; no Rust toolchain).
+Installing a package that carries the client is
+`npm install -g @deepseek-ai/dsh@0.1.5-rc.3 codsh-cli` (Node 22.19+; no Rust
+toolchain). Name the dsh version: it is the one this codsh-cli was tested with
+(`codsh.testedDsh` in its package.json). A bare `@deepseek-ai/dsh` takes the
+registry's latest (0.1.7-rc.2 today), whose first Rust turn fails with an ACP
+internal error, and `@deepseek-ai/dsh@0.1.5-rc.2` pulls 0.1.5-rc.3 sub-packages
+through its `^` ranges, a mixed tree that does not boot. `install-check` names
+the tested version beside the one it found, and every missing/old-dsh
+recovery line prints the pinned command.
 Each supported platform has its own prebuilt directory inside `codsh-cli`
 (macOS `darwin-arm64` and `darwin-x64`, Linux `linux-x64`); on Apple silicon use
 the arm64 Node.js, since an x64 Node under Rosetta selects the Intel build.

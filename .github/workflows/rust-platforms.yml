@@ -129,18 +129,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/node-x64"
           tar -C "$RUNNER_TEMP/node-x64" --strip-components=1 -xzf "node-$version-darwin-x64.tar.gz"
           echo "$RUNNER_TEMP/node-x64/bin" >> "$GITHUB_PATH"
-      - name: dsh for the x64 Node, from the registry
-        if: matrix.rosetta
-        # The checkout's dependencies were installed for arm64 (dsh loads
-        # per-platform addons); someone on an x64 Node installs dsh with it.
+      - name: dsh from the registry, as a user installs it
+        # The version this codsh-cli was tested with (codsh.testedDsh), with
+        # the job's own Node (x64 under Rosetta: dsh loads per-arch addons).
         run: |
-          version=$(node -p "require('./node_modules/@deepseek-ai/dsh/package.json').version")
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
           node -p process.arch
-          npm install -g --prefix "$RUNNER_TEMP/dsh-x64" --no-audit --no-fund "@deepseek-ai/dsh@$version"
-          echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
-          # dsh's session lock is a native addon; show which build the x64 Node loads.
-          ls "$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/" | grep node-addon || true
-          (cd "$RUNNER_TEMP/dsh-x64/lib/node_modules/@deepseek-ai/dsh" && node --input-type=module -e "const m = await import('@deepseek-ai/node-addon-system/flock'); console.log('flock addon', Object.keys(m))") || true
+          npm install -g --prefix "$RUNNER_TEMP/dsh-registry" --no-audit --no-fund "@deepseek-ai/dsh@$tested"
+          echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-registry/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
+          echo "CODSH_TESTED_DSH_VERSION=$tested" >> "$GITHUB_ENV"
       - name: Record the environment
         run: |
           mkdir -p evidence
@@ -173,12 +170,13 @@ jobs:
           export npm_config_cache="$RUNNER_TEMP/npm-cache"
           tarball=$(ls "$PWD"/packed/codsh-cli-*.tgz)
           echo "installing $tarball"
-          npm install -g --prefix "$prefix" --ignore-scripts --no-audit --no-fund "$tarball"
-          dsh_dir=$(node -p "require('fs').realpathSync(require('path').dirname(require.resolve('@deepseek-ai/dsh/package.json')))")
-          mkdir -p "$prefix/lib/node_modules/@deepseek-ai"
-          ln -s "$dsh_dir" "$prefix/lib/node_modules/@deepseek-ai/dsh"
+          # The README's one-liner, with the packed tarball for codsh-cli.
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$CODSH_TESTED_DSH_VERSION" "$tarball"
           HOME="$RUNNER_TEMP/clean-home" && mkdir -p "$HOME" && export HOME
-          "$prefix/bin/codsh" --rust install-check --json | tee evidence/clean-install-check.json
+          cd "$RUNNER_TEMP"
+          PATH="$prefix/bin:$PATH" "$prefix/bin/codsh" --rust install-check --json | tee "$GITHUB_WORKSPACE/evidence/clean-install-check.json"
+          node -e "const r=require('$GITHUB_WORKSPACE/evidence/clean-install-check.json'); if (!r.ok || !r.dsh.entry.startsWith('$prefix') || r.dsh.version !== process.env.CODSH_TESTED_DSH_VERSION) { console.error('install-check did not use the registry dsh'); process.exit(1) }"
+          cd "$GITHUB_WORKSPACE"
           "$prefix/bin/codsh" --rust --version | tee evidence/clean-version.txt
           grep -q "codsh-rust $(node -p "require('./packages/cli/package.json').version") " evidence/clean-version.txt
       - name: Install, update, break and roll back the packed product

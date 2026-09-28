@@ -479,6 +479,8 @@ pub const INHERITED_ENV: &[&str] = &[
     "NO_COLOR",
     "SystemRoot",
     "WINDIR",
+    // The exact dsh a recovery message names (#198), read by rust-acp-dsh.mjs.
+    "CODSH_TESTED_DSH",
     "DSH_CODE_CLI_MOCK_TOOL",
     "DSH_CODE_CLI_MOCK_IMAGE",
     "DSH_CODE_CLI_MOCK_DELAY_MS",
@@ -685,8 +687,23 @@ pub fn dsh_spawn_spec(
     })
 }
 
-/// The dsh floor the launcher was published against (ticket 66).
+/// The dsh floor the launcher was published against (ticket 66), and the
+/// exact dsh it was tested with (#198): a bare `npm install -g
+/// @deepseek-ai/dsh` takes the registry's latest instead.
 fn dsh_install_command() -> String {
+    let tested = std::env::var("CODSH_TESTED_DSH").unwrap_or_default();
+    let floor = std::env::var("CODSH_REQUIRES_DSH").unwrap_or_default();
+    if !tested.trim().is_empty() {
+        return if floor.trim().is_empty() {
+            format!("`npm install -g @deepseek-ai/dsh@{}`", tested.trim())
+        } else {
+            format!(
+                "`npm install -g @deepseek-ai/dsh@{}` (tested with this codsh-cli; {} or newer required)",
+                tested.trim(),
+                floor.trim()
+            )
+        };
+    }
     match std::env::var("CODSH_REQUIRES_DSH") {
         Ok(floor) if !floor.trim().is_empty() => {
             format!(

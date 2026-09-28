@@ -190,6 +190,9 @@ describe('dsh floor and version stamps', () => {
     expect(refused.message).toContain('dsh 0.1.4')
     expect(refused.recovery[0]).toBe('install one:      npm install -g @deepseek-ai/dsh   (0.1.5-rc.2 or newer)')
     expect(dshFloorProblem(make('0.1.5-rc.3'), '0.1.5-rc.2', '0.24.0')).toBeUndefined()
+    // With a tested dsh the line names that exact version (#198).
+    expect(dshFloorProblem(old, '0.1.5-rc.2', '0.24.0', '0.1.5-rc.3').recovery[0])
+      .toBe('install one:      npm install -g @deepseek-ai/dsh@0.1.5-rc.3   (tested with this codsh-cli; 0.1.5-rc.2 or newer required)')
     const fake = join(dir, 'fake-dsh.mjs')
     writeFileSync(fake, '')
     expect(dshFloorProblem(fake, '0.1.5-rc.2', '0.24.0')).toBeUndefined()
@@ -310,7 +313,7 @@ describe('launcher refusals before any Home write', () => {
     const missing = spawnSync(process.execPath, [join(cli, 'bin/codsh.mjs'), '--rust', 'install-check'], { encoding: 'utf8', timeout: 20000, env: { ...env, DSH_BIN: join(dir, 'no-such-dsh') } })
     expect(missing.status).toBe(1)
     expect(missing.stdout).toContain('dsh: dsh-missing')
-    expect(missing.stdout).toContain('npm install -g @deepseek-ai/dsh   (0.1.5-rc.2 or newer)')
+    expect(missing.stdout).toContain('npm install -g @deepseek-ai/dsh@0.1.5-rc.3   (tested with this codsh-cli; 0.1.5-rc.2 or newer required)')
     expect(existsSync(join(home, '.codsh-rust'))).toBe(false)
   }, 30000)
 
@@ -326,7 +329,7 @@ describe('launcher refusals before any Home write', () => {
     const old = spawnSync(process.execPath, [join(cli, 'bin/codsh.mjs'), '--rust', '-p', 'hi'], { encoding: 'utf8', timeout: 20000, env })
     expect(old.status).toBe(1)
     expect(old.stderr).toContain('codsh: dsh 0.1.4')
-    expect(old.stderr).toContain('npm install -g @deepseek-ai/dsh   (0.1.5-rc.2 or newer)')
+    expect(old.stderr).toContain('npm install -g @deepseek-ai/dsh@0.1.5-rc.3   (tested with this codsh-cli; 0.1.5-rc.2 or newer required)')
     expect(old.stderr).not.toContain('DSH_STARTED')
     expect(existsSync(join(home, '.codsh-rust'))).toBe(false)
     const [platform, arch] = nativeKey().split('-')
