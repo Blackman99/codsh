@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { NATIVE_TARGETS, availableKeys, binaryName, verifyArtifact } from '../packages/cli/bin/rust-artifact.mjs'
+import { NATIVE_TARGETS, availableKeys, binaryName, elfRequirements, verifyArtifact } from '../packages/cli/bin/rust-artifact.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const cli = join(root, 'packages/cli')
@@ -61,6 +61,16 @@ export function checkPackage({ directory = cli, requiredKeys = [] } = {}) {
       if (result.manifest.version !== pkg.version) problems.push(`${key}: artifact.json has no version for ${pkg.version}; restage with pnpm run build:rust`)
       entry.target = result.manifest.target
       entry.sha256 = result.sha256
+      if (platform === 'linux') {
+        // The recorded runtime requirements must be the binary's own (#199).
+        const actual = elfRequirements(readFileSync(result.binary))
+        const recorded = result.manifest.runtime
+        if (recorded === undefined) problems.push(`${key}: artifact.json records no runtime requirements; restage with pnpm run build:rust`)
+        else if (recorded.glibc !== actual?.glibc || JSON.stringify(recorded.needed) !== JSON.stringify(actual?.needed)) {
+          problems.push(`${key}: artifact.json runtime ${JSON.stringify(recorded)} does not match the binary (glibc ${actual?.glibc}, needs ${actual?.needed?.join(', ')})`)
+        }
+        entry.runtime = recorded
+      }
     }
     for (const file of [binaryName(platform), 'artifact.json', 'dependencies.json', 'LICENSE-codsh', 'UPSTREAM-LICENSE', 'UPSTREAM-THIRD-PARTY-NOTICES']) {
       if (!packed.files.has(`native/${key}/${file}`)) problems.push(`${key}: native/${key}/${file} is not in the pack list`)

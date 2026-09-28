@@ -7,8 +7,8 @@ import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  NATIVE_TARGETS, availableKeys, dshFloorProblem, dshPackage, keyForTarget, nativeKey,
-  sniffExecutable, stampTransition, verifyArtifact, versionAtLeast, whichOnPath,
+  NATIVE_TARGETS, availableKeys, dshFloorProblem, dshPackage, elfRequirements, keyForTarget, libraryPresent,
+  linuxRuntimeProblem, nativeKey, sniffExecutable, stampTransition, verifyArtifact, versionAtLeast, whichOnPath,
 } from '../packages/cli/bin/rust-artifact.mjs'
 
 const root = resolve(import.meta.dirname, '..')
@@ -340,4 +340,83 @@ describe('launcher refusals before any Home write', () => {
     expect(partial.stderr).toContain('npm install -g codsh-cli@0.24.0')
     expect(existsSync(join(home, '.codsh-rust'))).toBe(false)
   }, 30000)
+
+  it.skipIf(process.platform !== 'linux')('refuses a glibc below the recorded floor before creating the Rust Home', () => {
+    const dir = temp('codsh-launch-glibc-')
+    const cli = packageWithArtifact(dir)
+    if (cli === undefined) return
+    const dsh = globalDsh(dir, { version: '0.1.5-rc.3' })
+    writeFileSync(join(dsh, 'lib/bin.js'), "process.stderr.write('DSH_STARTED\\n')")
+    const home = join(dir, 'home')
+    mkdirSync(home)
+    const [platform, arch] = nativeKey().split('-')
+    stage(join(cli, 'native'), nativeKey(), { manifest: { version: '0.24.0', platform, arch, runtime: { libc: 'glibc', glibc: '99.0', needed: ['libc.so.6'] } } })
+    const env = { PATH: process.env.PATH, HOME: home, DSH_BIN: join(dsh, 'lib/bin.js') }
+    const refused = spawnSync(process.execPath, [join(cli, 'bin/codsh.mjs'), '--rust', '-p', 'hi'], { encoding: 'utf8', timeout: 20000, env })
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toMatch(/codsh: this Linux has glibc 2\.\d+; the prebuilt Rust client needs glibc 99\.0 or newer\./u)
+    expect(refused.stderr).not.toContain('DSH_STARTED')
+    expect(existsSync(join(home, '.codsh-rust'))).toBe(false)
+    const check = spawnSync(process.execPath, [join(cli, 'bin/codsh.mjs'), '--rust', 'install-check', '--json'], { encoding: 'utf8', timeout: 20000, env })
+    expect(check.status).toBe(1)
+    expect(JSON.parse(check.stdout)).toMatchObject({ ok: false, artifact: { ok: true }, runtime: { ok: false, code: 'glibc', libc: 'glibc', requires: { glibc: '99.0' } } })
+  }, 30000)
+})
+
+describe('Linux runtime requirements (#199)', () => {
+
+  it.skipIf(process.platform !== 'linux')('reads DT_NEEDED and the newest GLIBC_ version from a real ELF', () => {
+    const found = elfRequirements(readFileSync(process.execPath))
+    expect(found.needed).toContain('libc.so.6')
+    expect(found.glibc).toMatch(/^2\.\d+(\.\d+)?$/u)
+    expect(found.versions['libc.so.6']).toContain(`GLIBC_${found.glibc}`)
+  })
+
+  it('reads nothing from a non-ELF file', () => {
+    expect(elfRequirements(header('mach-o', 'arm64'))).toBeUndefined()
+    expect(elfRequirements(Buffer.from('#!/bin/sh\n'))).toBeUndefined()
+  })
+
+  const manifest = { platform: 'linux', runtime: { libc: 'glibc', glibc: '2.35', needed: ['libgcc_s.so.1', 'libm.so.6', 'libc.so.6', 'ld-linux-x86-64.so.2'] } }
+  const present = () => true
+
+  it('lets a new enough glibc with its libraries through', () => {
+    expect(linuxRuntimeProblem(manifest, { libc: { family: 'glibc', version: '2.35' }, present })).toBeUndefined()
+    expect(linuxRuntimeProblem(manifest, { libc: { family: 'glibc', version: '2.41' }, present })).toBeUndefined()
+    // Older local candidates record nothing and are not second-guessed.
+    expect(linuxRuntimeProblem({ platform: 'linux' }, { libc: { family: 'other' }, present })).toBeUndefined()
+    expect(linuxRuntimeProblem({ platform: 'darwin', runtime: {} }, { libc: { family: 'other' }, present })).toBeUndefined()
+  })
+
+  it('refuses an old glibc and musl with what to do instead', () => {
+    const old = linuxRuntimeProblem(manifest, { libc: { family: 'glibc', version: '2.31' }, present })
+    expect(old).toMatchObject({ ok: false, code: 'glibc' })
+    expect(old.message).toBe('this Linux has glibc 2.31; the prebuilt Rust client needs glibc 2.35 or newer.')
+    expect(old.recovery.join('\n')).toContain('Ubuntu 22.04+')
+    expect(old.recovery.join('\n')).toContain('plain `codsh`')
+    const musl = linuxRuntimeProblem(manifest, { libc: { family: 'other' }, present })
+    expect(musl).toMatchObject({ ok: false, code: 'libc' })
+    expect(musl.message).toContain('musl, as on Alpine, is not supported')
+  })
+
+  it('names the distribution packages for a missing shared library', () => {
+    const missing = linuxRuntimeProblem({ ...manifest, runtime: { ...manifest.runtime, needed: [...manifest.runtime.needed, 'libssl.so.3'] } },
+      { libc: { family: 'glibc', version: '2.39' }, present: name => name !== 'libssl.so.3' && name !== 'libgcc_s.so.1' })
+    expect(missing).toMatchObject({ ok: false, code: 'library', missing: ['libgcc_s.so.1', 'libssl.so.3'] })
+    expect(missing.recovery).toContain('Debian/Ubuntu:  sudo apt install libgcc-s1 libssl3')
+    expect(missing.recovery).toContain('Fedora/RHEL:    sudo dnf install libgcc openssl-libs')
+    const unknown = linuxRuntimeProblem({ ...manifest, runtime: { ...manifest.runtime, needed: ['libfoo.so.9'] } },
+      { libc: { family: 'glibc', version: '2.39' }, present: () => false })
+    expect(unknown.recovery[0]).toContain('install the package that provides libfoo.so.9')
+  })
+
+  it('finds a library through LD_LIBRARY_PATH or the loader cache', () => {
+    const dir = temp('codsh-lib-')
+    writeFileSync(join(dir, 'libcodshtest.so.1'), '')
+    expect(libraryPresent('libcodshtest.so.1', { env: { LD_LIBRARY_PATH: dir }, cache: join(dir, 'none') })).toBe(true)
+    const cache = join(dir, 'ld.so.cache')
+    writeFileSync(cache, Buffer.from('glibc-ld.so.cache1.1\0libcodshcache.so.2\0/x/libcodshcache.so.2\0'))
+    expect(libraryPresent('libcodshcache.so.2', { env: {}, cache })).toBe(true)
+    expect(libraryPresent('libcodshabsent.so.3', { env: {}, cache })).toBe(false)
+  })
 })

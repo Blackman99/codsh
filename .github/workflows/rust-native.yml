@@ -30,9 +30,12 @@ jobs:
             os: macos-15
           - key: darwin-x64
             os: macos-15-intel
-          # The oldest supported Ubuntu image keeps the glibc floor low.
+          # The oldest supported Ubuntu images keep the glibc floor low (#199);
+          # OpenSSL is compiled in (vendored), so libssl is not a requirement.
           - key: linux-x64
             os: ubuntu-22.04
+          - key: linux-arm64
+            os: ubuntu-22.04-arm
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
