@@ -12,7 +12,18 @@ permissions:
   id-token: write
 
 jobs:
+  # codsh-cli carries the prebuilt Rust client for each platform in
+  # native/<platform>-<arch>/ (ticket 66 / #198). The directory is gitignored,
+  # so each platform is built on its own runner here and staged below before
+  # anything is published; a package missing one of them fails the check
+  # instead of shipping `codsh --rust` broken on that platform.
+  native:
+    uses: ./.github/workflows/rust-native.yml
+    with:
+      retention-days: 30
+
   release:
+    needs: native
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +36,17 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - name: Stage the Rust client for every platform
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+          pnpm run check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64
       - name: Create release PR or publish to npm
         uses: changesets/action@v1
         with:

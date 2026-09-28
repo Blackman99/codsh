@@ -708,13 +708,21 @@ agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本
 `codsh-cli` 版本，以及将使用的 dsh 是否满足最低版本。客户端缺失、损坏、为其他
 CPU 构建或是未完成更新的残留时，`codsh --rust` 拒绝启动并给出修复命令（`npm
 install -g codsh-cli@<版本>`）；dsh 缺失或版本过低时同样拒绝（`npm install -g
-@deepseek-ai/dsh`）；绝不改为启动旧版运行时或官方 Grok 运行时。更新用 `codsh
-update` 或 `npm install -g codsh-cli@<版本>`，回退用 `npm install -g
-codsh-cli@<旧版本>`。两种情况下 Rust Home `~/.codsh-rust`（会话、设置、凭据）都
-保留，下一次 `codsh --rust` 会提示一次之前使用的版本，旧的 `~/.dsh`/`~/.grok` 不受
-影响。用过 `codsh --rust` 的用户在 `codsh update` 后，如果新包无法在本机运行
-Rust 客户端，会立即看到提示和回到原版本的命令。macOS 预编译产物须在 Mac 上构建
-和检查；本仓库的安装包测试目前只在 Linux 上运行过。
+@deepseek-ai/dsh`）；绝不改为启动旧版运行时或官方 Grok 运行时。`codsh --rust
+update` 用当初安装它的包管理器（npm、pnpm、Yarn classic 或 Bun，按包所在的全局目录
+判断；可用 `CODSH_INSTALLER=npm|pnpm|yarn|bun` 指定）更新到最新发布的
+`codsh-cli`，并在报告成功前校验新客户端；`--check` 只显示将执行的命令，`--to
+<版本>` 安装指定版本（即回退），`--json` 供脚本使用。它不改动旧版 `~/.dsh` 的
+code profile，那部分留给普通 `codsh`。旧命令 `codsh update` 使用同样的安装器选择。
+手动操作为 `npm install -g codsh-cli@<版本>`（或 `pnpm add -g`、`yarn global add`、
+`bun add -g`）。无论哪种方式，Rust Home `~/.codsh-rust`（会话、设置、凭据）都保留，
+下一次 `codsh --rust` 会提示一次之前使用的版本，旧的 `~/.dsh`/`~/.grok` 不受影响。
+安装器失败或新包无法在本机运行客户端时，会说明旧版本是否仍可用，并给出回到旧版本
+的命令。`codsh --rust --version` 显示客户端所属的 `codsh-cli` 版本。macOS 预编译产物
+（`darwin-arm64`、`darwin-x64`）在 GitHub Actions 的 macOS 运行器上构建
+（`.github/workflows/rust-native.yml`），并在已移除 Rust 工具链的运行器上从打包好的
+tarball 安装验证，包括 Rosetta 下的 x64 Node（`.github/workflows/rust-platforms.yml`）；
+产物只有 ad-hoc 签名，没有 Developer ID 签名或公证。
 
 ## `/ship`：一句话到已验证代码
 

@@ -1,0 +1,85 @@
+# Build the prebuilt Rust client for every platform codsh-cli ships (#198).
+#
+# Reusable: rust-platforms.yml calls it for evidence on the rewrite branch and
+# ci/** branches, and release.yml calls it so a publish carries every native
+# directory instead of none. Each job runs `pnpm run build:rust` on a machine
+# of that platform (macOS targets need Apple clang and the SDK) and uploads the
+# staged `packages/cli/native/<key>` as a tarball, which keeps the executable
+# bit that artifact zips drop. Nothing is packed, published, tagged or signed
+# here; macOS binaries carry only the linker's ad-hoc signature.
+name: Rust native build
+
+on:
+  workflow_call:
+    inputs:
+      retention-days:
+        type: number
+        default: 14
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: native ${{ matrix.key }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: darwin-arm64
+            os: macos-15
+          - key: darwin-x64
+            os: macos-15-intel
+          # The oldest supported Ubuntu image keeps the glibc floor low.
+          - key: linux-x64
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Rust 1.98.1
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc -vV
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+          key: ${{ matrix.key }}
+      - run: pnpm install --frozen-lockfile
+      - name: Build and stage the Rust client
+        run: pnpm run build:rust
+      - name: Describe the staged client
+        shell: bash
+        run: |
+          set -x
+          uname -a
+          node -p 'process.platform + "-" + process.arch + " " + process.version'
+          cat packages/cli/native/${{ matrix.key }}/artifact.json
+          file packages/cli/native/${{ matrix.key }}/codsh-rust
+          ls -l packages/cli/native/${{ matrix.key }}/codsh-rust
+          packages/cli/native/${{ matrix.key }}/codsh-rust --version
+          if [ "$RUNNER_OS" = macOS ]; then
+            sw_vers
+            otool -L packages/cli/native/${{ matrix.key }}/codsh-rust
+            vtool -show-build packages/cli/native/${{ matrix.key }}/codsh-rust || true
+            codesign -dv packages/cli/native/${{ matrix.key }}/codsh-rust 2>&1 || true
+          else
+            ldd packages/cli/native/${{ matrix.key }}/codsh-rust
+            objdump -T packages/cli/native/${{ matrix.key }}/codsh-rust | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          fi
+      - name: Pack the staged directory
+        run: tar -C packages/cli/native -czf native-${{ matrix.key }}.tgz ${{ matrix.key }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.key }}
+          path: native-${{ matrix.key }}.tgz
+          retention-days: ${{ inputs.retention-days }}
+          if-no-files-found: error

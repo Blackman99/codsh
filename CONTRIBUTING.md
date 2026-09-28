@@ -355,7 +355,17 @@ fail explicitly. The regular legacy `build` does not add native artifacts.
 Prebuilt packaging (ticket 66) keeps every platform's client inside the one
 `codsh-cli` package, so the fixed `codsh-cli`/`codsh-bundle` Changesets group and
 `pnpm run release` are unchanged; splitting into per-platform optional packages
-would be a separate, owner-approved release-layout change. `artifact.json` now
+would be a separate, owner-approved release-layout change. Because
+`packages/cli/native/` is not committed, `release.yml` now calls the reusable
+`.github/workflows/rust-native.yml` (darwin-arm64 on `macos-15`, darwin-x64 on
+`macos-15-intel`, linux-x64 on `ubuntu-22.04` for a low glibc floor), stages
+the three directories plus the generated Ship extension, and runs
+`check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64` before the
+Changesets step; a missing or mismatched platform stops the publish.
+`build:rust` passes the `codsh-cli` version to the build
+(`CODSH_PACKAGE_VERSION`), so `codsh --rust --version`, the ACP `clientInfo` and
+`artifact.json` all name the package version; a plain `cargo build` reports the
+crate version with `-dev`. `artifact.json` now
 also records `version` (the `codsh-cli` version), `requiresDsh`, `binary` and
 `format`; the launcher refuses a staged client whose version differs from its
 own package (an interrupted update), whose SHA-256 or executable header
@@ -367,7 +377,7 @@ when this machine has that Rust target and its linker/SDK; on an Apple silicon
 Mac, `rustup target add x86_64-apple-darwin` then that command stages the Intel
 build. Linux cannot build the macOS targets: `aws-lc-sys` needs Apple clang and
 the SDK, and the client links AppKit/CoreFoundation, so macOS artifacts are
-staged on a Mac (ad-hoc signed by the Apple linker; no Developer ID signing or
+staged on a Mac or a GitHub Actions macOS runner (ad-hoc signed by the Apple linker; no Developer ID signing or
 notarization is performed or claimed). Before a release that promises macOS
 prebuilds, run `pnpm run check:rust-package -- --require darwin-arm64,darwin-x64`:
 it lists what `npm pack` would ship (dry run; nothing is packed, uploaded or
@@ -402,11 +412,19 @@ installed from the registry), and runs without `CODSH_ACP_PATCH` against a
 local OpenAI-compatible fixture: `install-check`, a headless turn, a PTY turn
 with terminal restoration, an in-place update that keeps sessions, refusals for
 a half-updated, damaged, wrong-CPU and missing client (no dsh start, no Home
-change), an old and a missing dsh, a rollback, and `codsh update` to a package
-without this platform's client. Fake `cargo`/`rustc`/`rustup`/`grok` on PATH must
+change), an old and a missing dsh, a rollback, `codsh update` to a package
+without this platform's client, and `codsh --rust update` (`--check`, the update
+itself, and `--to` back). Fake `cargo`/`rustc`/`rustup`/`grok` on PATH must
 never run and legacy `~/.dsh`/`~/.grok` canaries stay byte-identical. It runs on
-Linux; the same script on macOS (both CPUs, Rosetta) and on a clean Mac is still
-required evidence for ticket 66.
+Linux and macOS. `.github/workflows/rust-platforms.yml` (on pushes to the
+rewrite branch and `ci/**`) builds every native directory, packs the
+multi-platform `codsh-cli` (never published), and on `macos-15` (arm64),
+`macos-15-intel` and `macos-15` with an x64 Node under Rosetta removes the Rust
+toolchain, installs that tarball into a clean prefix, and runs this script;
+the two native jobs also run `scripts/rust-pty-test.py`. `scripts/rust-update.spec.mjs`
+covers installer selection (`CODSH_INSTALLER`, then the pnpm/Yarn/Bun global
+directory, then `npm_config_user_agent`, then npm) and `codsh --rust update`
+against a fake registry and package manager.
 
 `test:rust:pty` requires macOS, Python 3 and clang. It packs and locally installs
 the product in a temporary prefix, uses synthetic HOME/DSH_HOME/workspace canaries,

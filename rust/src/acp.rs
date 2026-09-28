@@ -1451,7 +1451,7 @@ impl AcpClient {
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {},
-                "clientInfo": { "name": "codsh-rust", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "codsh-rust", "version": crate::CODSH_VERSION },
             }),
             PendingKind::Initialize,
         )?;

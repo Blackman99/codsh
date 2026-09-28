@@ -686,7 +686,7 @@ pub fn run_leader(
     let record = json!({
         "pid": std::process::id(),
         "socket": socket,
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::CODSH_VERSION,
         "startedAt": started,
     });
     lock_file.set_len(0)?;
@@ -959,11 +959,11 @@ pub fn run_proxy(socket: &Path, mut gate: Option<crate::remote_identity::Gate>) 
         .pointer("/result/version")
         .and_then(Value::as_str)
         .unwrap_or("unknown");
-    if version != env!("CARGO_PKG_VERSION") {
+    if version != crate::CODSH_VERSION {
         eprintln!(
             "warning: the shared leader at {} runs codsh {version}; this client is {}. Stop it with `codsh --rust leader kill` to start a matching one.",
             socket.display(),
-            env!("CARGO_PKG_VERSION")
+            crate::CODSH_VERSION
         );
     }
     let (tx, rx) = mpsc::channel();

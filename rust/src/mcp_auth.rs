@@ -410,7 +410,7 @@ pub fn display_url(url: &str) -> String {
 }
 
 pub fn user_agent() -> String {
-    format!("codsh/{}", env!("CARGO_PKG_VERSION"))
+    format!("codsh/{}", crate::CODSH_VERSION)
 }
 
 // ---------------------------------------------------------------------------
@@ -547,7 +547,7 @@ impl Http {
             "params": {
                 "protocolVersion": PROBE_PROTOCOL_VERSION,
                 "capabilities": {},
-                "clientInfo": { "name": "codsh-oauth-probe", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "codsh-oauth-probe", "version": crate::CODSH_VERSION },
             },
         });
         Self::finish(request.send_string(&init.to_string()), url)

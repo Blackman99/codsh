@@ -12,8 +12,9 @@ turns; fake cargo/rustc/rustup/grok on PATH record any call. Legacy ~/.dsh and
 
 dsh comes from this checkout's install unless CODSH_INSTALL_TEST_DSH names a
 dsh package directory (for example one installed from the registry with
-`npm install -g --prefix <dir> @deepseek-ai/dsh`). Runs on Linux; macOS runs
-are expected to work but are not recorded by this script's author.
+`npm install -g --prefix <dir> @deepseek-ai/dsh`). Runs on Linux and macOS;
+`.github/workflows/rust-platforms.yml` runs it on macOS arm64, macOS x64 and
+an x64 Node under Rosetta, each on a runner with the Rust toolchain removed.
 """
 import hashlib
 import http.server
@@ -31,7 +32,9 @@ import threading
 ROOT = Path(__file__).resolve().parent.parent
 NODE = subprocess.check_output(['node', '-p', 'process.execPath'], text=True).strip()
 NPM = shutil.which('npm')
-KEY = ('darwin' if sys.platform == 'darwin' else 'linux') + '-' + ('arm64' if os.uname().machine in ('arm64', 'aarch64') else 'x64')
+# The launcher picks the client for its Node's platform and CPU: an x64 Node on
+# Apple silicon (Rosetta) runs darwin-x64 whatever this Python is.
+KEY = subprocess.check_output([NODE, '-p', "process.platform + '-' + process.arch"], text=True).strip()
 
 spec = importlib.util.spec_from_file_location('rust_screen', ROOT / 'scripts/rust-screen-pty-test.py')
 rust_screen = importlib.util.module_from_spec(spec)
@@ -235,6 +238,10 @@ api_backend = "chat_completions"
         assert report['dsh']['ok'] and report['dsh']['version'] == dsh_version
         assert Path(report['dsh']['entry']).resolve() == (dsh_package / 'lib/bin.js').resolve()
         results['install_check'] = {k: report[k] for k in ('artifact', 'dsh')}
+        # The staged client names the package version it ships in (#198), not the crate's.
+        reported = codsh('--version')
+        assert reported.returncode == 0 and reported.stdout.startswith(f'codsh-rust {version} '), reported.stdout + reported.stderr
+        results['client_version'] = reported.stdout.strip()
 
         # 2. A headless turn through the launcher's own plugin overlay.
         first = codsh('-p', 'first installed turn')
@@ -372,6 +379,33 @@ api_backend = "chat_completions"
         final = codsh('-p', 'after recovery')
         assert final.returncode == 0 and 'INSTALL_TURN_' in final.stdout, final.stdout + final.stderr
         results['update_partial_failure'] = updating.stderr.strip()
+
+        # 12. `codsh --rust update`: the installer that owns this install moves it, the
+        # new client is verified before success is reported, and --to rolls back (#198).
+        (fake_npm_dir / 'npm').write_text(
+            f'#!/bin/sh\n[ "$1 $2" = "install -g" ] || exit 64\n'
+            f'case "$3" in codsh-cli@{newer}) t="{tar_newer}";; codsh-cli@{version}) t="{tar_current}";; *) exit 65;; esac\n'
+            f'exec "{NPM}" install -g --prefix "{prefix}" --offline --ignore-scripts --no-audit --no-fund "$t"\n')
+        Registry.latest = newer
+        rust_update_env = {**base_env, **{k: v for k, v in npm_env.items() if k.startswith('npm_config')},
+                           'PATH': f'{fake_npm_dir}:{base_env["PATH"]}',
+                           'CODSH_UPDATE_REGISTRY': f'http://127.0.0.1:{registry.server_address[1]}'}
+        planned = run([str(launcher), '--rust', 'update', '--check', '--json'], check=False, cwd=cwd, env=rust_update_env, timeout=60)
+        assert planned.returncode == 0, planned.stdout + planned.stderr
+        plan = json.loads(planned.stdout)
+        assert plan['action'] == 'install' and plan['installer'] == 'npm' and plan['command'] == ['npm', 'install', '-g', f'codsh-cli@{newer}'], plan
+        moved = run([str(launcher), '--rust', 'update'], check=False, cwd=cwd, env=rust_update_env, timeout=180)
+        assert moved.returncode == 0, moved.stdout + moved.stderr
+        assert f'codsh-cli {newer} installed with npm; its Rust client verifies ({KEY}' in moved.stdout, moved.stdout
+        after_move = codsh('-p', 'after rust update')
+        assert after_move.returncode == 0 and f'Rust client updated {version} → {newer}' in after_move.stderr, after_move.stderr
+        back = run([str(launcher), '--rust', 'update', '--to', version], check=False, cwd=cwd, env=rust_update_env, timeout=180)
+        assert back.returncode == 0, back.stdout + back.stderr
+        assert f'codsh-cli {version} installed with npm' in back.stdout, back.stdout
+        after_back = codsh('-p', 'after rust rollback')
+        assert after_back.returncode == 0 and 'an earlier version' in after_back.stderr, after_back.stderr
+        assert before_update <= session_ids()
+        results['rust_update'] = {'plan': plan, 'update': moved.stdout.strip(), 'rollback': back.stdout.strip()}
 
         legacy_intact()
         assert not canary.exists(), canary.read_text()

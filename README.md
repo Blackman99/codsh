@@ -1191,14 +1191,26 @@ fix, when the client is missing for this platform, damaged, built for another
 CPU, or left from an update that did not finish (`npm install -g
 codsh-cli@<version>`), and when dsh is missing or older than required (`npm
 install -g @deepseek-ai/dsh`); it never starts the legacy runtime or an official
-Grok runtime instead. Updating is `codsh update` or `npm install -g
-codsh-cli@<version>`; going back is `npm install -g codsh-cli@<previous>`. Either
-way the Rust Home `~/.codsh-rust` (sessions, settings, credentials) is kept,
-the next `codsh --rust` says once which version was used before, and legacy
-`~/.dsh`/`~/.grok` are not touched. After `codsh update`, someone who has used
-`codsh --rust` is told immediately if the new package cannot run it here, with
-the command that returns to the previous version. macOS prebuilds are built and
-checked on a Mac; this checkout's installed-package test ran on Linux only.
+Grok runtime instead. `codsh --rust update` moves the install to the newest
+published `codsh-cli` with the package manager that installed it (npm, pnpm,
+Yarn classic or Bun, read from the global directory the package sits in; set
+`CODSH_INSTALLER=npm|pnpm|yarn|bun` to choose), then verifies the new client
+before it reports success; `--check` only says what it would run, `--to
+<version>` installs that version (the rollback), and `--json` is for scripts.
+It leaves the legacy `~/.dsh` code profile to plain `codsh`. `codsh update`
+(the legacy command) uses the same installer selection. Doing it by hand is
+`npm install -g codsh-cli@<version>` (or `pnpm add -g`, `yarn global add`, `bun
+add -g`). Either way the Rust Home `~/.codsh-rust` (sessions, settings,
+credentials) is kept, the next `codsh --rust` says once which version was used
+before, and legacy `~/.dsh`/`~/.grok` are not touched. If the installer fails,
+or the new package cannot run the client here, you are told whether the old
+version still works and given the command that returns to it.
+`codsh --rust --version` reports the `codsh-cli` version the client ships in.
+The macOS prebuilds (`darwin-arm64`, `darwin-x64`) are built on GitHub Actions
+macOS runners (`.github/workflows/rust-native.yml`) and installed there from the
+packed tarball on runners without a Rust toolchain, including an x64 Node under
+Rosetta (`.github/workflows/rust-platforms.yml`); they are ad-hoc signed only,
+not Developer ID signed or notarized.
 
 ## `/ship`: One Sentence to Verified Code
 

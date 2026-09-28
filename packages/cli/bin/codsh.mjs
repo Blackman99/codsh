@@ -28,9 +28,6 @@ const own = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 /** The bundle package this launcher pairs with, lockstep-versioned. */
 const BUNDLE = 'codsh-bundle'
 
-/** This launcher's own npm name, which is what `codsh update` installs. */
-const LAUNCHER = 'codsh-cli'
-
 const home = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const manifestPath = join(home, 'profiles', 'code', 'package.json')
 
@@ -106,7 +103,11 @@ if (process.argv[2] === 'update') {
     console.log(`codsh ${own.version} is the latest`)
     process.exit(0)
   }
-  const command = ['npm', 'install', '-g', `${LAUNCHER}@${latest}`]
+  // The package manager that installed this launcher moves it (#198).
+  const { detectInstaller, installCommand } = await import('./installer.mjs')
+  const installer = detectInstaller({ packageRoot: fileURLToPath(new URL('..', import.meta.url)) })
+  if (installer.ignored) console.error(`codsh: ${installer.ignored}`)
+  const command = installCommand(installer.name, latest)
   console.error(`codsh: ${command.join(' ')}`)
   const installed = spawnSync(command[0], command.slice(1), {
     stdio: 'inherit',
@@ -141,7 +142,7 @@ if (process.argv[2] === 'update') {
     if (check.status !== 0) {
       console.error(`codsh: codsh-cli ${latest} is installed, but its Rust client (codsh --rust) does not verify on this machine:`)
       for (const line of String(check.stdout ?? '').split('\n').filter(Boolean)) console.error(`  ${line}`)
-      console.error(`  go back to the version you had:  npm install -g ${LAUNCHER}@${own.version}`)
+      console.error(`  go back to the version you had:  ${installCommand(installer.name, own.version).join(' ')}`)
       process.exit(1)
     }
   }

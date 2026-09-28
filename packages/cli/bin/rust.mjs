@@ -178,6 +178,109 @@ function installCheck(args) {
   return result.ok ? 0 : 1
 }
 
+/**
+ * `codsh --rust update [--check] [--to <version>] [--json]` (#198): move this
+ * codsh-cli install, which carries the Rust client, to the newest published
+ * version (or the one `--to` names, which is also the rollback), with the
+ * package manager that installed it, then verify the new package's client
+ * before saying it worked. The Rust Home is not touched (the next launch
+ * records and announces the change), the legacy ~/.dsh code profile is left
+ * to plain `codsh`, and nothing is downloaded outside that package manager.
+ * It runs before the staged client is verified: a broken install is exactly
+ * what it repairs.
+ */
+async function rustUpdate(args) {
+  let json = false
+  let check = false
+  let to
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--json') json = true
+    else if (arg === '--check') check = true
+    else if (arg === '--to' && typeof args[index + 1] === 'string' && !args[index + 1].startsWith('-')) to = args[++index]
+    else if (arg.startsWith('--to=') && arg.length > 5) to = arg.slice(5)
+    else {
+      console.error(`codsh: update takes --check, --to <version> and --json (got ${arg})`)
+      return 2
+    }
+  }
+  if (to !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(to)) {
+    console.error(`codsh: --to needs a version like 0.24.0 (got ${to})`)
+    return 2
+  }
+  const { detectInstaller, installCommand, newerVersion, publishedVersion } = await import('./installer.mjs')
+  const installer = detectInstaller({ packageRoot: fileURLToPath(new URL('..', import.meta.url)) })
+  if (installer.ignored) console.error(`codsh: ${installer.ignored}`)
+  const target = to ?? await publishedVersion()
+  const plan = {
+    schema: 'codsh.rust-update.v1',
+    current: OWN.version,
+    target: target ?? null,
+    installer: installer.name,
+    installerSource: installer.source,
+    rollback: installCommand(installer.name, OWN.version),
+  }
+  const emit = (fields, lines, stream = console.log) => {
+    if (json) process.stdout.write(`${JSON.stringify({ ...plan, ...fields }, null, 2)}\n`)
+    else for (const line of lines) stream(line)
+  }
+  if (target === undefined) {
+    emit({ action: 'unknown', ok: false, code: 'registry' }, ['codsh: could not reach the npm registry; nothing was changed'], console.error)
+    return 1
+  }
+  const command = installCommand(installer.name, target)
+  const action = target === OWN.version ? 'current' : to !== undefined || newerVersion(target, OWN.version) ? 'install' : 'current'
+  if (check || action === 'current') {
+    emit({ action, ok: true, command: action === 'install' ? command : null }, action === 'current'
+      ? [`codsh-cli ${OWN.version} is ${to === undefined ? 'the latest' : 'already installed'} (installer: ${installer.name}, from ${installer.source})`]
+      : [`codsh-cli ${OWN.version} → ${target} (installer: ${installer.name}, from ${installer.source})`, `  would run: ${command.join(' ')}`])
+    return 0
+  }
+  console.error(`codsh: ${command.join(' ')}`)
+  const installed = spawnSync(command[0], command.slice(1), {
+    stdio: ['inherit', json ? 2 : 'inherit', 'inherit'],
+    shell: process.platform === 'win32',
+  })
+  // Whatever the package manager did, the files on disk now decide what runs.
+  const verify = spawnSync(process.execPath, [fileURLToPath(new URL('./codsh.mjs', import.meta.url)), '--rust', 'install-check', '--json'], { encoding: 'utf8', timeout: 30_000 })
+  let report
+  try {
+    report = JSON.parse(verify.stdout)
+  } catch {
+    report = undefined
+  }
+  const onDisk = report?.launcher?.version
+  const failed = installed.error !== undefined || installed.status !== 0
+  if (failed) {
+    const still = report?.artifact?.ok === true && onDisk === OWN.version
+    emit({ action, ok: false, code: 'installer', command, onDisk: onDisk ?? null, artifact: report?.artifact ?? null }, [
+      `codsh: update failed — ${command[0]} ${installed.error ? `could not start (${installed.error.code ?? installed.error.message})` : `exited ${installed.status}`}`,
+      still ? `  codsh-cli ${OWN.version} is still installed and its Rust client verifies; nothing else changed` : `  what is installed now: ${onDisk ?? 'unreadable'}; check it with: codsh --rust install-check`,
+      `  retry:    ${command.join(' ')}`,
+      `  go back:  ${plan.rollback.join(' ')}`,
+    ], console.error)
+    return installed.status || 1
+  }
+  if (report?.ok !== true || onDisk !== target) {
+    const why = onDisk !== undefined && onDisk !== target
+      ? `${command[0]} finished, but the codsh-cli here is ${onDisk}, not ${target} (another install earlier on PATH, or a different global prefix)`
+      : `codsh-cli ${target} is installed, but its Rust client (codsh --rust) does not verify on this machine`
+    emit({ action, ok: false, code: onDisk !== target ? 'not-moved' : 'verify', command, onDisk: onDisk ?? null, artifact: report?.artifact ?? null, dsh: report?.dsh ?? null }, [
+      `codsh: ${why}:`,
+      ...(report?.artifact?.ok === false ? [`  ${report.artifact.message}`] : []),
+      ...(report?.dsh?.ok === false ? [`  ${report.dsh.message}`] : []),
+      `  go back to the version you had:  ${plan.rollback.join(' ')}`,
+    ], console.error)
+    return 1
+  }
+  emit({ action, ok: true, command, onDisk, artifact: report.artifact }, [
+    `codsh-cli ${target} installed with ${installer.name}; its Rust client verifies (${report.artifact.key}, sha256 ${String(report.artifact.sha256).slice(0, 12)}…)`,
+    `  sessions and settings in ${report.home.path} are kept; the next codsh --rust records the change`,
+    `  go back with:  ${plan.rollback.join(' ')}   (or codsh --rust update --to ${OWN.version})`,
+  ])
+  return 0
+}
+
 /** Record the running version in the Rust Home; say so when it changed. */
 function stampHome(root) {
   const file = join(root, 'codsh-version.json')
@@ -310,6 +413,7 @@ function privateDirectory(path) {
 export async function launchRust(args) {
   try {
     if (args[0] === 'install-check') return installCheck(args.slice(1))
+    if (args[0] === 'update') return await rustUpdate(args.slice(1))
     const artifact = verifyArtifact({ nativeRoot: fileURLToPath(new URL('../native/', import.meta.url)), version: OWN.version })
     if (!artifact.ok) {
       report(artifact)

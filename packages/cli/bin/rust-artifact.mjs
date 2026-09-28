@@ -92,6 +92,7 @@ export function recoverySteps(version) {
   return [
     `reinstall this version:   npm install -g ${pinned}`,
     'or return to an earlier:  npm install -g codsh-cli@<previous version>',
+    `with pnpm, Yarn or Bun:    codsh --rust update --to ${version ?? '<version>'}   (uses the package manager that installed codsh)`,
     'Your Rust Home (~/.codsh-rust) and the legacy ~/.dsh and ~/.grok are not touched by this check; plain `codsh` keeps working.',
   ]
 }

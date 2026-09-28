@@ -45,7 +45,7 @@ export function checkPackage({ directory = cli, requiredKeys = [] } = {}) {
   const packed = packedFiles(directory)
   const problems = []
   // Run-time files the launcher and its dsh plugins load from the package.
-  for (const file of ['bin/codsh.mjs', 'bin/rust.mjs', 'bin/rust-artifact.mjs', 'bin/rust-acp-dsh.mjs', 'package.json']) {
+  for (const file of ['bin/codsh.mjs', 'bin/rust.mjs', 'bin/rust-artifact.mjs', 'bin/installer.mjs', 'bin/rust-acp-dsh.mjs', 'package.json']) {
     if (!packed.files.has(file)) problems.push(`${file} is not in the pack list`)
   }
   const staged = availableKeys(join(directory, 'native'))
@@ -67,6 +67,13 @@ export function checkPackage({ directory = cli, requiredKeys = [] } = {}) {
     }
     if (![...packed.files].some(file => file.startsWith(`native/${key}/licenses/`))) problems.push(`${key}: no dependency license files are packed`)
     platforms.push(entry)
+  }
+  // `plugin install bundled:ship` reads the generated Ship extension from the
+  // package (build:rust or scripts/build-ship-extension.mjs writes it).
+  if (staged.length > 0) {
+    for (const file of ['extensions/ship/hooks/ship-hook.mjs', 'extensions/ship/hooks/ship-web.mjs', 'extensions/ship/commands/ship.md', 'extensions/ship/web/ship-web.js']) {
+      if (!packed.files.has(file)) problems.push(`${file} is not in the pack list (run node scripts/build-ship-extension.mjs)`)
+    }
   }
   for (const key of requiredKeys) {
     if (!staged.includes(key)) problems.push(`${key} is required but not staged (stage it on a matching machine with pnpm run build:rust)`)
