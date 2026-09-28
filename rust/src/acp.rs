@@ -869,6 +869,7 @@ impl AcpClient {
                 dsh_spawn_error(&spec.program, error)
             }
         })?;
+        LAST_SPAWNED.store(child.id(), std::sync::atomic::Ordering::SeqCst);
         let stdin = child.stdin.take();
         let stdout = child
             .stdout
@@ -2564,6 +2565,20 @@ impl AcpClient {
 /// grandchild running after the session ends.
 /// Upper bound for each shutdown step while background commands run.
 const LINGER_MS: u64 = 3000;
+
+/// The pid of the most recent dsh child, for [`kill_last_spawned`].
+static LAST_SPAWNED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Ends the most recently spawned dsh child and its group. Used when the
+/// user quits while the first connection is still starting (#202): dsh does
+/// not notice its stdin closing until its own startup is done, and without
+/// this it stays behind, reparented to init.
+pub fn kill_last_spawned() {
+    let pid = LAST_SPAWNED.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid != 0 {
+        kill_process_group(pid);
+    }
+}
 
 fn kill_process_group(pid: u32) {
     #[cfg(unix)]

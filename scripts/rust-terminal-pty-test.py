@@ -523,6 +523,59 @@ def alive(pid):
     return bool(state) and not state.startswith('Z')
 
 
+def check_early_quit(env, cwd, output, results):
+    """Ctrl+Q while dsh is still starting quits at once and leaves nothing (#202).
+
+    The first connection used to block the event loop for about a second, so
+    a quit right after the draft appeared took that long; dsh, still starting,
+    was then left behind reparented to init.
+    """
+    name = 'terminal-early-quit'
+    session = Session(name, LAUNCHER, cwd, env, output, extra=['--fullscreen', '--trust'], cols=100, rows=30)
+    try:
+        session.wait_visible('Draft (not sent)', 30)
+        connected = 'Connected to dsh ACP' in session.visible()
+        tree = descendants(session.process.pid)
+        started = time.monotonic()
+        session.write(b'\x11')
+        while session.process.poll() is None and time.monotonic() - started < 10:
+            session.pump(0.01)
+        seconds = time.monotonic() - started
+        code = session.process.poll()
+        assert code == 0, f'{name}: launcher exit {code}'
+        # Only judged when the quit really happened during the connection.
+        if not connected:
+            assert seconds < 0.5, f'{name}: quit during connect took {seconds:.2f}s'
+        tree = sorted(set(tree) | set(descendants(session.process.pid)))
+        deadline = time.monotonic() + 5
+        left = tree
+        while time.monotonic() < deadline:
+            left = [pid for pid in tree if alive(pid)]
+            if not left:
+                break
+            time.sleep(0.1)
+        assert not left, f'{name}: processes left after an early quit: {left}'
+        assert b'\x1b[?1049l' in bytes(session.data), f'{name}: the alternate screen was not left'
+        results['terminal_early_quit'] = {'during_connect': not connected, 'quit_ms': round(seconds * 1000)}
+    finally:
+        session.close()
+
+
+def check_early_keys(env, cwd, output, results):
+    """Text typed while dsh is still starting is kept in the draft (#202)."""
+    name = 'terminal-early-keys'
+    session = Session(name, LAUNCHER, cwd, env, output, extra=['--fullscreen', '--trust'], cols=100, rows=30)
+    try:
+        session.wait_visible('Draft (not sent)', 30)
+        connected = 'Connected to dsh ACP' in session.visible()
+        session.write('EARLY_TEXT 早')
+        session.wait_visible('Connected to dsh ACP', 30)
+        session.wait_visible('EARLY_TEXT 早', 5)
+        results['terminal_early_keys'] = {'typed_during_connect': not connected, 'kept': True}
+    finally:
+        session.close()
+
+
 def check_hangup(env, cwd, output, results, signal_launcher):
     """A closed terminal window ends the client, dsh and the launcher (#202/#209).
 
@@ -582,6 +635,8 @@ def main():
         check_wrap(env, cwd, work, isolated_grok, results)
         check_doctor(env, cwd, work, home, results)
         check_tui(env, cwd, work, isolated_grok, output, results)
+        check_early_quit(env, cwd, output, results)
+        check_early_keys(env, cwd, output, results)
         check_hangup(env, cwd, output, results, signal_launcher=False)
         check_hangup(env, cwd, output, results, signal_launcher=True)
     print(json.dumps({'output': str(output), 'results': results}, indent=2, default=str))

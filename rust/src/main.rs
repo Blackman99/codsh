@@ -3193,6 +3193,57 @@ fn connect(
     ))
 }
 
+/// The first connection waits for dsh to start (about a second). It runs on
+/// a worker thread so Ctrl+Q quits at once instead of after it (#202): the
+/// quit returns `None`. Every other terminal event is kept, in order, for the
+/// event loop.
+fn connect_at_startup(
+    mode: &LaunchMode,
+    extra_env: &[(String, String)],
+    patch: Option<&PathBuf>,
+    fork_session: bool,
+    child_id: Option<&str>,
+    pending: &mut std::collections::VecDeque<Event>,
+) -> Option<Result<(Connection, Vec<Turn>), String>> {
+    let (mode, extra_env, patch, child_id) = (
+        mode.clone(),
+        extra_env.to_vec(),
+        patch.cloned(),
+        child_id.map(str::to_string),
+    );
+    let worker = std::thread::spawn(move || {
+        connect(
+            &mode,
+            None,
+            &extra_env,
+            patch.as_ref(),
+            fork_session,
+            child_id.as_deref(),
+        )
+    });
+    while !worker.is_finished() {
+        if !event::poll(Duration::from_millis(10)).unwrap_or(false) {
+            continue;
+        }
+        match event::read() {
+            Ok(Event::Key(key))
+                if key.kind == KeyEventKind::Press
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('q') =>
+            {
+                return None;
+            }
+            Ok(event) => pending.push_back(event),
+            Err(_) => break,
+        }
+    }
+    Some(
+        worker
+            .join()
+            .unwrap_or_else(|_| Err("the dsh connection failed unexpectedly".into())),
+    )
+}
+
 /// Connect to the remote hub over ssh (ticket 190). The session directory is
 /// the remote path; history comes from the remote hub's `session/load`
 /// replay, never from this machine's dsh home, and no local owner lease is
@@ -10071,15 +10122,27 @@ fn run() -> io::Result<()> {
     // A resumed or forked transcript already had its first turn. `/new`
     // clears `turns`, so the next prompt is that session's first turn.
     let mut memory_injected: bool = resumed && !turns.is_empty();
+    let mut pending_events: std::collections::VecDeque<Event> = std::collections::VecDeque::new();
     let mut client = if startup_can_execute {
-        match connect(
+        let connected = match connect_at_startup(
             &mode,
-            None,
             &extra_env,
             patch.as_ref(),
             launch.fork_session,
             launch.child_id.as_deref(),
+            &mut pending_events,
         ) {
+            Some(connected) => connected,
+            None => {
+                // Ctrl+Q while dsh was still starting. dsh would not notice
+                // its stdin closing until its startup is done, so end it
+                // (and its group) here before leaving.
+                acp::kill_last_spawned();
+                drop(guard);
+                std::process::exit(0);
+            }
+        };
+        match connected {
             Ok((connection, restored)) => {
                 resumed = connection.resumed;
                 previous_session = connection.client.session_id.clone();
@@ -11014,12 +11077,18 @@ fn run() -> io::Result<()> {
             }
             continue;
         }
-        if !wait_for_input(Duration::from_millis(80), || {
-            client.as_ref().is_some_and(AcpClient::has_unread)
-        })? {
-            continue;
-        }
-        let event = event::read()?;
+        // Keys typed while dsh was starting come first, in order.
+        let event = match pending_events.pop_front() {
+            Some(event) => event,
+            None => {
+                if !wait_for_input(Duration::from_millis(80), || {
+                    client.as_ref().is_some_and(AcpClient::has_unread)
+                })? {
+                    continue;
+                }
+                event::read()?
+            }
+        };
         #[cfg(windows)]
         let event = match event {
             Event::Key(key) => Event::Key(unpaired.normalize(key)),
