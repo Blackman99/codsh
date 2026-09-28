@@ -111,7 +111,7 @@ class Console:
             if text in shown:
                 return shown
             time.sleep(0.25)
-        raise AssertionError(f'{self.name}: missing {text!r}\n{self.visible()}\nraw={self.raw()[-2500:]!r}')
+        raise AssertionError(f'{self.name}: missing {text!r}\n{self.visible()}\nraw(tail)={self.raw()[-1200:]!r}')
 
     def wait_raw(self, pattern, seconds=40, since=0):
         deadline = time.monotonic() + seconds
@@ -147,6 +147,12 @@ class Console:
         return {'name': self.name, 'exit': exit_code, 'consoleMode': self.mode_before, 'screen': shown}
 
     def close(self):
+        # Keep what the screen showed, pass or fail, for the evidence artifact.
+        try:
+            (self.output / f'{self.name}.ansi').write_bytes(self.raw())
+            (self.output / f'{self.name}-screen.txt').write_text(self.visible(), encoding='utf-8')
+        except Exception:
+            pass
         try:
             if self.proc.isalive():
                 self.proc.terminate(force=True)
@@ -235,7 +241,8 @@ def main():
             report['steps'].append({'name': name, 'ok': True, 'seconds': round(time.monotonic() - started, 1), 'detail': detail})
             print(f'PASS {name} ({time.monotonic() - started:.1f}s)', flush=True)
         except Exception as error:  # noqa: BLE001 - recorded, then the run fails
-            text = f'{str(error)[-6000:]}\n{dsh_log()}'
+            message = str(error)
+            text = f'{message[:5000]}\n{dsh_log()}'
             report['steps'].append({'name': name, 'ok': False, 'seconds': round(time.monotonic() - started, 1), 'error': text})
             print(f'FAIL {name} ({time.monotonic() - started:.1f}s)\n{text}', flush=True)
 
