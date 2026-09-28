@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 NODE = shutil.which('node')
 NPM = shutil.which('npm.cmd') or shutil.which('npm')
 MODE_PROBE = ('import ctypes,sys;k=ctypes.windll.kernel32;h=k.GetStdHandle(-10);m=ctypes.c_uint32();'
-              'k.GetConsoleMode(h,ctypes.byref(m));print("CONSOLE_MODE=%08x" % m.value)')
+              "k.GetConsoleMode(h,ctypes.byref(m));print('CONSOLE_MODE=%08x' % m.value)")
 MODE_RE = re.compile(r'CONSOLE_MODE=([0-9a-f]{8})')
 SESSION_RE = re.compile(r'\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b')
 
@@ -217,6 +217,14 @@ def main():
     for tool in ('cargo', 'rustc', 'rustup'):
         base_env.pop(tool.upper(), None)
 
+    dsh_home = home / '.codsh-rust' / 'dsh'
+
+    def dsh_log():
+        log = dsh_home / 'acp-stderr.log'
+        if not log.exists():
+            return f'(no {log})'
+        return f'--- {log} (tail) ---\n' + '\n'.join(log.read_text(encoding='utf-8', errors='replace').splitlines()[-80:])
+
     def step(name, fn):
         started = time.monotonic()
         try:
@@ -224,8 +232,9 @@ def main():
             report['steps'].append({'name': name, 'ok': True, 'seconds': round(time.monotonic() - started, 1), 'detail': detail})
             print(f'PASS {name} ({time.monotonic() - started:.1f}s)', flush=True)
         except Exception as error:  # noqa: BLE001 - recorded, then the run fails
-            report['steps'].append({'name': name, 'ok': False, 'seconds': round(time.monotonic() - started, 1), 'error': str(error)[-6000:]})
-            print(f'FAIL {name} ({time.monotonic() - started:.1f}s)\n{str(error)[-6000:]}', flush=True)
+            text = f'{str(error)[-6000:]}\n{dsh_log()}'
+            report['steps'].append({'name': name, 'ok': False, 'seconds': round(time.monotonic() - started, 1), 'error': text})
+            print(f'FAIL {name} ({time.monotonic() - started:.1f}s)\n{text}', flush=True)
 
     def client(*extra):
         return [NODE, str(launcher), '--rust', *extra]
@@ -377,6 +386,10 @@ def main():
                      ('resume', resume), ('sandbox-refused', sandbox_refused)):
         step(name, fn)
     report['ok'] = all(item['ok'] for item in report['steps'])
+    # dsh's own logs from the isolated Home, for the evidence artifact.
+    if dsh_home.exists():
+        for log in dsh_home.rglob('*.log'):
+            shutil.copy(log, output / f'dsh-{log.name}')
     report['untested'] = [
         'real terminal emulators other than the ConPTY harness (Windows Terminal, conhost window, VS Code) (#201)',
         'clipboard, notifications, microphone (#201)',
