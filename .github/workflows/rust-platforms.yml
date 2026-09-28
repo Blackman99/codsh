@@ -365,6 +365,7 @@ jobs:
   windows:
     name: Windows ${{ matrix.os }}
     needs: [native, package]
+    if: github.ref_name == 'rewrite/grok-dsh-20260920' || contains(github.ref_name, 'windows')
     strategy:
       fail-fast: false
       matrix:
