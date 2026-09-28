@@ -80,6 +80,83 @@ export function sniffExecutable(bytes) {
   return { format: 'unknown', cpus: [] }
 }
 
+/**
+ * What a Linux (ELF64 little-endian) executable needs from the system it runs
+ * on: its DT_NEEDED shared libraries and the newest GLIBC_* symbol version it
+ * references (#199). Reads section headers only; nothing is executed.
+ * @param {Buffer} bytes - the whole file.
+ * @returns {{needed: string[], glibc: string | undefined, versions: Record<string, string[]>} | undefined}
+ */
+export function elfRequirements(bytes) {
+  if (bytes.length < 64 || bytes[0] !== 0x7f || bytes.toString('latin1', 1, 4) !== 'ELF' || bytes[4] !== 2 || bytes[5] !== 1) return undefined
+  const big = value => Number(value)
+  const shoff = big(bytes.readBigUInt64LE(0x28))
+  const shentsize = bytes.readUInt16LE(0x3a)
+  const shnum = bytes.readUInt16LE(0x3c)
+  if (shoff === 0 || shentsize < 64 || shoff + shnum * shentsize > bytes.length) return undefined
+  const sections = []
+  for (let index = 0; index < shnum; index += 1) {
+    const at = shoff + index * shentsize
+    sections.push({
+      type: bytes.readUInt32LE(at + 4),
+      offset: big(bytes.readBigUInt64LE(at + 0x18)),
+      size: big(bytes.readBigUInt64LE(at + 0x20)),
+      link: bytes.readUInt32LE(at + 0x28),
+      info: bytes.readUInt32LE(at + 0x2c),
+    })
+  }
+  const cString = (table, offset) => {
+    if (table === undefined || offset >= table.size) return ''
+    const start = table.offset + offset
+    const end = bytes.indexOf(0, start)
+    return bytes.toString('latin1', start, end < 0 ? start : end)
+  }
+  const needed = []
+  const dynamic = sections.find(section => section.type === 6)
+  if (dynamic !== undefined) {
+    const strings = sections[dynamic.link]
+    for (let at = dynamic.offset; at + 16 <= dynamic.offset + dynamic.size && at + 16 <= bytes.length; at += 16) {
+      const tag = bytes.readBigUInt64LE(at)
+      if (tag === 0n) break
+      if (tag === 1n) needed.push(cString(strings, big(bytes.readBigUInt64LE(at + 8))))
+    }
+  }
+  const versions = {}
+  let glibc
+  const verneed = sections.find(section => section.type === 0x6ffffffe)
+  if (verneed !== undefined) {
+    const strings = sections[verneed.link]
+    let entry = verneed.offset
+    for (let count = 0; count < verneed.info && entry + 16 <= bytes.length; count += 1) {
+      const file = cString(strings, bytes.readUInt32LE(entry + 4))
+      const auxCount = bytes.readUInt16LE(entry + 2)
+      let aux = entry + bytes.readUInt32LE(entry + 8)
+      const names = []
+      for (let index = 0; index < auxCount && aux + 16 <= bytes.length; index += 1) {
+        const name = cString(strings, bytes.readUInt32LE(aux + 8))
+        names.push(name)
+        const match = /^GLIBC_(\d+\.\d+(?:\.\d+)?)$/u.exec(name)
+        if (match !== null && (glibc === undefined || versionAtLeast(padVersion(match[1]), padVersion(glibc)) === true)) glibc = match[1]
+        const next = bytes.readUInt32LE(aux + 12)
+        if (next === 0) break
+        aux += next
+      }
+      versions[file] = names
+      const next = bytes.readUInt32LE(entry + 12)
+      if (next === 0) break
+      entry += next
+    }
+  }
+  return { needed, glibc, versions }
+}
+
+/** `2.35` → `2.35.0`, for the x.y.z comparison. */
+function padVersion(version) {
+  const parts = String(version).split('.')
+  while (parts.length < 3) parts.push('0')
+  return parts.slice(0, 3).join('.')
+}
+
 /** Which staged key an executable header can serve, for messages. */
 function describeHeader(header) {
   const platform = { 'mach-o': 'macOS', elf: 'Linux', pe: 'Windows' }[header.format]
@@ -161,6 +238,89 @@ export function verifyArtifact({ nativeRoot, version, platform = process.platfor
     return problem('version', `Rust client ${manifest.version} does not match this codsh-cli ${version}: an update did not finish.`, version, { key, artifactVersion: manifest.version })
   }
   return { ok: true, key, directory, binary, manifest, header, sha256: digest }
+}
+
+// ---------------------------------------------------------------------------
+// Linux runtime (#199)
+
+/** Distribution packages that provide a shared library, for the fix line. */
+const LIBRARY_PACKAGES = {
+  'libgcc_s.so.1': { apt: 'libgcc-s1', dnf: 'libgcc', zypper: 'libgcc_s1', pacman: 'gcc-libs' },
+  'libssl.so.3': { apt: 'libssl3', dnf: 'openssl-libs', zypper: 'libopenssl3', pacman: 'openssl' },
+  'libcrypto.so.3': { apt: 'libssl3', dnf: 'openssl-libs', zypper: 'libopenssl3', pacman: 'openssl' },
+  'libz.so.1': { apt: 'zlib1g', dnf: 'zlib', zypper: 'libz1', pacman: 'zlib' },
+  'libzstd.so.1': { apt: 'libzstd1', dnf: 'libzstd', zypper: 'libzstd1', pacman: 'zstd' },
+}
+
+/** Libraries glibc itself provides; present wherever glibc is. */
+const GLIBC_LIBRARIES = /^(libc|libm|libdl|libpthread|librt|libutil|ld-linux(-x86-64|-aarch64)?)\.so\.\d+$/u
+
+/** The C library this Node runs on: glibc and its version, or not glibc. */
+export function linuxLibc(report = () => process.report?.getReport?.()) {
+  let header
+  try {
+    header = report()?.header
+  } catch {
+    header = undefined
+  }
+  const glibc = typeof header?.glibcVersionRuntime === 'string' ? header.glibcVersionRuntime : undefined
+  return glibc === undefined ? { family: 'other' } : { family: 'glibc', version: glibc }
+}
+
+/** Whether the dynamic loader can find a library: LD_LIBRARY_PATH, ld.so.cache, the usual directories. */
+export function libraryPresent(name, { env = process.env, arch = process.arch, cache = '/etc/ld.so.cache' } = {}) {
+  const multiarch = arch === 'arm64' ? 'aarch64-linux-gnu' : 'x86_64-linux-gnu'
+  const directories = [
+    ...String(env.LD_LIBRARY_PATH ?? '').split(':').filter(dir => dir !== '' && isAbsolute(dir)),
+    `/lib/${multiarch}`, `/usr/lib/${multiarch}`, '/lib64', '/usr/lib64', '/lib', '/usr/lib', '/usr/local/lib',
+  ]
+  if (directories.some(dir => existsSync(join(dir, name)))) return true
+  try {
+    return readFileSync(cache).includes(Buffer.from(`${name}\0`, 'latin1'))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether this Linux can load the staged client, from the requirements the
+ * build recorded in artifact.json (`runtime.glibc`, `runtime.needed`). A
+ * manifest without them (an older local candidate) is let through.
+ */
+export function linuxRuntimeProblem(manifest, { libc = linuxLibc(), present = libraryPresent } = {}) {
+  const runtime = manifest?.runtime
+  if (manifest?.platform !== 'linux' || runtime === undefined || runtime === null) return undefined
+  const need = typeof runtime.glibc === 'string' ? runtime.glibc : undefined
+  const keep = 'plain `codsh` (the Node.js runtime) keeps working on this machine.'
+  if (need !== undefined && libc.family !== 'glibc') {
+    return {
+      ok: false, code: 'libc',
+      message: `the prebuilt Linux Rust client needs glibc ${need} or newer, and this system has no glibc (musl, as on Alpine, is not supported).`,
+      recovery: ['run codsh --rust on a glibc distribution or container (Ubuntu 22.04+, Debian 12+, Fedora 36+)', keep],
+    }
+  }
+  if (need !== undefined && versionAtLeast(padVersion(libc.version), padVersion(need)) === false) {
+    return {
+      ok: false, code: 'glibc',
+      message: `this Linux has glibc ${libc.version}; the prebuilt Rust client needs glibc ${need} or newer.`,
+      recovery: ['upgrade to a distribution with a newer glibc (Ubuntu 22.04+, Debian 12+, Fedora 36+, RHEL 10+), or use such a container', keep],
+    }
+  }
+  const missing = (Array.isArray(runtime.needed) ? runtime.needed : [])
+    .filter(name => typeof name === 'string' && !GLIBC_LIBRARIES.test(name) && !present(name))
+  if (missing.length > 0) {
+    const packages = key => [...new Set(missing.map(name => LIBRARY_PACKAGES[name]?.[key]).filter(Boolean))].join(' ')
+    const known = missing.every(name => LIBRARY_PACKAGES[name] !== undefined)
+    return {
+      ok: false, code: 'library',
+      message: `the Rust client needs ${missing.join(', ')}, which the dynamic loader cannot find on this system.`,
+      recovery: known
+        ? [`Debian/Ubuntu:  sudo apt install ${packages('apt')}`, `Fedora/RHEL:    sudo dnf install ${packages('dnf')}`, `openSUSE:       sudo zypper install ${packages('zypper')}`, `Arch:           sudo pacman -S ${packages('pacman')}`, keep]
+        : [`install the package that provides ${missing.join(', ')} (or add its directory to LD_LIBRARY_PATH)`, `then check again: codsh --rust install-check`, keep],
+      missing,
+    }
+  }
+  return undefined
 }
 
 // ---------------------------------------------------------------------------

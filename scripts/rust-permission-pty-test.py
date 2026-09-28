@@ -134,8 +134,9 @@ def spawn_inspect(launcher, cwd, env, extra):
 
 
 def main():
-    if sys.platform != 'darwin':
-        raise SystemExit('macOS PTY evidence required')
+    # macOS and Linux (#199); native Windows has no POSIX PTY (ticket 68).
+    if sys.platform not in ('darwin', 'linux'):
+        raise SystemExit('macOS or Linux PTY required')
     output = Path(tempfile.mkdtemp(prefix='codsh-rust-permission-', dir='/tmp'))
     dsh = dsh_bin()
     overlay = overlay_text()

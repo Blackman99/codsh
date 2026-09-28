@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { buildShipExtension } from './build-ship-extension.mjs'
-import { NATIVE_TARGETS, binaryName, keyForTarget, sniffExecutable } from '../packages/cli/bin/rust-artifact.mjs'
+import { NATIVE_TARGETS, binaryName, elfRequirements, keyForTarget, sniffExecutable } from '../packages/cli/bin/rust-artifact.mjs'
 
 // `pnpm run build:rust` stages the host build. `-- --target <triple>` stages
 // another target from this machine (for example x86_64-apple-darwin on an
@@ -63,7 +63,14 @@ const records = [...closure].sort().map(id => {
   const dest = join(directory, 'licenses', `${pkg.name}-${pkg.version}`)
   mkdirSync(dest, { recursive: true })
   for (const license of licenses) copyFileSync(join(source, license.name), join(dest, license.name))
-  return { name: pkg.name, version: pkg.version, license: pkg.license, source: pkg.source, repository: pkg.repository, licenseFiles: licenses.map(entry => `licenses/${pkg.name}-${pkg.version}/${entry.name}`) }
+  const licenseFiles = licenses.map(entry => `licenses/${pkg.name}-${pkg.version}/${entry.name}`)
+  // openssl-src's own files cover the crate; the OpenSSL library it compiles
+  // into the Linux client (#199) is Apache-2.0 under openssl/LICENSE.txt.
+  if (pkg.name === 'openssl-src' && existsSync(join(source, 'openssl', 'LICENSE.txt'))) {
+    copyFileSync(join(source, 'openssl', 'LICENSE.txt'), join(dest, 'OPENSSL-LICENSE.txt'))
+    licenseFiles.push(`licenses/${pkg.name}-${pkg.version}/OPENSSL-LICENSE.txt`)
+  }
+  return { name: pkg.name, version: pkg.version, license: pkg.license, source: pkg.source, repository: pkg.repository, licenseFiles }
 })
 for (const name of ['LICENSE', 'THIRD-PARTY-NOTICES', 'MODIFICATIONS', 'import.json']) {
   copyFileSync(join(root, 'rust/upstream', name), join(directory, `UPSTREAM-${name}`))
@@ -89,6 +96,9 @@ writeFileSync(join(directory, 'artifact.json'), `${JSON.stringify({
   requiresDsh: cli.codsh?.requiresDsh,
   binary: filename,
   format: header.format,
+  // What the system must provide (#199): glibc floor and shared libraries,
+  // read from the ELF itself; the launcher checks them before starting it.
+  ...(header.format === 'elf' ? { runtime: (({ glibc, needed }) => ({ libc: 'glibc', glibc, needed }))(elfRequirements(readFileSync(join(directory, filename)))) } : {}),
   sha256: createHash('sha256').update(readFileSync(join(directory, filename))).digest('hex'),
   upstream: 'a28ee2b2063426e8816e380ccea528b9de95e5da',
   behaviorReference: '1.0.34 / 3736acbc8658; exact source correspondence unproven',
