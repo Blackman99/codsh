@@ -342,6 +342,9 @@ pub struct AcpClient {
     child: Child,
     stdin: Option<ChildStdin>,
     rx: Receiver<Line>,
+    /// Lines the reader threads have queued and `pump` has not taken yet, so
+    /// the UI loop can stop waiting for a key the moment dsh sends something.
+    unread: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     next_id: u64,
     pending: HashMap<u64, PendingKind>,
     completed: HashMap<u64, Result<Value, AcpError>>,
@@ -873,12 +876,14 @@ impl AcpClient {
             .ok_or_else(|| io::Error::other("missing ACP stdout"))?;
         let stderr = child.stderr.take();
         let (tx, rx) = mpsc::channel();
+        let unread = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let remote_stderr = spec
             .remote
             .then(|| std::sync::Arc::new(std::sync::Mutex::new(String::new())));
         if let Some(stderr) = stderr {
             let log_path = spec.stderr_log.clone();
             let stderr_tx = tx.clone();
+            let stderr_unread = unread.clone();
             let last = remote_stderr.clone();
             thread::spawn(move || {
                 let mut file = log_path.and_then(|path| std::fs::File::create(path).ok());
@@ -898,17 +903,21 @@ impl AcpClient {
                             }
                         }
                         None => {
+                            stderr_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                             let _ = stderr_tx.send(Line::Stderr(text));
                         }
                     }
                 }
             });
         }
+        let stdout_unread = unread.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
                 match line {
                     Ok(text) => {
+                        // Counted before it is sent, so the count never trails the queue.
+                        stdout_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         if tx.send(Line::Text(text)).is_err() {
                             break;
                         }
@@ -916,12 +925,14 @@ impl AcpClient {
                     Err(_) => break,
                 }
             }
+            stdout_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let _ = tx.send(Line::Eof);
         });
         Ok(Self {
             child,
             stdin,
             rx,
+            unread,
             next_id: 1,
             pending: HashMap::new(),
             completed: HashMap::new(),
@@ -1889,6 +1900,19 @@ impl AcpClient {
         }
     }
 
+    fn take_unread(&self) {
+        let _ = self.unread.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |count| count.checked_sub(1),
+        );
+    }
+
+    /// dsh has sent something `pump` has not handed out yet.
+    pub fn has_unread(&self) -> bool {
+        !self.held.is_empty() || self.unread.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
         let mut events = std::mem::take(&mut self.held);
         events.extend(self.renew_identity_when_due());
@@ -1903,7 +1927,11 @@ impl AcpClient {
             } else {
                 remaining
             };
-            match self.rx.recv_timeout(wait) {
+            let received = self.rx.recv_timeout(wait);
+            if received.is_ok() {
+                self.take_unread();
+            }
+            match received {
                 Ok(Line::Text(line)) => events.extend(self.handle_line(&line)),
                 Ok(Line::Stderr(text)) => events.push(stderr_event(text)),
                 Ok(Line::Eof) => {
@@ -1925,6 +1953,7 @@ impl AcpClient {
             }
             if timeout == Duration::ZERO {
                 while let Ok(line) = self.rx.try_recv() {
+                    self.take_unread();
                     match line {
                         Line::Text(text) => events.extend(self.handle_line(&text)),
                         Line::Stderr(text) => events.push(stderr_event(text)),

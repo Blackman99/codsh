@@ -501,6 +501,61 @@ def check_tui(env, cwd, work, isolated_grok, output, results):
         again.close()
 
 
+def descendants(pid):
+    """Every live descendant of pid (from ps), zombies excluded."""
+    rows = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,stat='], capture_output=True, text=True).stdout.split('\n')
+    children, states = {}, {}
+    for row in rows:
+        parts = row.split()
+        if len(parts) >= 3:
+            children.setdefault(int(parts[1]), []).append(int(parts[0]))
+            states[int(parts[0])] = parts[2]
+    found, stack = [], [pid]
+    while stack:
+        for child in children.get(stack.pop(), []):
+            found.append(child)
+            stack.append(child)
+    return [child for child in found if not states.get(child, 'Z').startswith('Z')]
+
+
+def alive(pid):
+    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith('Z')
+
+
+def check_hangup(env, cwd, output, results, signal_launcher):
+    """A closed terminal window ends the client, dsh and the launcher (#202/#209).
+
+    crossterm 0.28 spins on read() == 0 once the PTY master is gone; before the
+    fix the client and dsh stayed alive at high CPU forever. The master is
+    closed with (like a real terminal's session leader) or without SIGHUP.
+    """
+    name = 'terminal-hangup-sighup' if signal_launcher else 'terminal-hangup'
+    session = Session(name, LAUNCHER, cwd, env, output, extra=['--fullscreen', '--trust'], cols=100, rows=30)
+    try:
+        session.wait_visible('Connected to dsh ACP', 30)
+        tree = descendants(session.process.pid)
+        assert len(tree) >= 2, f'expected the client and dsh under the launcher, got {tree}'
+        closed = time.monotonic()
+        os.close(session.master)
+        session.master = os.open('/dev/null', os.O_RDWR)
+        if signal_launcher:
+            os.kill(session.process.pid, signal.SIGHUP)
+        deadline = closed + 10
+        left = tree
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            left = [pid for pid in tree if alive(pid)]
+            if session.process.poll() is not None and not left:
+                break
+        code = session.process.poll()
+        assert code is not None, f'{name}: launcher still running 10s after the terminal closed'
+        assert not left, f'{name}: processes left after the terminal closed: {left}'
+        results[name.replace('-', '_')] = {'exit': code, 'seconds': round(time.monotonic() - closed, 1)}
+    finally:
+        session.close()
+
+
 def main():
     if not sys.platform.startswith(('linux', 'darwin')):
         raise SystemExit('PTY evidence needs Linux or macOS')
@@ -527,6 +582,8 @@ def main():
         check_wrap(env, cwd, work, isolated_grok, results)
         check_doctor(env, cwd, work, home, results)
         check_tui(env, cwd, work, isolated_grok, output, results)
+        check_hangup(env, cwd, output, results, signal_launcher=False)
+        check_hangup(env, cwd, output, results, signal_launcher=True)
     print(json.dumps({'output': str(output), 'results': results}, indent=2, default=str))
 
 

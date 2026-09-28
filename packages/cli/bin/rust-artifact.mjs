@@ -14,7 +14,7 @@
  * makes a rollback visible. Zero dependencies, like the rest of the launcher.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { closeSync, existsSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, isAbsolute, join } from 'node:path'
 
 /** Staged directory → Rust target triple and executable format. */
@@ -194,9 +194,11 @@ export function availableKeys(nativeRoot) {
  * @param {string} options.version - this codsh-cli package version.
  * @param {string} [options.platform]
  * @param {string} [options.arch]
+ * @param {string} [options.cacheFile] - where a verified binary's file identity is remembered, so a
+ *   launch of the same unchanged file skips re-hashing it (#202); install-check never passes one.
  * @returns ok with `binary`, `directory`, `manifest`; or a problem with `code`, `message`, `recovery`.
  */
-export function verifyArtifact({ nativeRoot, version, platform = process.platform, arch = process.arch }) {
+export function verifyArtifact({ nativeRoot, version, platform = process.platform, arch = process.arch, cacheFile }) {
   const key = nativeKey(platform, arch)
   const directory = join(nativeRoot, key)
   const binary = join(directory, binaryName(platform))
@@ -222,13 +224,23 @@ export function verifyArtifact({ nativeRoot, version, platform = process.platfor
   if (manifest?.platform !== platform || manifest?.arch !== arch) {
     return problem('target', `Rust client artifact integrity/platform mismatch: ${key} holds a manifest for ${manifest?.platform}-${manifest?.arch}.`, version, { key })
   }
-  const bytes = readFileSync(binary)
-  const digest = createHash('sha256').update(bytes).digest('hex')
-  if (manifest.sha256 !== digest) {
-    return problem('corrupt', `Rust client artifact integrity/platform mismatch: the ${key} binary does not match its SHA-256 (damaged or incomplete download).`, version, { key, expected: manifest.sha256, actual: digest })
+  const identity = fileIdentity(binary)
+  const remembered = cacheFile !== undefined && identity !== undefined && typeof manifest.sha256 === 'string'
+    && sameVerified(readVerified(cacheFile), binary, identity, manifest.sha256)
+  let digest = manifest.sha256
+  let head
+  if (remembered) {
+    head = readHead(binary)
+  } else {
+    const bytes = readFileSync(binary)
+    digest = createHash('sha256').update(bytes).digest('hex')
+    if (manifest.sha256 !== digest) {
+      return problem('corrupt', `Rust client artifact integrity/platform mismatch: the ${key} binary does not match its SHA-256 (damaged or incomplete download).`, version, { key, expected: manifest.sha256, actual: digest })
+    }
+    head = bytes.subarray(0, 4096)
   }
   const expected = NATIVE_TARGETS[key]
-  const header = sniffExecutable(bytes.subarray(0, 4096))
+  const header = sniffExecutable(head)
   if (expected !== undefined && (header.format !== expected.format || !header.cpus.includes(expected.cpu))) {
     return problem('target', `Rust client artifact integrity/platform mismatch: ${key} contains ${describeHeader(header)}, not a ${expected.format} ${expected.cpu} build.`, version, { key, header })
   }
@@ -237,7 +249,56 @@ export function verifyArtifact({ nativeRoot, version, platform = process.platfor
   if (manifest.version !== undefined && version !== undefined && manifest.version !== version) {
     return problem('version', `Rust client ${manifest.version} does not match this codsh-cli ${version}: an update did not finish.`, version, { key, artifactVersion: manifest.version })
   }
+  if (cacheFile !== undefined && identity !== undefined && !remembered) rememberVerified(cacheFile, binary, identity, digest)
   return { ok: true, key, directory, binary, manifest, header, sha256: digest }
+}
+
+// A launch re-hashed the whole client (tens of MB) every time: most of the
+// launcher's start-up. The same file, unchanged since it was hashed, keeps its
+// verdict: a replaced, rewritten or damaged-and-rewritten file has a new
+// inode, size, mtime or ctime and is hashed again.
+function fileIdentity(file) {
+  try {
+    const stat = statSync(file, { bigint: true })
+    return { dev: String(stat.dev), ino: String(stat.ino), size: String(stat.size), mtimeNs: String(stat.mtimeNs), ctimeNs: String(stat.ctimeNs) }
+  } catch {
+    return undefined
+  }
+}
+
+function readVerified(cacheFile) {
+  try {
+    if (lstatSync(cacheFile).isSymbolicLink()) return undefined
+    return JSON.parse(readFileSync(cacheFile, 'utf8'))
+  } catch {
+    return undefined
+  }
+}
+
+function sameVerified(record, binary, identity, sha256) {
+  return record?.schema === 'codsh.artifact-verified.v1' && record.binary === binary && record.sha256 === sha256
+    && Object.entries(identity).every(([field, value]) => record.identity?.[field] === value)
+}
+
+function rememberVerified(cacheFile, binary, identity, sha256) {
+  try {
+    // Only into a real directory that already exists (lstat: a symlinked Home is refused later).
+    if (!lstatSync(dirname(cacheFile), { throwIfNoEntry: false })?.isDirectory()) return
+    if (lstatSync(cacheFile, { throwIfNoEntry: false })?.isSymbolicLink()) return
+    writeFileSync(cacheFile, `${JSON.stringify({ schema: 'codsh.artifact-verified.v1', binary, sha256, identity })}\n`, { mode: 0o600 })
+  } catch {
+    // Only a cache: the next launch hashes again.
+  }
+}
+
+function readHead(file) {
+  const fd = openSync(file, 'r')
+  try {
+    const head = Buffer.alloc(4096)
+    return head.subarray(0, readSync(fd, head, 0, head.length, 0))
+  } finally {
+    closeSync(fd)
+  }
 }
 
 // ---------------------------------------------------------------------------

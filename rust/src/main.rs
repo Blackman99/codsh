@@ -331,6 +331,26 @@ fn restore_terminal() {
     let _ = io::stdout().flush();
 }
 
+/// Waits up to `idle` for a terminal event, returning early (false) as soon as
+/// `wake` reports other work: an answer dsh sent is painted within one slice
+/// instead of after the rest of an idle tick (#202).
+fn wait_for_input(idle: Duration, wake: impl Fn() -> bool) -> io::Result<bool> {
+    const SLICE: Duration = Duration::from_millis(8);
+    let deadline = Instant::now() + idle;
+    loop {
+        if wake() {
+            return Ok(false);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        if event::poll(remaining.min(SLICE))? {
+            return Ok(true);
+        }
+    }
+}
+
 fn open_terminal(mode: ScreenMode) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     let backend = CrosstermBackend::new(io::stdout());
     match mode {
@@ -9917,6 +9937,13 @@ fn run() -> io::Result<()> {
     ] {
         signal_hook::flag::register(signal, Arc::clone(&stopping))?;
     }
+    let loop_done = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        let hangup = Arc::new(AtomicBool::new(false));
+        signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&hangup))?;
+        arm_hangup_watchdog(hangup, Arc::clone(&stopping), Arc::clone(&loop_done));
+    }
     let mut guard = TerminalGuard::enter(screen)?;
     profile()?;
     let mut terminal = open_terminal(screen)?;
@@ -10987,7 +11014,9 @@ fn run() -> io::Result<()> {
             }
             continue;
         }
-        if !event::poll(Duration::from_millis(80))? {
+        if !wait_for_input(Duration::from_millis(80), || {
+            client.as_ref().is_some_and(AcpClient::has_unread)
+        })? {
             continue;
         }
         let event = event::read()?;
@@ -12362,6 +12391,7 @@ fn run() -> io::Result<()> {
             _ => {}
         }
     }
+    loop_done.store(true, Ordering::Relaxed);
     // GROK_EXIT_TIMEOUT_SECS: a teardown that hangs cannot keep the
     // terminal hostage (ticket 155).
     arm_exit_watchdog(std::env::var("GROK_EXIT_TIMEOUT_SECS").ok().as_deref());
@@ -12418,6 +12448,54 @@ impl UnpairedReleases {
             },
         }
     }
+}
+
+/// Seconds after a terminal hangup before codsh gives up on its own loop.
+#[cfg(unix)]
+const HANGUP_GRACE: Duration = Duration::from_secs(2);
+
+/// A closed terminal window (the PTY master gone) must end the client. The
+/// launcher forwards SIGHUP, which sets `stopping`, but crossterm 0.28's
+/// reader loops on `read() == 0` forever once the terminal is gone, so the
+/// event loop never regains control to see it: the client and dsh then spin
+/// at high CPU with nobody attached. This thread notices the hangup (the
+/// signal, or POLLHUP on stdin when no signal arrives), lets the loop end on
+/// its own for a short grace, and otherwise exits 129 (128 + SIGHUP). dsh sees
+/// its stdin close and ends too; nothing can be restored on a dead terminal.
+#[cfg(unix)]
+fn arm_hangup_watchdog(
+    hangup: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
+    loop_done: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || {
+        let mut since: Option<Instant> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            if loop_done.load(Ordering::Relaxed) {
+                return;
+            }
+            if since.is_none() && (hangup.load(Ordering::Relaxed) || stdin_hung_up()) {
+                stopping.store(true, Ordering::Relaxed);
+                since = Some(Instant::now());
+            }
+            if since.is_some_and(|started| started.elapsed() >= HANGUP_GRACE) {
+                unsafe { libc::_exit(129) }
+            }
+        }
+    });
+}
+
+/// True when stdin is a terminal whose other side has gone away.
+#[cfg(unix)]
+fn stdin_hung_up() -> bool {
+    let mut fd = libc::pollfd {
+        fd: 0,
+        events: 0,
+        revents: 0,
+    };
+    let ready = unsafe { libc::poll(&mut fd, 1, 0) };
+    ready > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
 }
 
 /// Default seconds a quit may spend tearing down before codsh force-exits.
