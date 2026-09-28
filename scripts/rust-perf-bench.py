@@ -41,6 +41,8 @@ import termios
 import threading
 import time
 
+import re
+
 import pyte
 
 REFERENCE_VERSION = '1.0.34 (3736acbc8658)'
@@ -55,6 +57,25 @@ PASTE_MARK = 'PERFPASTE9'
 LONG_PROMPT = 'PERF_LONG'
 END_MARK = 'PERF_STREAM_END'
 FRAME_WAIT = 2.0
+ANSWER_LINE = re.compile(r'PERF_LINE_\d{4}')
+# The long answer as text lines (each paragraph is a line plus a blank line, then the end mark).
+ANSWER_TEXT_LINES = 2 * LONG_LINES + 1
+# The candidate folds an answer longer than 12 lines (rust/src/content.rs TOOL_PREVIEW_LINES)
+# to its first 12 plus "... N more lines"; the hint reaching the full count means all arrived.
+FOLDED_COMPLETE = f'{ANSWER_TEXT_LINES - 12} more lines'
+LAST_LINE = f'PERF_LINE_{LONG_LINES:04d}'
+
+
+def answer_complete(text):
+    """The frame that shows the whole answer has arrived, whichever way a product shows it.
+
+    Following the stream shows the end mark; the reference's minimal mode keeps the tail
+    and folds the last two lines ("... 2 more lines"), so the last paragraph is the sign;
+    the candidate keeps the head and counts the rest.
+    """
+    return END_MARK in text or LAST_LINE in text or FOLDED_COMPLETE in text
+# Sequences pyte does not model (kitty keyboard, OSC); they would swallow the text after them.
+UNMODELED = re.compile(rb'\x1b\[[<>=?][0-9;]*u|\x1b\[[<>=][0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)')
 
 # The frozen method from docs/rewrite/reference/baseline.json (thresholdPolicy).
 METHOD = {
@@ -67,6 +88,7 @@ METHOD = {
 LATENCY = ('start:first-output', 'start:ready', 'cold:first-output', 'cold:ready', 'input:draft',
            'input:paste', 'output:first-visible', 'output:end-after-model', 'scroll:page-up',
            'scroll:page-down', 'resize:narrow', 'resize:wide', 'quit:exit')
+OPTIONAL = ('input:paste', 'scroll:page-up', 'scroll:page-down', 'resize:narrow', 'resize:wide')
 THROUGHPUT = ('output:throughput',)
 RESOURCES = ('rss:tree-peak',)
 # Reported, not judged: model-fixture time, or measurements only one product has.
@@ -119,13 +141,23 @@ class Fixture:
                 except ValueError:
                     body = {}
                 messages = body.get('messages') or []
-                last = next((m for m in reversed(messages) if isinstance(m, dict) and m.get('role') == 'user'), {})
-                content = last.get('content')
-                if isinstance(content, list):
-                    content = ' '.join(part.get('text', '') for part in content if isinstance(part, dict))
+                # The prompt of this turn: every user message after the last assistant
+                # message (products append system reminders as extra user messages).
+                turn = []
+                for message in messages:
+                    if not isinstance(message, dict):
+                        continue
+                    if message.get('role') == 'assistant':
+                        turn = []
+                    elif message.get('role') == 'user':
+                        content = message.get('content')
+                        if isinstance(content, list):
+                            content = ' '.join(part.get('text', '') for part in content if isinstance(part, dict))
+                        turn.append(str(content or ''))
+                content = '\n'.join(turn)
                 # Only the agent's turn request (it carries tools) gets the long answer; a
                 # title request for the same prompt gets a short one.
-                long_answer = LONG_PROMPT in str(content or '') and bool(body.get('tools'))
+                long_answer = LONG_PROMPT in content and bool(body.get('tools'))
                 record = {'path': self.path, 'receivedMs': received, 'long': long_answer,
                           'stream': bool(body.get('stream')), 'tools': len(body.get('tools') or [])}
                 pieces = ([f'PERF_LINE_{i:04d} lorem ipsum dolor sit amet, consectetur adipiscing elit\n\n'
@@ -183,6 +215,13 @@ class Fixture:
 class Reference:
     name = 'reference'
     ready_mark = MODEL
+    quit_keys = b'/quit\r'
+
+    # The streamed answer is already in the scrollable transcript.
+    expand_keys = b''
+
+    # A large paste becomes a "[Pasted: 144 KB]" placeholder.
+    paste_marks = ('[Pasted:', PASTE_MARK)
 
     def __init__(self, binary):
         self.binary = Path(binary).resolve(strict=True)
@@ -229,7 +268,15 @@ context_window = 128000
 
 class Candidate:
     name = 'candidate'
-    ready_mark = MODEL
+    # Its first complete frame: the prompt box is up and takes input (dsh connects after).
+    ready_mark = 'Draft (not sent)'
+    # Ctrl-Q quits (it has no /quit command; the text would be sent as a prompt).
+    quit_keys = b'\x11'
+    paste_marks = (PASTE_MARK,)
+
+    # So scroll the whole answer in its full-content viewer: Tab focuses the transcript
+    # (last entry), Enter opens the viewer, End goes to the bottom like the reference.
+    expand_keys = b'\t\r\x1b[F'
 
     def __init__(self, launcher, dsh, node):
         self.launcher = Path(launcher).resolve(strict=True)
@@ -352,29 +399,45 @@ class Session:
 
     def wait(self, predicate, seconds, since=None):
         """Arrival time (ms since launch) of the chunk after which predicate(screen) first held."""
+        return self.wait_all({'hit': predicate}, seconds, since).get('hit')
+
+    def wait_all(self, predicates, seconds, since=None):
+        """One pass over the output: arrival time of the first frame satisfying each predicate.
+
+        Everything that has already arrived is fed to the screen even when the
+        deadline has passed, so a zero-second wait drains the backlog.
+        """
         deadline = time.monotonic() + seconds
+        found = {}
         while True:
             with self.lock:
                 pending = self.chunks[self.fed:]
             for at, chunk in pending:
-                self.stream.feed(chunk)
+                self.stream.feed(UNMODELED.sub(b'', chunk))
                 self.fed += 1
-                if (since is None or at >= since) and predicate(self.text()):
-                    return at - self.started
-            if not pending and (time.monotonic() > deadline or self.exited()):
-                return None
+                if since is None or at >= since:
+                    text = self.text()
+                    for name, predicate in predicates.items():
+                        if name not in found and predicate(text):
+                            found[name] = at - self.started
+                    if len(found) == len(predicates):
+                        return found
+            if time.monotonic() > deadline or (not pending and self.exited()):
+                return found
             if not pending:
                 time.sleep(0.005)
 
-    def next_output(self, since, seconds=FRAME_WAIT):
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            with self.lock:
-                later = [at for at, _ in self.chunks if at > since]
-            if later:
-                return later[0] - since
-            time.sleep(0.005)
-        return None
+    def next_change(self, action, seconds=FRAME_WAIT):
+        """Latency from action() to the first frame that changes what the screen shows.
+
+        Both products repaint on a timer (the candidate every 80 ms), so any
+        bytes arriving is not a frame for the action; the screen must differ.
+        """
+        self.wait(lambda _: False, 0)
+        before = self.text()
+        sent = action()
+        seen = self.wait(lambda text: text != before, seconds, since=sent)
+        return None if seen is None else seen - (sent - self.started)
 
     def drain(self, seconds):
         time.sleep(seconds)
@@ -436,9 +499,9 @@ def purge_caches(enabled):
     return False
 
 
-def quit_session(session, run):
+def quit_session(session, run, keys):
     before, _ = tree(session.pid)
-    sent = session.send(b'/quit\r')
+    sent = session.send(keys)
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline and not session.exited():
         time.sleep(0.005)
@@ -472,7 +535,7 @@ def start_run(subject, mode, env, cwd, purge):
                 run['missing'].append(key)
         session.sample(subject.client_names())
         session.drain(0.3)
-        quit_session(session, run)
+        quit_session(session, run, subject.quit_keys)
     finally:
         session.close()
     run['valid'] = not run['missing']
@@ -485,14 +548,17 @@ def paste_payload():
 
 
 def session_run(subject, mode, env, cwd, fixture):
-    run = {'subject': subject.name, 'mode': mode, 'kind': 'session', 'missing': []}
+    run = {'subject': subject.name, 'mode': mode, 'kind': 'session', 'missing': [], 'unobserved': []}
     names = subject.client_names()
     session = Session(subject.argv(mode), env, cwd)
 
     def record(key, value):
+        # A run is valid when the core interaction completed; a paste, scroll or resize
+        # frame a product never shows is 'unobserved' (for the reference that makes the
+        # metric not-applicable, for the candidate a failure if the reference had it).
         run[key] = value
         if value is None:
-            run['missing'].append(key)
+            run['unobserved' if key in OPTIONAL else 'missing'].append(key)
 
     try:
         record('start:ready', session.wait(lambda text: subject.ready_mark in text, 30))
@@ -514,14 +580,14 @@ def session_run(subject, mode, env, cwd, fixture):
         payload = paste_payload()
         run['paste:bytes'] = len(payload)
         sent = session.send(b'\x1b[200~' + payload + b'\x1b[201~' + PASTE_MARK.encode())
-        seen = session.wait(lambda text: PASTE_MARK in text, 20, since=sent)
+        seen = session.wait(lambda text: any(mark in text for mark in subject.paste_marks), 20, since=sent)
         record('input:paste', None if seen is None else seen - (sent - session.started))
         session.drain(0.3)
         session.sample(names)
         session.send(b'\x03')
-        if session.wait(lambda text: PASTE_MARK not in text, 3) is None:
+        if session.wait(lambda text: not any(mark in text for mark in subject.paste_marks), 3) is None:
             session.send(b'\x03')
-            session.wait(lambda text: PASTE_MARK not in text, 3)
+            session.wait(lambda text: not any(mark in text for mark in subject.paste_marks), 3)
         session.drain(0.5)
 
         before = len(fixture.requests)
@@ -530,8 +596,9 @@ def session_run(subject, mode, env, cwd, fixture):
         session.drain(0.2)
         sent = session.send(b'\r')
         base = sent - session.started
-        first = session.wait(lambda text: 'PERF_LINE_0001' in text, 60, since=sent)
-        end = session.wait(lambda text: END_MARK in text, 120, since=sent)
+        seen = session.wait_all({'first': lambda text: ANSWER_LINE.search(text) is not None,
+                                 'end': answer_complete}, 120, since=sent)
+        first, end = seen.get('first'), seen.get('end')
         record('output:first-visible', None if first is None else first - base)
         served = [item for item in fixture.requests[before:] if item['long']]
         if served and end is not None:
@@ -549,25 +616,32 @@ def session_run(subject, mode, env, cwd, fixture):
         session.drain(1.0)
         session.sample(names)
 
+        if subject.expand_keys:
+            session.send(subject.expand_keys)
+            session.drain(1.0)
         for key, data in (('scroll:page-up', b'\x1b[5~'), ('scroll:page-down', b'\x1b[6~')):
             session.drain(0.4)
-            record(key, session.next_output(session.send(data)))
+            record(key, session.next_change(lambda data=data: session.send(data)))
         for key, size in (('resize:narrow', NARROW), ('resize:wide', (ROWS, COLS))):
             session.drain(0.4)
+            session.wait(lambda _: False, 0)
             session.screen.resize(*size)
-            sent = now_ms()
-            session.resize_pty(*size)
-            record(key, session.next_output(sent))
+
+            def resize(size=size):
+                at = now_ms()
+                session.resize_pty(*size)
+                return at
+            record(key, session.next_change(resize))
         session.drain(0.5)
         session.sample(names)
-        quit_session(session, run)
+        quit_session(session, run, subject.quit_keys)
         raw = session.raw()
         run['outputBytes'] = len(raw)
         run['restoredAlternateScreen'] = (b'\x1b[?1049l' in raw) if mode == 'fullscreen' else None
         run['rss:tree-peak'] = max(item['tree'] for item in session.samples)
         run['rss:client-peak'] = max(item['client'] for item in session.samples)
         run['processes'] = max(item['processes'] for item in session.samples)
-        if run['missing']:
+        if run['missing'] or run['unobserved']:
             run['screen'] = session.text()
     finally:
         session.close()
@@ -590,7 +664,7 @@ def measure(subject, mode, fixture, root, runs, cold_runs, log, label, purge):
         warm = session_run(subject, mode, env, home_root / 'workspace', fixture)
         warm['warmup'] = True
         results.append(warm)
-        log(f'{subject.name} {mode} warm-up: missing={warm["missing"]}')
+        log(f'{subject.name} {mode} warm-up: missing={warm["missing"]} unobserved={warm["unobserved"]}')
         for number in range(runs):
             run = session_run(subject, mode, env, home_root / 'workspace', fixture)
             run['run'] = number
@@ -599,7 +673,8 @@ def measure(subject, mode, fixture, root, runs, cold_runs, log, label, purge):
                 f'draft={fmt(run.get("input:draft"))} paste={fmt(run.get("input:paste"))} '
                 f'first={fmt(run.get("output:first-visible"))} end-after-model={fmt(run.get("output:end-after-model"))} '
                 f'up={fmt(run.get("scroll:page-up"))} narrow={fmt(run.get("resize:narrow"))} '
-                f'quit={fmt(run.get("quit:exit"))} rss={run.get("rss:tree-peak")} missing={run["missing"]}')
+                f'quit={fmt(run.get("quit:exit"))} rss={run.get("rss:tree-peak")} missing={run["missing"]} '
+                f'unobserved={run["unobserved"]}')
         shutil.rmtree(home_root, ignore_errors=True)
     for number in range(cold_runs):
         cold_root = root / f'{subject.name}-{mode}-cold-{label}-{number}'
@@ -624,7 +699,7 @@ def freeze(reference_runs, modes):
     for mode in modes:
         for metric in LATENCY + THROUGHPUT + RESOURCES:
             relevant = [run for run in reference_runs if run['mode'] == mode and not run.get('warmup')
-                        and run.get('valid', True) and (metric in run or metric in run.get('missing', []))]
+                        and run.get('valid', True) and metric in run]
             if not relevant:
                 continue
             values = [run[metric] for run in relevant if run.get(metric) is not None]
