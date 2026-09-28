@@ -76,7 +76,9 @@ jobs:
             # Imported DLLs: system ones only (no OpenSSL, no MSVC runtime DLLs beyond the UCRT).
             vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
             dumpbin="$("$vswhere" -latest -find 'VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe' | head -1)"
-            [ -n "$dumpbin" ] && "$dumpbin" -nologo -dependents packages/cli/native/${{ matrix.key }}/codsh-rust.exe || true
+            "$dumpbin" -nologo -dependents packages/cli/native/${{ matrix.key }}/codsh-rust.exe | tee dependents.txt
+            # The C runtime is linked statically (crt-static): no VC++ Redistributable needed.
+            if grep -qiE 'vcruntime|msvcp|api-ms-win-crt' dependents.txt; then echo "the client imports the MSVC runtime"; exit 1; fi
             exit 0
           fi
           file packages/cli/native/${{ matrix.key }}/codsh-rust
