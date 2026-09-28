@@ -479,6 +479,8 @@ pub const INHERITED_ENV: &[&str] = &[
     "NO_COLOR",
     "SystemRoot",
     "WINDIR",
+    // The exact dsh a recovery message names (#198), read by rust-acp-dsh.mjs.
+    "CODSH_TESTED_DSH",
     "DSH_CODE_CLI_MOCK_TOOL",
     "DSH_CODE_CLI_MOCK_IMAGE",
     "DSH_CODE_CLI_MOCK_DELAY_MS",
@@ -685,8 +687,37 @@ pub fn dsh_spawn_spec(
     })
 }
 
-/// The dsh floor the launcher was published against (ticket 66).
+/// How long a session/new that meets dsh's provider-registration race is
+/// retried before its error is shown.
+const ADAPTER_REGISTRATION_WAIT: Duration = Duration::from_secs(15);
+
+/// dsh answered session/new before the configured provider's adapter was
+/// registered. The failed session never materialized, so its teardown flush
+/// can fail too and replace the first error; both mean "not ready yet".
+fn adapter_not_ready(message: &str, details: &str) -> bool {
+    [message, details].iter().any(|text| {
+        text.contains("no adapter registered for provider")
+            || text.contains("ACP session persistence flush failed")
+    })
+}
+
+/// The dsh floor the launcher was published against (ticket 66), and the
+/// exact dsh it was tested with (#198): a bare `npm install -g
+/// @deepseek-ai/dsh` takes the registry's latest instead.
 fn dsh_install_command() -> String {
+    let tested = std::env::var("CODSH_TESTED_DSH").unwrap_or_default();
+    let floor = std::env::var("CODSH_REQUIRES_DSH").unwrap_or_default();
+    if !tested.trim().is_empty() {
+        return if floor.trim().is_empty() {
+            format!("`npm install -g @deepseek-ai/dsh@{}`", tested.trim())
+        } else {
+            format!(
+                "`npm install -g @deepseek-ai/dsh@{}` (tested with this codsh-cli; {} or newer required)",
+                tested.trim(),
+                floor.trim()
+            )
+        };
+    }
     match std::env::var("CODSH_REQUIRES_DSH") {
         Ok(floor) if !floor.trim().is_empty() => {
             format!(
@@ -1082,6 +1113,10 @@ impl AcpClient {
         {
             crate::mcp_bridge::record_mount(&run_dir, &mount, session);
         }
+        // dsh registers a configured provider's adapter once its settings
+        // service is up, which can land after it already answers ACP; on a
+        // slow machine the first session/new then fails (#198, macOS CI).
+        let registration_deadline = std::time::Instant::now() + ADAPTER_REGISTRATION_WAIT;
         loop {
             let mut servers = crate::mcp::plan_servers(&plan, &self.mcp_failed);
             for server in &mut servers {
@@ -1131,6 +1166,18 @@ impl AcpClient {
                             };
                             let reason = crate::mcp::failure_reason(&run_dir, &name, &fallback);
                             self.mcp_failed.insert(name, reason);
+                        }
+                        _ if adapter_not_ready(&error.message, &details)
+                            && std::time::Instant::now() < registration_deadline =>
+                        {
+                            std::thread::sleep(Duration::from_millis(250));
+                        }
+                        // A bare "Internal error" says nothing; dsh puts
+                        // the cause in `data`, so show it (#198).
+                        _ if !details.is_empty() && !error.message.contains(details.trim()) => {
+                            return Err(AcpError {
+                                message: format!("{}: {}", error.message, details.trim()),
+                            });
                         }
                         _ => return Err(error),
                     }
@@ -1451,7 +1498,7 @@ impl AcpClient {
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {},
-                "clientInfo": { "name": "codsh-rust", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "codsh-rust", "version": crate::CODSH_VERSION },
             }),
             PendingKind::Initialize,
         )?;
@@ -2491,6 +2538,19 @@ impl Drop for AcpClient {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn adapter_registration_race_is_recognized() {
+        assert!(adapter_not_ready(
+            "Internal error",
+            "no adapter registered for provider \"fake\""
+        ));
+        assert!(adapter_not_ready(
+            "Internal error: ACP session persistence flush failed",
+            ""
+        ));
+        assert!(!adapter_not_ready("Internal error", "turn failed: boom"));
+    }
+
     #[test]
     fn startup_hint_names_unresolved_plugins_and_missing_dsh() {
         let log = Path::new("/tmp/h/acp-stderr.log");

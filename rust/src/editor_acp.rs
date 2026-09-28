@@ -1242,7 +1242,7 @@ impl Hub {
             "shared": self.config.transport != Transport::Stdio,
             "clientId": client,
             "pid": std::process::id(),
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::CODSH_VERSION,
             "executor": "dsh",
             "writer": "one dsh process per live session; other clients observe it and send requests through this process",
             "maxLiveSessions": MAX_LIVE_SESSIONS,
@@ -1273,7 +1273,7 @@ impl Hub {
             .collect::<Vec<_>>();
         json!({
             "pid": std::process::id(),
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::CODSH_VERSION,
             "transport": self.config.transport.as_str(),
             "endpoint": self.config.endpoint,
             "startedAt": self.started_unix,
@@ -1320,7 +1320,7 @@ impl Hub {
             id,
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
-                "agentInfo": { "name": AGENT_NAME, "version": env!("CARGO_PKG_VERSION") },
+                "agentInfo": { "name": AGENT_NAME, "version": crate::CODSH_VERSION },
                 "agentCapabilities": {
                     "loadSession": true,
                     "promptCapabilities": {

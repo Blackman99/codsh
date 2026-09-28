@@ -92,6 +92,7 @@ export function recoverySteps(version) {
   return [
     `reinstall this version:   npm install -g ${pinned}`,
     'or return to an earlier:  npm install -g codsh-cli@<previous version>',
+    `with pnpm, Yarn or Bun:    codsh --rust update --to ${version ?? '<version>'}   (uses the package manager that installed codsh)`,
     'Your Rust Home (~/.codsh-rust) and the legacy ~/.dsh and ~/.grok are not touched by this check; plain `codsh` keeps working.',
   ]
 }
@@ -236,11 +237,27 @@ export function dshPackage(entry) {
 }
 
 /**
+ * The dsh install line a recovery message gives (#198). `npm install -g
+ * @deepseek-ai/dsh` alone takes the registry's latest, which this codsh-cli
+ * was not tested with, and a bare floor such as 0.1.5-rc.2 resolves its own
+ * `^` dependencies to newer prereleases (a mixed tree that fails to boot), so
+ * the line names the exact dsh the release was tested with when there is one.
+ * @param {string | undefined} need - `codsh.requiresDsh` (the floor).
+ * @param {string | undefined} tested - `codsh.testedDsh`.
+ */
+export function dshInstallLine(need, tested) {
+  if (typeof tested === 'string' && tested !== '') {
+    return `install one:      npm install -g @deepseek-ai/dsh@${tested}   (tested with this codsh-cli${need ? `; ${need} or newer required` : ''})`
+  }
+  return `install one:      npm install -g @deepseek-ai/dsh${need ? `   (${need} or newer)` : ''}`
+}
+
+/**
  * Whether a dsh is new enough for this launcher. A dsh whose version cannot be
  * read (a DSH_BIN test double, a custom build) is let through, as the legacy
  * launcher does; a readable version below the floor is refused.
  */
-export function dshFloorProblem(entry, need, version) {
+export function dshFloorProblem(entry, need, version, tested) {
   if (typeof need !== 'string' || need === '') return undefined
   const found = dshPackage(entry)
   if (found === undefined) return undefined
@@ -250,7 +267,7 @@ export function dshFloorProblem(entry, need, version) {
     code: 'dsh-too-old',
     message: `dsh ${found.version} at ${found.root} is too old — the Rust client needs @deepseek-ai/dsh ${need} or newer.`,
     recovery: [
-      `install one:      npm install -g @deepseek-ai/dsh   (${need} or newer)`,
+      dshInstallLine(need, tested),
       'or point at one:  DSH_BIN=/path/to/dsh codsh --rust',
       `or return to the codsh-cli that matched it (this is ${version ?? 'unknown'}): npm install -g codsh-cli@<previous version>`,
     ],

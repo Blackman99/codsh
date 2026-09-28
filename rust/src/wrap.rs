@@ -490,19 +490,21 @@ mod unix {
                 saved = Some(current);
             }
         }
-        let size = winsize(1).or_else(|| winsize(0));
+        let mut size = winsize(1).or_else(|| winsize(0));
         let mut master: libc::c_int = -1;
         let mut slave: libc::c_int = -1;
+        // glibc declares these `*const`, Apple's libc `*mut`; a `*mut`
+        // coerces to either, so one call builds on both (#198).
         let opened = unsafe {
             libc::openpty(
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
-                saved
-                    .as_ref()
-                    .map_or(std::ptr::null(), |termios| termios as *const libc::termios),
-                size.as_ref()
-                    .map_or(std::ptr::null(), |size| size as *const libc::winsize),
+                saved.as_mut().map_or(std::ptr::null_mut(), |termios| {
+                    termios as *mut libc::termios
+                }),
+                size.as_mut()
+                    .map_or(std::ptr::null_mut(), |size| size as *mut libc::winsize),
             )
         };
         if opened != 0 {

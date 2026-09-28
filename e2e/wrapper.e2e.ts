@@ -274,6 +274,8 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -308,6 +310,8 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -339,6 +343,8 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -368,6 +374,8 @@ describe.skipIf(process.platform === 'win32')('the codsh launcher', () => {
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -412,6 +420,8 @@ console.log(\`FAKE_PNPM \${process.argv.slice(2).join(' ')}\`)
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -457,6 +467,8 @@ process.exit(0)
         const result = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,
@@ -529,6 +541,8 @@ process.exit(0)
         const failed = await run(process.execPath, [wrapper, 'update'], {
           env: {
             ...process.env,
+            // A shell, not a package-manager script: installer selection reads the install path.
+            npm_config_user_agent: undefined,
             DSH_HOME: home,
             DSH_BIN: join(fake, 'dsh'),
             PATH: `${fake}${delimiter}${process.env.PATH ?? ''}`,

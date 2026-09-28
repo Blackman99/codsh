@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { buildShipExtension } from './build-ship-extension.mjs'
@@ -21,7 +22,13 @@ if (!host) throw new Error('rustc did not identify the native target')
 const target = requested ?? host
 const key = keyForTarget(target) ?? `${process.platform}-${process.arch}`
 const [platform, arch] = key.split('-')
-execFileSync('cargo', ['build', '--manifest-path', manifest, '--locked', '--release', '-p', 'codsh-rust', ...(requested ? ['--target', requested] : [])], { stdio: 'inherit' })
+const cli = JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf8'))
+// The client reports the codsh-cli version it ships in (CODSH_VERSION in
+// rust/src/main.rs), not the internal crate version, so `codsh --rust
+// --version`, the ACP clientInfo and artifact.json agree (#198).
+execFileSync('cargo', ['build', '--manifest-path', manifest, '--locked', '--release', '-p', 'codsh-rust', ...(requested ? ['--target', requested] : [])], {
+  stdio: 'inherit', env: { ...process.env, CODSH_PACKAGE_VERSION: cli.version },
+})
 const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--manifest-path', manifest, '--locked', '--format-version', '1', '--filter-platform', target], { encoding: 'utf8', maxBuffer: 20_000_000 }))
 const nodes = new Map(metadata.resolve.nodes.map(node => [node.id, node]))
 const packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg]))
@@ -63,7 +70,17 @@ for (const name of ['LICENSE', 'THIRD-PARTY-NOTICES', 'MODIFICATIONS', 'import.j
 }
 copyFileSync(join(root, 'LICENSE'), join(directory, 'LICENSE-codsh'))
 writeFileSync(join(directory, 'dependencies.json'), `${JSON.stringify({ target, kind: 'normal and build closure; no dev dependencies', packages: records }, null, 2)}\n`)
-const cli = JSON.parse(readFileSync(join(root, 'packages/cli/package.json'), 'utf8'))
+// A binary this machine can run must name the package version it is staged for.
+if (target === host) {
+  const scratch = mkdtempSync(join(tmpdir(), 'codsh-build-version-'))
+  let reported
+  try {
+    reported = execFileSync(join(directory, filename), ['--version'], { encoding: 'utf8', env: { ...process.env, HOME: scratch, USERPROFILE: scratch } }).trim()
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+  if (!reported.startsWith(`codsh-rust ${cli.version} `)) throw new Error(`${built} reports "${reported}", not codsh-rust ${cli.version}`)
+}
 writeFileSync(join(directory, 'artifact.json'), `${JSON.stringify({
   platform, arch, target,
   // The launcher refuses a binary whose package version differs from its own

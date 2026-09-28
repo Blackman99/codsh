@@ -1178,8 +1178,15 @@ artifact reports an actionable error, never falls back silently. No published
 release or default cutover is implied. See [Contributing](CONTRIBUTING.md) for
 build, installed-product verification, and platform limitations.
 
-Installing a package that carries the client is the ordinary
-`npm install -g @deepseek-ai/dsh codsh-cli` (Node 22.19+; no Rust toolchain).
+Installing a package that carries the client is
+`npm install -g @deepseek-ai/dsh@0.1.5-rc.3 codsh-cli` (Node 22.19+; no Rust
+toolchain). Name the dsh version: it is the one this codsh-cli was tested with
+(`codsh.testedDsh` in its package.json). A bare `@deepseek-ai/dsh` takes the
+registry's latest (0.1.7-rc.2 today), whose first Rust turn fails (`format v4
+message requires a producer-owned source kind`), and `@deepseek-ai/dsh@0.1.5-rc.2` pulls 0.1.5-rc.3 sub-packages
+through its `^` ranges, a mixed tree that does not boot. `install-check` names
+the tested version beside the one it found, and every missing/old-dsh
+recovery line prints the pinned command.
 Each supported platform has its own prebuilt directory inside `codsh-cli`
 (macOS `darwin-arm64` and `darwin-x64`, Linux `linux-x64`); on Apple silicon use
 the arm64 Node.js, since an x64 Node under Rosetta selects the Intel build.
@@ -1191,14 +1198,26 @@ fix, when the client is missing for this platform, damaged, built for another
 CPU, or left from an update that did not finish (`npm install -g
 codsh-cli@<version>`), and when dsh is missing or older than required (`npm
 install -g @deepseek-ai/dsh`); it never starts the legacy runtime or an official
-Grok runtime instead. Updating is `codsh update` or `npm install -g
-codsh-cli@<version>`; going back is `npm install -g codsh-cli@<previous>`. Either
-way the Rust Home `~/.codsh-rust` (sessions, settings, credentials) is kept,
-the next `codsh --rust` says once which version was used before, and legacy
-`~/.dsh`/`~/.grok` are not touched. After `codsh update`, someone who has used
-`codsh --rust` is told immediately if the new package cannot run it here, with
-the command that returns to the previous version. macOS prebuilds are built and
-checked on a Mac; this checkout's installed-package test ran on Linux only.
+Grok runtime instead. `codsh --rust update` moves the install to the newest
+published `codsh-cli` with the package manager that installed it (npm, pnpm,
+Yarn classic or Bun, read from the global directory the package sits in; set
+`CODSH_INSTALLER=npm|pnpm|yarn|bun` to choose), then verifies the new client
+before it reports success; `--check` only says what it would run, `--to
+<version>` installs that version (the rollback), and `--json` is for scripts.
+It leaves the legacy `~/.dsh` code profile to plain `codsh`. `codsh update`
+(the legacy command) uses the same installer selection. Doing it by hand is
+`npm install -g codsh-cli@<version>` (or `pnpm add -g`, `yarn global add`, `bun
+add -g`). Either way the Rust Home `~/.codsh-rust` (sessions, settings,
+credentials) is kept, the next `codsh --rust` says once which version was used
+before, and legacy `~/.dsh`/`~/.grok` are not touched. If the installer fails,
+or the new package cannot run the client here, you are told whether the old
+version still works and given the command that returns to it.
+`codsh --rust --version` reports the `codsh-cli` version the client ships in.
+The macOS prebuilds (`darwin-arm64`, `darwin-x64`) are built on GitHub Actions
+macOS runners (`.github/workflows/rust-native.yml`) and installed there from the
+packed tarball on runners without a Rust toolchain, including an x64 Node under
+Rosetta (`.github/workflows/rust-platforms.yml`); they are ad-hoc signed only,
+not Developer ID signed or notarized.
 
 ## `/ship`: One Sentence to Verified Code
 

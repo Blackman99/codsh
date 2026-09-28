@@ -82,7 +82,7 @@ impl StatusSnapshot {
             auto_compact_threshold_percent: compact_threshold,
             cost_usd: cost.and_then(parse_cost),
             turn_started,
-            version: env!("CARGO_PKG_VERSION").into(),
+            version: crate::CODSH_VERSION.into(),
             usage: None,
         }
     }

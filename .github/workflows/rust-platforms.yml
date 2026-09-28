@@ -1,0 +1,208 @@
+# Platform evidence for the Rust client (#198 macOS install/update/rollback;
+# later #199 Linux, #200 Windows, #201/#202/#209). Runs on the rewrite
+# integration branch and on ci/** branches pushed for a ticket's evidence.
+# It builds every native directory, checks the multi-platform package layout,
+# and installs the packed product on runners whose Rust toolchain has been
+# removed. It publishes, tags and releases nothing.
+name: Rust platforms
+
+on:
+  push:
+    branches:
+      - rewrite/grok-dsh-20260920
+      - 'ci/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-platforms-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    uses: ./.github/workflows/rust-native.yml
+
+  package:
+    name: package layout (all natives)
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - name: Stage every native directory
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Check the package a release would publish (dry run)
+        run: |
+          mkdir -p packed
+          pnpm run --silent check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64 --json | tee packed/package-check.json
+      - name: Pack codsh-cli (not published)
+        run: |
+          (cd packages/cli && npm pack --ignore-scripts --pack-destination ../../packed)
+          ls -l packed
+          tar -tzf packed/codsh-cli-*.tgz | grep -E '^package/native/[^/]+/(codsh-rust|artifact.json)$'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed/
+          if-no-files-found: error
+
+  macos-install:
+    name: macOS install ${{ matrix.name }}
+    needs: [native, package]
+    # Every platform on the integration branch; on a ci/** evidence branch
+    # only the platform its name carries (ci/198-macos-…), to spare runners.
+    if: github.ref_name == 'rewrite/grok-dsh-20260920' || contains(github.ref_name, 'macos')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arm64
+            os: macos-15
+            rosetta: false
+          - name: x64 (Intel)
+            os: macos-15-intel
+            rosetta: false
+          - name: x64 Node under Rosetta
+            os: macos-15
+            rosetta: true
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # dsh for the install test comes from this checkout, as it does locally.
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: natives
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Stage the natives a release would carry
+        run: |
+          mkdir -p packages/cli/native
+          for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
+          node scripts/build-ship-extension.mjs
+      - name: Remove the Rust toolchain
+        run: |
+          rm -rf "$HOME/.cargo" "$HOME/.rustup"
+          # The image also links Homebrew's rustup; take every entry off PATH.
+          for tool in cargo rustc rustup rustup-init; do
+            while found=$(command -v "$tool"); do
+              echo "removing $found"
+              rm -f "$found" 2>/dev/null || sudo rm -f "$found"
+              hash -r
+            done
+          done
+          if command -v cargo || command -v rustc || command -v rustup; then echo "a Rust toolchain is still on PATH"; exit 1; fi
+          echo "no cargo, rustc or rustup on PATH"
+      - name: Use an x64 Node under Rosetta
+        if: matrix.rosetta
+        run: |
+          /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license
+          echo "CODSH_TEST_TOOL_NODE=$(node -p process.execPath)" >> "$GITHUB_ENV"
+          version=$(node -p process.version)
+          curl -fsSLO "https://nodejs.org/dist/$version/node-$version-darwin-x64.tar.gz"
+          curl -fsSL "https://nodejs.org/dist/$version/SHASUMS256.txt" | grep " node-$version-darwin-x64.tar.gz\$" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/node-x64"
+          tar -C "$RUNNER_TEMP/node-x64" --strip-components=1 -xzf "node-$version-darwin-x64.tar.gz"
+          echo "$RUNNER_TEMP/node-x64/bin" >> "$GITHUB_PATH"
+      - name: dsh from the registry, as a user installs it
+        # The version this codsh-cli was tested with (codsh.testedDsh), with
+        # the job's own Node (x64 under Rosetta: dsh loads per-arch addons).
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          node -p process.arch
+          npm install -g --prefix "$RUNNER_TEMP/dsh-registry" --no-audit --no-fund "@deepseek-ai/dsh@$tested"
+          echo "CODSH_INSTALL_TEST_DSH=$RUNNER_TEMP/dsh-registry/lib/node_modules/@deepseek-ai/dsh" >> "$GITHUB_ENV"
+          echo "CODSH_TESTED_DSH_VERSION=$tested" >> "$GITHUB_ENV"
+      - name: Record the environment
+        run: |
+          mkdir -p evidence
+          {
+            sw_vers
+            uname -a
+            echo "hardware: $(sysctl -n machdep.cpu.brand_string)  hw.optional.arm64=$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)"
+            echo "node: $(command -v node) $(node -p 'process.version + " " + process.platform + "-" + process.arch')"
+            echo "node translated by Rosetta: $(node -e "const r=require('child_process').spawnSync('sysctl',['-in','sysctl.proc_translated'],{encoding:'utf8'});process.stdout.write((r.stdout||'').trim()||'0')")"
+            echo "npm: $(npm -v)  python3: $(python3 -V)"
+            echo "cargo on PATH: $(command -v cargo || echo none)"
+          } | tee evidence/environment.txt
+      - name: Launcher explains a missing x64 client under Rosetta
+        if: matrix.rosetta
+        run: |
+          copy="$RUNNER_TEMP/arm64-only"
+          mkdir -p "$copy/native"
+          cp -R packages/cli/bin packages/cli/package.json "$copy/"
+          cp -R packages/cli/native/darwin-arm64 "$copy/native/"
+          set +e
+          node "$copy/bin/codsh.mjs" --rust install-check > evidence/rosetta-missing.txt 2>&1
+          status=$?
+          set -e
+          cat evidence/rosetta-missing.txt
+          test "$status" = 1
+          grep -q 'Rosetta' evidence/rosetta-missing.txt
+      - name: Install the packed release tarball into a clean prefix
+        run: |
+          prefix="$RUNNER_TEMP/clean-prefix"
+          export npm_config_cache="$RUNNER_TEMP/npm-cache"
+          tarball=$(ls "$PWD"/packed/codsh-cli-*.tgz)
+          echo "installing $tarball"
+          # The README's one-liner, with the packed tarball for codsh-cli.
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$CODSH_TESTED_DSH_VERSION" "$tarball"
+          HOME="$RUNNER_TEMP/clean-home" && mkdir -p "$HOME" && export HOME
+          cd "$RUNNER_TEMP"
+          PATH="$prefix/bin:$PATH" "$prefix/bin/codsh" --rust install-check --json | tee "$GITHUB_WORKSPACE/evidence/clean-install-check.json"
+          node -e "const r=require('$GITHUB_WORKSPACE/evidence/clean-install-check.json'); if (!r.ok || !r.dsh.entry.startsWith('$prefix') || r.dsh.version !== process.env.CODSH_TESTED_DSH_VERSION) { console.error('install-check did not use the registry dsh'); process.exit(1) }"
+          cd "$GITHUB_WORKSPACE"
+          "$prefix/bin/codsh" --rust --version | tee evidence/clean-version.txt
+          grep -q "codsh-rust $(node -p "require('./packages/cli/package.json').version") " evidence/clean-version.txt
+      - name: Install, update, break and roll back the packed product
+        run: |
+          python3 scripts/rust-install-test.py | tee evidence/rust-install-test.txt
+          cp /tmp/codsh-rust-install-out-*/result.json evidence/rust-install-result.json
+      - name: Installed-product PTY, isolation and network audit
+        if: ${{ !matrix.rosetta }}
+        run: python3 scripts/rust-pty-test.py --output "$PWD/evidence/rust-pty"
+      - name: First-phase flows on the installed product (turn, approval, cancel, resume, legacy Homes)
+        if: ${{ !cancelled() && !matrix.rosetta }}
+        run: |
+          status=0
+          for test in turn permission cancel resume legacy-home; do
+            echo "::group::rust-$test-pty-test.py"
+            if python3 "scripts/rust-$test-pty-test.py" > "evidence/rust-$test-pty-test.txt" 2>&1; then echo "PASS rust-$test-pty-test.py"; else echo "FAIL rust-$test-pty-test.py"; status=1; fi
+            tail -n 20 "evidence/rust-$test-pty-test.txt"
+            echo "::endgroup::"
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-evidence-${{ matrix.os }}-${{ matrix.rosetta && 'rosetta' || 'native' }}
+          path: evidence
+          if-no-files-found: warn

@@ -105,6 +105,16 @@ use xai_ratatui_inline::{
     Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
 };
 
+/// The product version this client reports (ticket 66 / #198). `pnpm run
+/// build:rust` bakes in the `codsh-cli` package version, so the staged client,
+/// its `artifact.json` and the launcher that verifies it name one version; a
+/// plain `cargo build` falls back to the crate version and says it is a
+/// development build.
+pub(crate) const CODSH_VERSION: &str = match option_env!("CODSH_PACKAGE_VERSION") {
+    Some(version) => version,
+    None => concat!(env!("CARGO_PKG_VERSION"), "-dev"),
+};
+
 const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept.";
 
 struct TerminalGuard {
@@ -9379,7 +9389,7 @@ fn run() -> io::Result<()> {
         LaunchMode::Version => {
             println!(
                 "codsh-rust {} (dsh ACP; upstream a28ee2b; reference 1.0.34)",
-                env!("CARGO_PKG_VERSION")
+                CODSH_VERSION
             );
             return Ok(());
         }

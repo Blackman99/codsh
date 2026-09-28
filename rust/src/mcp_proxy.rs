@@ -486,7 +486,7 @@ fn initialize_request() -> JsonValue {
         "params": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {},
-            "clientInfo": { "name": "codsh-mcp-doctor", "version": env!("CARGO_PKG_VERSION") },
+            "clientInfo": { "name": "codsh-mcp-doctor", "version": crate::CODSH_VERSION },
         },
     })
 }
