@@ -174,6 +174,17 @@ jobs:
       - name: Installed-product PTY, isolation and network audit
         if: ${{ !matrix.rosetta }}
         run: python3 scripts/rust-pty-test.py --output "$PWD/evidence/rust-pty"
+      - name: First-phase flows on the installed product (turn, approval, cancel, resume, legacy Homes)
+        if: ${{ !cancelled() && !matrix.rosetta }}
+        run: |
+          status=0
+          for test in turn permission cancel resume legacy-home; do
+            echo "::group::rust-$test-pty-test.py"
+            if python3 "scripts/rust-$test-pty-test.py" > "evidence/rust-$test-pty-test.txt" 2>&1; then echo "PASS rust-$test-pty-test.py"; else echo "FAIL rust-$test-pty-test.py"; status=1; fi
+            tail -n 20 "evidence/rust-$test-pty-test.txt"
+            echo "::endgroup::"
+          done
+          exit $status
       - uses: actions/upload-artifact@v4
         if: always()
         with:
