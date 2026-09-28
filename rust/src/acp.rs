@@ -1992,7 +1992,9 @@ impl AcpClient {
     }
 
     pub fn shutdown(&mut self) {
+        crate::exit_trace("acp shutdown start");
         self.finish_memory_session();
+        crate::exit_trace("acp memory done");
         if let Some(pending) = self.pending_permission.clone() {
             let _ = self.cancel_permission(&pending.request_id);
         }
@@ -2004,6 +2006,7 @@ impl AcpClient {
             Duration::from_millis(400)
         };
         let _ = self.close_session(close);
+        crate::exit_trace("acp session closed");
         self.stdin.take();
         if self.linger {
             // dsh runs each command in its own process group, which the
@@ -2017,9 +2020,11 @@ impl AcpClient {
                 std::thread::sleep(Duration::from_millis(25));
             }
         }
+        crate::exit_trace("acp linger done");
         kill_process_group(self.child.id());
         let _ = self.child.kill();
         let _ = self.child.wait();
+        crate::exit_trace("acp child reaped");
     }
 
     fn request(&mut self, method: &str, params: Value, kind: PendingKind) -> Result<u64, AcpError> {

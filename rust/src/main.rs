@@ -250,8 +250,22 @@ impl TerminalGuard {
     }
 }
 
+
+pub(crate) fn exit_trace(label: &str) {
+    if let Some(path) = std::env::var_os("CODSH_EXIT_TRACE") {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{ms:.1} rust {label}");
+        }
+    }
+}
+
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        exit_trace("guard drop start");
         let _ = execute!(
             io::stdout(),
             PopKeyboardEnhancementFlags,
@@ -266,6 +280,7 @@ impl Drop for TerminalGuard {
         }
         let _ = terminal::disable_raw_mode();
         let _ = io::stdout().flush();
+        exit_trace("guard drop end");
     }
 }
 
@@ -10992,6 +11007,7 @@ fn run() -> io::Result<()> {
             }
             Event::Key(key) if key.kind == KeyEventKind::Press => {
                 if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
+                    exit_trace("ctrl-q");
                     if let (Some(turn), Some(active)) = (turns.last_mut(), client.as_mut())
                         && let Some(permission) = turn.permission.take()
                     {
@@ -12327,12 +12343,16 @@ fn run() -> io::Result<()> {
         }
     }
     loop_done.store(true, Ordering::Relaxed);
+    exit_trace("loop done");
     // GROK_EXIT_TIMEOUT_SECS: a teardown that hangs cannot keep the
     // terminal hostage (ticket 155).
     arm_exit_watchdog(std::env::var("GROK_EXIT_TIMEOUT_SECS").ok().as_deref());
     status_runtime.shutdown();
+    exit_trace("status runtime down");
     drop_connection(&mut client, &mut owner);
+    exit_trace("connection dropped");
     subagents::cleanup(&effective.dsh_home);
+    exit_trace("subagents cleaned");
     Ok(())
 }
 
@@ -15260,7 +15280,9 @@ fn main() {
         restore_terminal();
         old_hook(info);
     }));
-    if let Err(error) = run() {
+    let outcome = run();
+    exit_trace("run returned");
+    if let Err(error) = outcome {
         let message = error.to_string();
         if let Some(usage) = message.strip_prefix("usage: ") {
             eprintln!("error: {usage}");
