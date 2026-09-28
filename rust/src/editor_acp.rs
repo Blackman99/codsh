@@ -10,6 +10,7 @@
 //! clients), and `agent leader` (local socket clients). One dsh process owns
 //! each live session; every other client observes it and asks through here.
 
+use crate::Canonical;
 use crate::acp::{self, AcpClient, AcpEvent, PROTOCOL_VERSION};
 use crate::config::{self, EffectiveConfig};
 use crate::mcp_bridge::{Elicitation, SurfaceEvent, SurfaceWatch};
@@ -1427,7 +1428,7 @@ impl Hub {
         if session_id.is_none()
             && let Some(spare) = self.spare.take()
         {
-            let wanted = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+            let wanted = cwd.canonical().unwrap_or_else(|_| cwd.to_path_buf());
             // A spare started before a plugin was enabled, disabled, or
             // updated would mount the old plugin MCP servers.
             let stale = crate::mcp::plugin_mounts_stale(
@@ -2378,7 +2379,7 @@ impl Runtime {
         cwd: &Path,
         session_id: Option<&str>,
     ) -> Result<Self, String> {
-        let cwd = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+        let cwd = cwd.canonical().unwrap_or_else(|_| cwd.to_path_buf());
         let env: BTreeMap<String, String> = std::env::vars().collect();
         let input = config::LoadInput {
             home: PathBuf::from(std::env::var_os("HOME").unwrap_or_default()),
@@ -2611,7 +2612,7 @@ fn absolute_cwd(params: &Value) -> Option<String> {
         return None;
     }
     Some(
-        path.canonicalize()
+        path.canonical()
             .unwrap_or_else(|_| path.to_path_buf())
             .to_string_lossy()
             .into_owned(),

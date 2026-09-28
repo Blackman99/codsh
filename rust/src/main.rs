@@ -105,6 +105,20 @@ use xai_ratatui_inline::{
     Terminal, emit_to_scrollback, resize_purge_rerender, with_synchronized_output,
 };
 
+/// A canonical path in the form other programs accept. On Windows std's
+/// `canonicalize` returns a `\\?\C:\…` verbatim path, which Node's realpath
+/// (dsh) rejects and users never type; `dunce` drops that prefix whenever
+/// the plain form means the same file. Elsewhere this is std's canonicalize.
+pub(crate) trait Canonical {
+    fn canonical(&self) -> std::io::Result<PathBuf>;
+}
+
+impl Canonical for Path {
+    fn canonical(&self) -> std::io::Result<PathBuf> {
+        dunce::canonicalize(self)
+    }
+}
+
 /// The product version this client reports (ticket 66 / #198). `pnpm run
 /// build:rust` bakes in the `codsh-cli` package version, so the staged client,
 /// its `artifact.json` and the launcher that verifies it name one version; a
@@ -2810,10 +2824,10 @@ fn known_resume_session(mode: &LaunchMode, effective: &config::EffectiveConfig) 
         LaunchMode::Resume(id) => Some(id.clone()),
         LaunchMode::Continue => session_owner::read_last_session(&effective.dsh_home)
             .filter(|(_, last_cwd)| {
-                let last = last_cwd.canonicalize().unwrap_or(last_cwd.clone());
+                let last = last_cwd.canonical().unwrap_or(last_cwd.clone());
                 let now = effective
                     .cwd
-                    .canonicalize()
+                    .canonical()
                     .unwrap_or_else(|_| effective.cwd.clone());
                 last == now
             })
@@ -3011,8 +3025,8 @@ fn resolve_resume(
         }
         LaunchMode::Continue => {
             if let Some((id, last_cwd)) = session_owner::read_last_session(dsh_home) {
-                let last = last_cwd.canonicalize().unwrap_or(last_cwd);
-                let now = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+                let last = last_cwd.canonical().unwrap_or(last_cwd);
+                let now = cwd.canonical().unwrap_or_else(|_| cwd.to_path_buf());
                 if last == now {
                     return Ok(Some(id));
                 }
@@ -4517,7 +4531,7 @@ fn sync_effective_cwd(effective: &mut config::EffectiveConfig, launch: &Launch) 
     let Ok(cwd) = std::env::current_dir() else {
         return;
     };
-    let cwd = cwd.canonicalize().unwrap_or(cwd);
+    let cwd = cwd.canonical().unwrap_or(cwd);
     if cwd != effective.cwd {
         *effective = load_runtime_config(launch);
         let home = std::env::var_os("HOME")
@@ -4616,7 +4630,7 @@ fn apply_next_cwd(effective: &config::EffectiveConfig, raw: &str) -> Result<Stri
             effective.cwd.display()
         ));
     }
-    let canonical = path.canonicalize().unwrap_or(path);
+    let canonical = path.canonical().unwrap_or(path);
     std::env::set_current_dir(&canonical).map_err(|error| error.to_string())?;
     Ok(format!(
         "next new agent cwd: {} (existing session stays {})",
@@ -8319,7 +8333,7 @@ fn anchor_input_paths(launch: &mut Launch, base: &Path) {
 }
 
 fn enter_cwd(path: &Path) -> io::Result<()> {
-    let target = path.canonicalize().map_err(|error| {
+    let target = path.canonical().map_err(|error| {
         io::Error::other(format!("couldn't use --cwd {}: {error}", path.display()))
     })?;
     if !target.is_dir() {
@@ -9080,8 +9094,8 @@ fn worktree_resume_source(mode: &LaunchMode, dsh_home: &Path) -> io::Result<Opti
             ..
         } => {
             let last = session_owner::read_last_session(dsh_home).filter(|(_, last_cwd)| {
-                last_cwd.canonicalize().unwrap_or_else(|_| last_cwd.clone())
-                    == cwd.canonicalize().unwrap_or_else(|_| cwd.clone())
+                last_cwd.canonical().unwrap_or_else(|_| last_cwd.clone())
+                    == cwd.canonical().unwrap_or_else(|_| cwd.clone())
             });
             return match last {
                 Some((id, _)) => Ok(Some(id)),
@@ -17589,7 +17603,7 @@ enabled = {enabled}
             catalog_session(home.path(), &live, &cwd);
             // The target exists and is closed in the agent store. The agent still
             // refuses this id, which must be observed before session/close.
-            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let canonical = cwd.canonical().unwrap_or_else(|_| cwd.clone());
             let mut shared: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(&store_path)
                     .unwrap_or_else(|_| "{\"sessions\":{}}".into()),
@@ -17716,7 +17730,7 @@ enabled = {enabled}
                 .new_session(&cwd, Duration::from_secs(2))
                 .expect("live session");
             catalog_session(home.path(), &live, &cwd);
-            let canonical = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+            let canonical = cwd.canonical().unwrap_or_else(|_| cwd.clone());
             let mut shared: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(&store_path)
                     .unwrap_or_else(|_| "{\"sessions\":{}}".into()),

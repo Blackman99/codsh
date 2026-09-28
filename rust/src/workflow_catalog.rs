@@ -1268,10 +1268,10 @@ pub fn save_project(scope: &Scope, name: &str, script: &str) -> Result<PathBuf, 
             format!("failed to write {}: {error}", path.display()),
         )
     };
-    let canonical_root = std::fs::canonicalize(&root).map_err(|error| io_error(&root, error))?;
+    let canonical_root = dunce::canonicalize(&root).map_err(|error| io_error(&root, error))?;
     let dir = canonical_root.join(".grok").join("workflows");
     create_contained_dir(&canonical_root, &dir)?;
-    let canonical_dir = std::fs::canonicalize(&dir).map_err(|error| io_error(&dir, error))?;
+    let canonical_dir = dunce::canonicalize(&dir).map_err(|error| io_error(&dir, error))?;
     let target = canonical_dir.join(format!("{name}.rhai"));
     match atomic_create_new(&target, script.as_bytes()) {
         Ok(()) => Ok(target),
@@ -1333,7 +1333,7 @@ fn create_contained_dir(root: &Path, dir: &Path) -> Result<(), SaveError> {
             }
         }
     }
-    let canonical = std::fs::canonicalize(dir).map_err(|error| {
+    let canonical = dunce::canonicalize(dir).map_err(|error| {
         SaveError::new(
             "workflow_not_writable",
             format!("failed to write {}: {error}", dir.display()),
@@ -1965,7 +1965,7 @@ mod tests {
         let path = save_project(&fx.scope(true), "keep", &body).unwrap();
         assert_eq!(
             path,
-            std::fs::canonicalize(fx.project_dir())
+            dunce::canonicalize(fx.project_dir())
                 .unwrap()
                 .join("keep.rhai")
         );

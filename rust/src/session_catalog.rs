@@ -1106,7 +1106,8 @@ fn same_dir(left: &str, right: &Path) -> bool {
     }
     let left_path = Path::new(left);
     left_path == right
-        || fs::canonicalize(left_path).ok().as_deref() == fs::canonicalize(right).ok().as_deref()
+        || dunce::canonicalize(left_path).ok().as_deref()
+            == dunce::canonicalize(right).ok().as_deref()
 }
 
 /// Record that this client started or finished a turn. A finished turn stays

@@ -23,6 +23,7 @@
 //! - `--remote ssh://…` runs the clone on the remote host with that host's
 //!   credentials; nothing of this machine is forwarded.
 
+use crate::Canonical;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -919,8 +920,8 @@ fn inspect_target(target: &Path, url: &str) -> Result<Target, (String, i32)> {
     if target.join(".git").exists()
         && git_text(target, &["rev-parse", "--show-toplevel"])
             .map(PathBuf::from)
-            .and_then(|top| top.canonicalize().ok())
-            == target.canonicalize().ok()
+            .and_then(|top| top.canonical().ok())
+            == target.canonical().ok()
         && git_text(target, &["config", "--get", "remote.origin.url"])
             .is_some_and(|origin| same_remote(&origin, url))
     {
@@ -1169,7 +1170,7 @@ fn run_local(options: &Options, debug: &mut Debug) -> io::Result<i32> {
         ));
         return Ok(1);
     }
-    let parent = parent.canonicalize()?;
+    let parent = parent.canonical()?;
     let target = parent.join(&name);
     let state = match inspect_target(&target, &options.url) {
         Ok(state) => state,
