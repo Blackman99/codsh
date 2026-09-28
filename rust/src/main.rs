@@ -131,6 +131,43 @@ pub(crate) const CODSH_VERSION: &str = match option_env!("CODSH_PACKAGE_VERSION"
 
 const UNAVAILABLE: &str = "Execution unavailable: dsh\nNot connected. Draft kept.";
 
+/// The kitty keyboard protocol push. crossterm refuses it on Windows (it has
+/// no legacy-console equivalent) and one refused command aborts a whole
+/// `execute!`, so startup failed there; Windows consoles do not implement the
+/// protocol, so it is skipped on Windows (#200).
+struct PushKeys(KeyboardEnhancementFlags);
+
+impl crossterm::Command for PushKeys {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if cfg!(windows) {
+            return Ok(());
+        }
+        crossterm::Command::write_ansi(&PushKeyboardEnhancementFlags(self.0), f)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The matching pop; a no-op on Windows like [`PushKeys`].
+struct PopKeys;
+
+impl crossterm::Command for PopKeys {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if cfg!(windows) {
+            return Ok(());
+        }
+        crossterm::Command::write_ansi(&PopKeyboardEnhancementFlags, f)
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 struct TerminalGuard {
     alt: bool,
     mouse: bool,
@@ -147,7 +184,7 @@ impl TerminalGuard {
                 EnableBracketedPaste,
                 EnableFocusChange,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(
+                PushKeys(
                     KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
                 ),
@@ -159,7 +196,7 @@ impl TerminalGuard {
                 EnableBracketedPaste,
                 EnableFocusChange,
                 EnableMouseCapture,
-                PushKeyboardEnhancementFlags(
+                PushKeys(
                     KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                         | KeyboardEnhancementFlags::REPORT_EVENT_TYPES,
                 ),
@@ -207,7 +244,7 @@ impl TerminalGuard {
     fn suspend(&mut self) -> io::Result<()> {
         let _ = execute!(
             io::stdout(),
-            PopKeyboardEnhancementFlags,
+            PopKeys,
             DisableMouseCapture,
             DisableBracketedPaste,
             DisableFocusChange,
@@ -236,9 +273,7 @@ impl TerminalGuard {
                     EnableBracketedPaste,
                     EnableFocusChange,
                     EnableMouseCapture,
-                    PushKeyboardEnhancementFlags(
-                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-                    ),
+                    PushKeys(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,),
                     Hide
                 )?;
                 self.alt = true;
@@ -250,9 +285,7 @@ impl TerminalGuard {
                     EnableBracketedPaste,
                     EnableFocusChange,
                     EnableMouseCapture,
-                    PushKeyboardEnhancementFlags(
-                        KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
-                    ),
+                    PushKeys(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,),
                     Show
                 )?;
                 self.alt = false;
@@ -268,7 +301,7 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = execute!(
             io::stdout(),
-            PopKeyboardEnhancementFlags,
+            PopKeys,
             DisableMouseCapture,
             DisableBracketedPaste,
             DisableFocusChange,
@@ -286,7 +319,7 @@ impl Drop for TerminalGuard {
 fn restore_terminal() {
     let _ = execute!(
         io::stdout(),
-        PopKeyboardEnhancementFlags,
+        PopKeys,
         DisableMouseCapture,
         DisableBracketedPaste,
         DisableFocusChange,
