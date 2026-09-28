@@ -38,8 +38,11 @@ describe('installer selection (#198)', () => {
     expect(installerForPath('/Users/a/.bun/install/global/node_modules/codsh-cli')).toBe('bun')
     expect(installerForPath('/Users/a/.config/yarn/global/node_modules/codsh-cli')).toBe('yarn')
     expect(installerForPath('C:\\Users\\a\\AppData\\Local\\Yarn\\Data\\global\\node_modules\\codsh-cli')).toBe('yarn')
-    expect(installerForPath('/opt/homebrew/lib/node_modules/codsh-cli')).toBeUndefined()
-    expect(installerForPath('/usr/local/lib/node_modules/codsh-cli')).toBeUndefined()
+    expect(installerForPath('/opt/homebrew/lib/node_modules/codsh-cli')).toBe('npm')
+    expect(installerForPath('/home/a/.nvm/versions/node/v24.1.0/lib/node_modules/codsh-cli')).toBe('npm')
+    expect(installerForPath('C:\\Users\\a\\AppData\\Roaming\\npm\\node_modules\\codsh-cli')).toBe('npm')
+    expect(installerForPath('/home/a/.npm/_npx/0a1b/node_modules/codsh-cli')).toBeUndefined()
+    expect(installerForPath('/work/codsh/packages/cli')).toBeUndefined()
   })
 
   it('reads the manager name from npm_config_user_agent', async () => {
@@ -54,12 +57,15 @@ describe('installer selection (#198)', () => {
   it('takes CODSH_INSTALLER first, then the install path, then the user agent, then npm', async () => {
     const pnpmPath = '/x/pnpm/global/5/node_modules/codsh-cli'
     const npmPath = '/usr/local/lib/node_modules/codsh-cli'
+    const npxPath = '/home/a/.npm/_npx/0a1b/node_modules/codsh-cli'
     expect(detectInstaller({ env: { CODSH_INSTALLER: 'Bun', npm_config_user_agent: 'npm/10' }, packageRoot: pnpmPath }))
       .toEqual({ name: 'bun', source: 'CODSH_INSTALLER' })
     expect(detectInstaller({ env: { npm_config_user_agent: 'npm/10' }, packageRoot: pnpmPath })).toEqual({ name: 'pnpm', source: 'install path' })
-    expect(detectInstaller({ env: { npm_config_user_agent: 'yarn/1.22' }, packageRoot: npmPath })).toEqual({ name: 'yarn', source: 'npm_config_user_agent' })
-    expect(detectInstaller({ env: {}, packageRoot: npmPath })).toEqual({ name: 'npm', source: 'default' })
-    const bad = detectInstaller({ env: { CODSH_INSTALLER: 'brew' }, packageRoot: npmPath })
+    // An npm global install stays npm even when a pnpm script started the command.
+    expect(detectInstaller({ env: { npm_config_user_agent: 'pnpm/10.34.5' }, packageRoot: npmPath })).toEqual({ name: 'npm', source: 'install path' })
+    expect(detectInstaller({ env: { npm_config_user_agent: 'yarn/1.22' }, packageRoot: npxPath })).toEqual({ name: 'yarn', source: 'npm_config_user_agent' })
+    expect(detectInstaller({ env: {}, packageRoot: npxPath })).toEqual({ name: 'npm', source: 'default' })
+    const bad = detectInstaller({ env: { CODSH_INSTALLER: 'brew' }, packageRoot: npxPath })
     expect(bad).toMatchObject({ name: 'npm', source: 'default' })
     expect(bad.ignored).toContain('CODSH_INSTALLER=brew is not one of npm, pnpm, yarn, bun')
   })

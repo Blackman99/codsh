@@ -7,8 +7,9 @@
  * the launcher.
  *
  * Precedence: `CODSH_INSTALLER` (explicit), then the layout the package sits
- * in (a pnpm, Yarn or Bun global directory), then `npm_config_user_agent`
- * (set by a package manager for the processes it starts), then npm. The
+ * in (a pnpm, Yarn, Bun or npm global directory), then `npm_config_user_agent`
+ * (set by a package manager for the processes it starts, e.g. `npx codsh`),
+ * then npm. The
  * reference (`xai-grok-update` `env_installer`) reads the user agent before
  * the install path because its only package-manager installer is npm; here
  * the path names the manager that can actually replace these files, so it
@@ -34,6 +35,9 @@ export function installerForPath(path) {
   if (normal.includes('/pnpm/global/') || normal.includes('/.pnpm/') || normal.includes('/pnpm-global/')) return 'pnpm'
   if (normal.includes('/.bun/install/global/')) return 'bun'
   if (normal.includes('/yarn/global/') || normal.includes('/.yarn-global/') || normal.includes('/yarn/data/global/')) return 'yarn'
+  // npm's global prefix: <prefix>/lib/node_modules on POSIX (Homebrew, nvm,
+  // the system Node), %APPDATA%\npm\node_modules on Windows.
+  if (normal.includes('/lib/node_modules/') || normal.includes('/appdata/roaming/npm/node_modules/')) return 'npm'
   return undefined
 }
 
