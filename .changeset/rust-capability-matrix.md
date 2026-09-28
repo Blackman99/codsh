@@ -3,4 +3,14 @@
 'codsh-bundle': patch
 ---
 
-`scripts/rust-capability-matrix.py` and the `capability-matrix` job of `rust-platforms.yml` record a three-platform capability matrix for the installed Rust client: OS and terminal versions, keys / cancel / resume, sandbox (with honest refusals), terminal restore and hangup, clipboard and microphone honesty when there is no device, and the Windows ConPTY path. Missing devices and refused features are never reported as a silent pass.
+Three-platform capability matrix for the installed Rust client (#201):
+`scripts/rust-capability-matrix.py` and the `capability-matrix` job record OS /
+terminal versions and the real effect of keys, mouse, shell, cancel, screen
+modes, terminal restore, the real clipboard (macOS pasteboard, X11 `xclip`,
+Windows `clip.exe` UTF-16LE), voice doctor without fixtures, sandbox profiles,
+loopback SSH, real tmux, and the Windows ConPTY harness. Missing devices and
+refused features are `refused` / `unavailable`, never a silent pass. Related:
+`docs/rewrite/platform-capabilities.md`, `scripts/rust-clipboard-pty-test.py`,
+`scripts/rust-tmux-pty-test.py`. Windows `/copy` sends UTF-16LE to `clip.exe`
+so CJK survives; an unreachable Linux display is no longer reported as an
+empty clipboard.
