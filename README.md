@@ -1181,7 +1181,7 @@ build, installed-product verification, and platform limitations.
 Installing a package that carries the client is the ordinary
 `npm install -g @deepseek-ai/dsh codsh-cli` (Node 22.19+; no Rust toolchain).
 Each supported platform has its own prebuilt directory inside `codsh-cli`
-(macOS `darwin-arm64` and `darwin-x64`, Linux `linux-x64`); on Apple silicon use
+(macOS `darwin-arm64` and `darwin-x64`, Linux `linux-x64` and `linux-arm64`); on Apple silicon use
 the arm64 Node.js, since an x64 Node under Rosetta selects the Intel build.
 `codsh --rust install-check` (`--json` for scripts) verifies the install without
 starting anything or writing: the client for this platform, its SHA-256 and
@@ -1211,6 +1211,22 @@ macOS runners (`.github/workflows/rust-native.yml`) and installed there from the
 packed tarball on runners without a Rust toolchain, including an x64 Node under
 Rosetta (`.github/workflows/rust-platforms.yml`); they are ad-hoc signed only,
 not Developer ID signed or notarized.
+
+On Linux the client needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+,
+Fedora 36+, RHEL 10+) on x64 or arm64, plus `libgcc_s` which every glibc
+distribution has; OpenSSL is compiled in, so no `libssl` package is needed, and
+no display server, account or Rust toolchain. The requirements are recorded in
+`artifact.json` and checked before the client starts: an older glibc, a musl
+system such as Alpine, or a missing shared library is refused with what to
+install instead (plain `codsh` keeps working there), and `codsh --rust
+install-check` shows the glibc it found. Install, update (`codsh --rust
+update`), rollback and the Rust Home `~/.codsh-rust` work as on macOS. The
+Linux prebuilds are built on Ubuntu 22.04 runners and installed from the packed
+tarball on Ubuntu 22.04/24.04 (x64 and arm64) and in clean Debian 12, Debian 13
+and Fedora 41 containers without a Rust toolchain or libssl, where the
+installed client completes a chat turn, a tool approval, a cancel and a resume
+in a real PTY (`scripts/rust-platform-test.py`, which also lists what that run
+does not cover).
 
 ## `/ship`: One Sentence to Verified Code
 

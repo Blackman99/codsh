@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import { constants, homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dshFloorProblem, dshPackage, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
+import { dshFloorProblem, dshPackage, linuxLibc, linuxRuntimeProblem, stampTransition, verifyArtifact, whichOnPath } from './rust-artifact.mjs'
 
 const requireFromHere = createRequire(import.meta.url)
 
@@ -132,6 +132,8 @@ function installCheck(args) {
   }
   const nativeRoot = fileURLToPath(new URL('../native/', import.meta.url))
   const artifact = verifyArtifact({ nativeRoot, version: OWN.version })
+  const libc = process.platform === 'linux' ? linuxLibc() : undefined
+  const runtimeProblem = artifact.ok && process.platform === 'linux' ? linuxRuntimeProblem(artifact.manifest, { libc }) : undefined
   const dshBin = findDsh()
   const need = OWN.codsh?.requiresDsh
   const owner = dshPackage(dshBin)
@@ -151,11 +153,18 @@ function installCheck(args) {
   }
   const result = {
     schema: 'codsh.install-check.v1',
-    ok: artifact.ok && dshProblem === undefined,
+    ok: artifact.ok && runtimeProblem === undefined && dshProblem === undefined,
     launcher: { name: OWN.name, version: OWN.version, node: process.version, platform: process.platform, arch: process.arch },
     artifact: artifact.ok
       ? { ok: true, key: artifact.key, binary: artifact.binary, target: artifact.manifest.target, version: artifact.manifest.version ?? null, sha256: artifact.sha256, format: artifact.header.format, cpus: artifact.header.cpus }
       : { ok: false, code: artifact.code, message: artifact.message, recovery: artifact.recovery },
+    ...(process.platform === 'linux' ? {
+      runtime: {
+        ok: runtimeProblem === undefined, libc: libc?.family ?? null, glibc: libc?.version ?? null,
+        requires: artifact.ok ? artifact.manifest.runtime ?? null : null,
+        ...(runtimeProblem === undefined ? {} : { code: runtimeProblem.code, message: runtimeProblem.message, recovery: runtimeProblem.recovery }),
+      },
+    } : {}),
     dsh: {
       ok: dshProblem === undefined, entry: dshBin, version: owner?.version ?? null, requires: need ?? null,
       ...(dshProblem === undefined ? {} : { code: dshProblem.code, message: dshProblem.message, recovery: dshProblem.recovery }),
@@ -169,11 +178,17 @@ function installCheck(args) {
     console.log(artifact.ok
       ? `Rust client: ok · ${artifact.key} (${artifact.manifest.target ?? 'unknown target'}) · ${artifact.header.format} ${artifact.header.cpus.join('+')} · sha256 ${artifact.sha256.slice(0, 12)}…`
       : `Rust client: ${artifact.code} · ${artifact.message}`)
+    if (process.platform === 'linux') {
+      const requires = artifact.ok ? artifact.manifest.runtime : undefined
+      console.log(runtimeProblem === undefined
+        ? `Linux runtime: ok · ${libc?.family === 'glibc' ? `glibc ${libc.version}` : 'no glibc'}${requires?.glibc ? ` (needs ${requires.glibc}+)` : ''}`
+        : `Linux runtime: ${runtimeProblem.code} · ${runtimeProblem.message}`)
+    }
     console.log(dshProblem === undefined
       ? `dsh: ok · ${dshBin}${owner ? ` · ${owner.version}` : ' · version not readable'}${need ? ` (needs ${need}+)` : ''}`
       : `dsh: ${dshProblem.code} · ${dshProblem.message}`)
     console.log(`Rust Home: ${result.home.path}${stamp?.lastVersion ? ` · last used by ${stamp.lastVersion}` : ' · not used yet'}`)
-    for (const line of [...(artifact.ok ? [] : artifact.recovery), ...(dshProblem?.recovery ?? [])]) console.log(`  ${line}`)
+    for (const line of [...(artifact.ok ? [] : artifact.recovery), ...(runtimeProblem?.recovery ?? []), ...(dshProblem?.recovery ?? [])]) console.log(`  ${line}`)
   }
   return result.ok ? 0 : 1
 }
@@ -268,6 +283,7 @@ async function rustUpdate(args) {
     emit({ action, ok: false, code: onDisk !== target ? 'not-moved' : 'verify', command, onDisk: onDisk ?? null, artifact: report?.artifact ?? null, dsh: report?.dsh ?? null }, [
       `codsh: ${why}:`,
       ...(report?.artifact?.ok === false ? [`  ${report.artifact.message}`] : []),
+      ...(report?.runtime?.ok === false ? [`  ${report.runtime.message}`] : []),
       ...(report?.dsh?.ok === false ? [`  ${report.dsh.message}`] : []),
       `  go back to the version you had:  ${plan.rollback.join(' ')}`,
     ], console.error)
@@ -417,6 +433,13 @@ export async function launchRust(args) {
     const artifact = verifyArtifact({ nativeRoot: fileURLToPath(new URL('../native/', import.meta.url)), version: OWN.version })
     if (!artifact.ok) {
       report(artifact)
+      return 1
+    }
+    // A Linux without the glibc or libraries the client links is told what to
+    // install before anything starts, not handed a loader error (#199).
+    const runtimeProblem = process.platform === 'linux' ? linuxRuntimeProblem(artifact.manifest) : undefined
+    if (runtimeProblem !== undefined) {
+      report(runtimeProblem)
       return 1
     }
     const binary = artifact.binary

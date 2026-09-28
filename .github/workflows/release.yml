@@ -46,7 +46,7 @@ jobs:
           mkdir -p packages/cli/native
           for archive in natives/native-*.tgz; do tar -C packages/cli/native -xzf "$archive"; done
           node scripts/build-ship-extension.mjs
-          pnpm run check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64
+          pnpm run check:rust-package -- --require darwin-arm64,darwin-x64,linux-x64,linux-arm64
       - name: Create release PR or publish to npm
         uses: changesets/action@v1
         with:
