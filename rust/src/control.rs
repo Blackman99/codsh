@@ -6,7 +6,9 @@
 //! The client listens on a Unix socket inside a fresh 0700 directory and
 //! passes the path and a random one-time token to dsh. It accepts exactly one
 //! connection, requires the token as the first line, then unlinks the socket.
-//! A wrong token closes the channel for good. Nothing here runs a model or a
+//! A wrong token closes the channel for good. On Windows (#200) the listener
+//! is a loopback TCP port instead of a socket file; the token check is the
+//! same. Nothing here runs a model or a
 //! tool: dsh stays the execution core, this only carries requests to it.
 
 use serde_json::{Value, json};
@@ -414,13 +416,11 @@ pub struct ControlChannel {
     rx: Receiver<ControlEvent>,
     ready: bool,
     closed: Option<String>,
-    #[cfg(unix)]
     unix: unix::Shared,
 }
 
 impl ControlChannel {
     /// Start listening. Returns the channel and the environment to hand dsh.
-    #[cfg(unix)]
     pub fn listen() -> io::Result<(Self, Vec<(String, String)>)> {
         let (tx, rx) = mpsc::channel();
         let (shared, env) = unix::listen(tx)?;
@@ -432,14 +432,6 @@ impl ControlChannel {
                 unix: shared,
             },
             env,
-        ))
-    }
-
-    #[cfg(not(unix))]
-    pub fn listen() -> io::Result<(Self, Vec<(String, String)>)> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "steer and /btw need a Unix socket; unavailable on this platform",
         ))
     }
 
@@ -488,24 +480,24 @@ impl ControlChannel {
                 .clone()
                 .unwrap_or_else(|| "dsh control channel is not connected yet".into()));
         }
-        #[cfg(unix)]
-        {
-            self.unix.write_line(&message.to_string())
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = message;
-            Err("control channel unavailable on this platform".into())
-        }
+        self.unix.write_line(&message.to_string())
     }
 }
 
-#[cfg(unix)]
+/// The socket half. Unix: a socket file in a fresh 0700 directory. Windows
+/// (#200): a loopback TCP port; there the one-time token is the only guard,
+/// the same token check a Unix peer must pass. Node's `net.connect` takes
+/// either form (`tcp:127.0.0.1:<port>` is parsed by the dsh plugin).
 mod unix {
     use super::{ControlEvent, SOCKET_ENV, TOKEN_ENV, parse_event, token_matches};
+    #[cfg(unix)]
     use std::fs;
     use std::io::{self, BufRead, BufReader, Read, Write};
+    #[cfg(not(unix))]
+    use std::net::{TcpListener as UnixListener, TcpStream as UnixStream};
+    #[cfg(unix)]
     use std::os::unix::fs::DirBuilderExt;
+    #[cfg(unix)]
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -550,19 +542,23 @@ mod unix {
         }
     }
 
+    #[cfg(unix)]
     fn cleanup(dir: &Path) {
         let _ = fs::remove_file(dir.join("s"));
         let _ = fs::remove_dir(dir);
     }
 
+    #[cfg(not(unix))]
+    fn cleanup(_dir: &Path) {}
+
     fn random_hex(bytes: usize) -> io::Result<String> {
         let mut buf = vec![0u8; bytes];
-        fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
+        getrandom::fill(&mut buf).map_err(|error| io::Error::other(error.to_string()))?;
         Ok(buf.iter().map(|byte| format!("{byte:02x}")).collect())
     }
 
-    pub fn listen(tx: Sender<ControlEvent>) -> io::Result<(Shared, Vec<(String, String)>)> {
-        let token = random_hex(32)?;
+    #[cfg(unix)]
+    fn bind() -> io::Result<(UnixListener, PathBuf, String)> {
         let dir = std::env::temp_dir().join(format!(
             "codsh-ctl-{}-{}",
             std::process::id(),
@@ -571,18 +567,30 @@ mod unix {
         // `create` fails if the path exists, so a planted directory is refused.
         fs::DirBuilder::new().mode(0o700).create(&dir)?;
         let path = dir.join("s");
-        let listener = match UnixListener::bind(&path) {
-            Ok(listener) => listener,
+        match UnixListener::bind(&path) {
+            Ok(listener) => Ok((listener, dir, path.to_string_lossy().into_owned())),
             Err(error) => {
                 cleanup(&dir);
-                return Err(error);
+                Err(error)
             }
-        };
+        }
+    }
+
+    #[cfg(not(unix))]
+    fn bind() -> io::Result<(UnixListener, PathBuf, String)> {
+        let listener = UnixListener::bind(("127.0.0.1", 0))?;
+        let address = format!("tcp:{}", listener.local_addr()?);
+        Ok((listener, PathBuf::new(), address))
+    }
+
+    pub fn listen(tx: Sender<ControlEvent>) -> io::Result<(Shared, Vec<(String, String)>)> {
+        let token = random_hex(32)?;
+        let (listener, dir, address) = bind()?;
         listener.set_nonblocking(true)?;
         let writer = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
         let env = vec![
-            (SOCKET_ENV.to_string(), path.to_string_lossy().into_owned()),
+            (SOCKET_ENV.to_string(), address),
             (TOKEN_ENV.to_string(), token.clone()),
         ];
         let thread_writer = Arc::clone(&writer);

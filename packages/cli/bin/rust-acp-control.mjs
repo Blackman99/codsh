@@ -608,7 +608,9 @@ export function apply(ctx) {
     socket?.destroy()
   })
   if (!path || !token) return
-  socket = createConnection(path)
+  // Unix: a socket path. Windows (#200): `tcp:127.0.0.1:<port>` on loopback.
+  const tcp = /^tcp:(127\.0\.0\.1):(\d+)$/.exec(path)
+  socket = tcp ? createConnection({ host: tcp[1], port: Number(tcp[2]) }) : createConnection(path)
   socket.setEncoding('utf8')
   let buffer = ''
   socket.on('connect', () => {
