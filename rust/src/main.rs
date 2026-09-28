@@ -9053,9 +9053,15 @@ fn kill_group(pid: u32) {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    // Windows has no process groups: end the whole tree under dsh (#200).
+    #[cfg(windows)]
     {
-        let _ = pid;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 

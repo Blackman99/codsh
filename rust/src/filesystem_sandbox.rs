@@ -8,8 +8,11 @@
 //! On macOS a `restrict_network` profile denies `network*` in the same Seatbelt
 //! profile. Linux Landlock/seccomp network blocking is a different mechanism
 //! and is not claimed from a macOS run: a profile that asks for it refuses
-//! startup there. Windows confinement is not implemented.
+//! startup there. Windows confinement is not implemented: every non-`off`
+//! profile refuses startup there (#200).
+#![cfg_attr(not(unix), allow(dead_code))]
 
+#[cfg(unix)]
 use nono::{AccessMode, CapabilitySet, Sandbox};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -226,7 +229,15 @@ pub fn prepare(
     if name.is_empty() || name == "off" {
         return Ok(None);
     }
+    #[cfg(not(unix))]
+    return Err(Refusal {
+        message: format!(
+            "refusing sandbox profile {name}: kernel confinement is not implemented on Windows; use sandbox profile off"
+        ),
+    });
+    #[cfg(unix)]
     let support = Sandbox::support_info();
+    #[cfg(unix)]
     if !support.is_supported {
         return Err(Refusal {
             message: format!(
@@ -367,6 +378,17 @@ pub fn activate_shell_env(
     Ok(())
 }
 
+#[cfg(not(unix))]
+pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
+    Err(Refusal {
+        message: format!(
+            "refusing sandbox profile {}: kernel confinement is not implemented on Windows",
+            prepared.name
+        ),
+    })
+}
+
+#[cfg(unix)]
 pub fn apply(prepared: &Prepared) -> Result<(), Refusal> {
     if ACTIVE.get().is_some() {
         return Ok(());
@@ -626,6 +648,7 @@ fn mechanism_name() -> &'static str {
     }
 }
 
+#[cfg(unix)]
 fn grant(
     caps: CapabilitySet,
     path: &Path,
@@ -1069,6 +1092,7 @@ fn append_segment_regex(regex: &mut String, segment: &str) -> Result<(), String>
     Ok(())
 }
 
+#[cfg(unix)]
 fn pin_directory(
     caps: CapabilitySet,
     path: &Path,
@@ -1140,7 +1164,7 @@ fn apply_with_tail(caps: &CapabilitySet, tail: &str) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn apply_with_tail(caps: &CapabilitySet, _tail: &str) -> Result<(), String> {
     Sandbox::apply(caps)
         .map(|_| ())
@@ -1324,6 +1348,7 @@ fn explicit_keychain_db(caps: &CapabilitySet) -> bool {
     })
 }
 
+#[cfg(unix)]
 fn deny_subpath(
     caps: CapabilitySet,
     path: &Path,
@@ -1360,6 +1385,7 @@ fn deny_subpath(
     }
 }
 
+#[cfg(unix)]
 fn deny_glob(
     caps: CapabilitySet,
     glob: &DenyGlob,
@@ -1403,6 +1429,7 @@ fn deny_glob(
     }
 }
 
+#[cfg(unix)]
 fn access_name(mode: AccessMode) -> &'static str {
     match mode {
         AccessMode::Read => "read",

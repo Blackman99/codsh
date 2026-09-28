@@ -465,6 +465,24 @@ const IDENTITY_CHILD_KEYS: &[&str] = &[
 /// Parent env keys the dsh child may inherit. The plain mask and step bound
 /// (CODSH_PLAIN_TOOLS, CODSH_PLAIN_MAX_TURNS) are not here: only a plain turn
 /// passes them, so a parent's value never reaches an interactive session.
+/// Windows process facts dsh, Node and its shell children need (#200):
+/// temp directories, the command interpreter, executable extensions and the
+/// per-user application data roots. Unix children never see these names.
+#[cfg(windows)]
+const WINDOWS_ENV: &[&str] = &[
+    "TEMP",
+    "TMP",
+    "COMSPEC",
+    "PATHEXT",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
+    "PROGRAMFILES",
+    "SYSTEMDRIVE",
+];
+#[cfg(not(windows))]
+const WINDOWS_ENV: &[&str] = &[];
+
 pub const INHERITED_ENV: &[&str] = &[
     "HOME",
     "USERPROFILE",
@@ -593,7 +611,7 @@ pub fn dsh_spawn_spec(
         args.push(patch.to_string_lossy().into_owned());
     }
     let mut env = Vec::new();
-    for key in INHERITED_ENV {
+    for key in INHERITED_ENV.iter().chain(WINDOWS_ENV) {
         if let Some(value) = std::env::var_os(key) {
             env.push((key.to_string(), value.to_string_lossy().into_owned()));
         }
@@ -2524,9 +2542,15 @@ fn kill_process_group(pid: u32) {
             libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
-    #[cfg(not(unix))]
+    // Windows has no process groups: end the whole tree under dsh (#200).
+    #[cfg(windows)]
     {
-        let _ = pid;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 
