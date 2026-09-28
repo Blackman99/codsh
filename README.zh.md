@@ -702,7 +702,8 @@ agent preset 会去掉（本客户端用自己的 agent 与工具继续）。本
 携带客户端的包用 `npm install -g @deepseek-ai/dsh@0.1.5-rc.3 codsh-cli` 安装
 （Node 22.19+，无需 Rust 工具链）。请写明 dsh 版本：它是这个 codsh-cli 测试时用的
 版本（package.json 中的 `codsh.testedDsh`）。不写版本会装上注册表最新版（目前为
-0.1.7-rc.2），其首个 Rust 回合以 ACP internal error 失败；写
+0.1.7-rc.2），其首个 Rust 回合失败（`format v4 message requires a producer-owned
+source kind`）；写
 `@deepseek-ai/dsh@0.1.5-rc.2` 则会经 `^` 范围拉入 0.1.5-rc.3 子包，混合依赖树无法
 启动。`install-check` 会把测试版本与实际找到的版本并列显示，缺少或过旧 dsh 时的每条
 恢复提示都给出带版本的命令。每个支持的平台在 `codsh-cli` 内有自己的预编译目录

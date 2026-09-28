@@ -1182,8 +1182,8 @@ Installing a package that carries the client is
 `npm install -g @deepseek-ai/dsh@0.1.5-rc.3 codsh-cli` (Node 22.19+; no Rust
 toolchain). Name the dsh version: it is the one this codsh-cli was tested with
 (`codsh.testedDsh` in its package.json). A bare `@deepseek-ai/dsh` takes the
-registry's latest (0.1.7-rc.2 today), whose first Rust turn fails with an ACP
-internal error, and `@deepseek-ai/dsh@0.1.5-rc.2` pulls 0.1.5-rc.3 sub-packages
+registry's latest (0.1.7-rc.2 today), whose first Rust turn fails (`format v4
+message requires a producer-owned source kind`), and `@deepseek-ai/dsh@0.1.5-rc.2` pulls 0.1.5-rc.3 sub-packages
 through its `^` ranges, a mixed tree that does not boot. `install-check` names
 the tested version beside the one it found, and every missing/old-dsh
 recovery line prints the pinned command.
