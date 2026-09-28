@@ -519,7 +519,7 @@ jobs:
         shell: bash
         run: |
           python scripts/rust-stress-bench.py --reference "$STRESS_REFERENCE" --launcher "$STRESS_LAUNCHER" \
-            --runs "${STRESS_RUNS:-5}" --crash-runs "${STRESS_CRASH_RUNS:-2}" --output "$PWD/evidence/stress"
+            --runs "${STRESS_RUNS:-5}" --crash-runs "${STRESS_CRASH_RUNS:-2}" --output evidence/stress
       - uses: actions/upload-artifact@v4
         if: always()
         with:

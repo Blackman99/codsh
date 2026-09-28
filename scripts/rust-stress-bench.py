@@ -830,6 +830,8 @@ def stress_run(subject, env, cwd, fixture, log):
             sent = terminal.send('\r')
             paused = wait_for(lambda: fixture.active_count('child', 'w') == 0, 20, terminal)
             record('workflow:pause', now_ms() - sent if paused else None)
+            if not paused:
+                run['pauseScreen'] = terminal.text()
             terminal.drain(1.5)
             before = fixture.count('child', start, 'w')
             terminal.send('/workflow resume stress')
@@ -837,6 +839,8 @@ def stress_run(subject, env, cwd, fixture, log):
             sent = terminal.send('\r')
             resumed = wait_for(lambda: fixture.count('child', start, 'w') >= before + 3, 30, terminal)
             record('workflow:resume', now_ms() - sent if resumed else None)
+            if not resumed:
+                run['resumeScreen'] = terminal.text()
             terminal.drain(1.0)
             terminal.send('/workflow stop stress')
             terminal.drain(0.3)
@@ -875,7 +879,10 @@ def stress_run(subject, env, cwd, fixture, log):
     finally:
         terminal.close()
         tree.kill_left()
-    run['valid'] = not run['missing']
+    # A run that started is valid; each metric is judged on the runs that
+    # produced it (freeze and judge below), so one missing measurement does
+    # not silently drop the whole run.
+    run['valid'] = 'ready' not in run['missing']
     return run
 
 
@@ -932,7 +939,10 @@ def crash_run(subject, env, cwd, fixture, log):
     finally:
         terminal.close()
         tree.kill_left()
-    run['valid'] = not run['missing']
+    # A run that started is valid; each metric is judged on the runs that
+    # produced it (freeze and judge below), so one missing measurement does
+    # not silently drop the whole run.
+    run['valid'] = 'ready' not in run['missing']
     return run
 
 
@@ -967,8 +977,10 @@ def judge(thresholds, candidate_runs):
             verdicts[metric] = {'verdict': 'not-applicable'}
             continue
         values = series(candidate_runs, metric)
-        if not values:
-            verdicts[metric] = {'verdict': 'fail', 'reason': 'the candidate did not produce this measurement'}
+        valid = [run for run in candidate_runs if not run.get('warmup') and run.get('valid')]
+        if not values or len(values) != len(valid):
+            verdicts[metric] = {'verdict': 'fail', 'samples': len(values), 'validRuns': len(valid),
+                                'reason': 'the candidate did not produce this measurement in every valid run'}
             continue
         verdicts[metric] = {'samples': len(values), 'median': statistics.median(values), 'p95': p95(values),
                             'verdict': 'pass' if p95(values) <= entry['ceiling'] else 'fail'}
@@ -1155,18 +1167,21 @@ def main():
         reference_hard = hard_checks(runs['reference'], crashes['reference'])
         failed = sorted([m for m, v in verdicts.items() if v['verdict'] == 'fail'] +
                         [m for m, v in hard.items() if not v])
-        report.update(verdicts=verdicts, hard=hard, referenceHard=reference_hard, failed=failed)
+        # A metric the reference could not produce is not a pass: the run is
+        # incomplete until the harness measures it on this platform.
+        not_judged = sorted(m for m, v in verdicts.items() if v['verdict'] == 'not-applicable')
+        report.update(verdicts=verdicts, hard=hard, referenceHard=reference_hard, failed=failed, notJudged=not_judged)
         for name in ('reference', 'candidate'):
             report[f'{name}Reported'] = {m: summary([r[m] for r in runs[name] if not r.get('warmup') and r.get(m) is not None])
                                          for m in REPORTED + ['long:turn-first5']}
         (output / 'report.md').write_text(render(key, thresholds, verdicts, hard, reference_hard, runs))
-        log(f'failed: {failed or "none"}')
+        log(f'failed: {failed or "none"}; not judged: {not_judged or "none"}')
     else:
         report['measured'] = {name: {m: summary(series(runs[name], m)) for m in LATENCY + GROWTH} for name in subjects}
         report['hard'] = {name: hard_checks(runs[name], crashes[name]) for name in subjects}
     (output / 'report.json').write_text(json.dumps(report, indent=2, default=str))
     shutil.rmtree(root, ignore_errors=True)
-    if report.get('failed'):
+    if report.get('failed') or report.get('notJudged'):
         sys.exit(1)
 
 
