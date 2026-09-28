@@ -109,6 +109,14 @@ jobs:
       - name: Remove the Rust toolchain
         run: |
           rm -rf "$HOME/.cargo" "$HOME/.rustup"
+          # The image also links Homebrew's rustup; take every entry off PATH.
+          for tool in cargo rustc rustup rustup-init; do
+            while found=$(command -v "$tool"); do
+              echo "removing $found"
+              rm -f "$found" 2>/dev/null || sudo rm -f "$found"
+              hash -r
+            done
+          done
           if command -v cargo || command -v rustc || command -v rustup; then echo "a Rust toolchain is still on PATH"; exit 1; fi
           echo "no cargo, rustc or rustup on PATH"
       - name: Use an x64 Node under Rosetta
