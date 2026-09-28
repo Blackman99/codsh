@@ -10123,6 +10123,8 @@ fn run() -> io::Result<()> {
     // clears `turns`, so the next prompt is that session's first turn.
     let mut memory_injected: bool = resumed && !turns.is_empty();
     let mut pending_events: std::collections::VecDeque<Event> = std::collections::VecDeque::new();
+    let mut typing_burst = false;
+    let mut last_paint = Instant::now();
     let mut client = if startup_can_execute {
         let connected = match connect_at_startup(
             &mode,
@@ -11018,53 +11020,63 @@ fn run() -> io::Result<()> {
                 hint = navigation::dock_message(true).into();
             }
         }
-        let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
-        let memory_store = memory_store(&effective).ok();
-        let feedback_open = matches!(overlay, Overlay::Feedback(_));
-        let session_nav = (screen == ScreenMode::Fullscreen && !feedback_open).then_some(&nav);
-        let mut memory_browser = match &mut overlay {
-            Overlay::Memory(browser) if !browser.force_off => Some(std::mem::take(browser)),
-            _ => None,
-        };
-        nav_layout = if let (Some(browser), Some(store)) =
-            (memory_browser.as_mut(), memory_store.as_ref())
-        {
-            paint_memory(
-                &mut terminal,
-                screen,
-                &composer,
-                &notice,
-                selected,
-                &live_theme,
-                effective.appearance.compact_mode,
-                &mut ui_overlay,
-                feedback_open,
-                session_nav,
-                Some(browser),
-                Some(store),
-                tasks.as_mut().map(|modal| (&board, modal)),
-                Some(&mut side.ask),
-            )?
-        } else {
-            paint_memory(
-                &mut terminal,
-                screen,
-                &composer,
-                &notice,
-                selected,
-                &live_theme,
-                effective.appearance.compact_mode,
-                &mut ui_overlay,
-                feedback_open,
-                session_nav,
-                None,
-                None,
-                tasks.as_mut().map(|modal| (&board, modal)),
-                Some(&mut side.ask),
-            )?
-        };
-        if let (Some(browser), Overlay::Memory(slot)) = (memory_browser, &mut overlay) {
-            *slot = browser;
+        // A burst of typed keys or a paste followed by more input is painted
+        // once, after the burst (#202): a frame per key made a paste with
+        // trailing keys cost one full redraw per character.
+        let skip_paint = typing_burst
+            && pending_events.is_empty()
+            && last_paint.elapsed() < Duration::from_millis(25)
+            && event::poll(Duration::ZERO).unwrap_or(false);
+        if !skip_paint {
+            let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
+            let memory_store = memory_store(&effective).ok();
+            let feedback_open = matches!(overlay, Overlay::Feedback(_));
+            let session_nav = (screen == ScreenMode::Fullscreen && !feedback_open).then_some(&nav);
+            let mut memory_browser = match &mut overlay {
+                Overlay::Memory(browser) if !browser.force_off => Some(std::mem::take(browser)),
+                _ => None,
+            };
+            nav_layout = if let (Some(browser), Some(store)) =
+                (memory_browser.as_mut(), memory_store.as_ref())
+            {
+                paint_memory(
+                    &mut terminal,
+                    screen,
+                    &composer,
+                    &notice,
+                    selected,
+                    &live_theme,
+                    effective.appearance.compact_mode,
+                    &mut ui_overlay,
+                    feedback_open,
+                    session_nav,
+                    Some(browser),
+                    Some(store),
+                    tasks.as_mut().map(|modal| (&board, modal)),
+                    Some(&mut side.ask),
+                )?
+            } else {
+                paint_memory(
+                    &mut terminal,
+                    screen,
+                    &composer,
+                    &notice,
+                    selected,
+                    &live_theme,
+                    effective.appearance.compact_mode,
+                    &mut ui_overlay,
+                    feedback_open,
+                    session_nav,
+                    None,
+                    None,
+                    tasks.as_mut().map(|modal| (&board, modal)),
+                    Some(&mut side.ask),
+                )?
+            };
+            if let (Some(browser), Overlay::Memory(slot)) = (memory_browser, &mut overlay) {
+                *slot = browser;
+            }
+            last_paint = Instant::now();
         }
         if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
             open_dashboard_at_start = false;
@@ -11093,6 +11105,17 @@ fn run() -> io::Result<()> {
         let event = match event {
             Event::Key(key) => Event::Key(unpaired.normalize(key)),
             other => other,
+        };
+        typing_burst = match &event {
+            Event::Paste(_) => true,
+            Event::Key(key) => {
+                key.kind == KeyEventKind::Press
+                    && matches!(key.code, KeyCode::Char(_))
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            }
+            _ => false,
         };
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Release => {
