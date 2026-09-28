@@ -1132,6 +1132,13 @@ impl AcpClient {
                             let reason = crate::mcp::failure_reason(&run_dir, &name, &fallback);
                             self.mcp_failed.insert(name, reason);
                         }
+                        // A bare "Internal error" says nothing; dsh puts
+                        // the cause in `data`, so show it (#198).
+                        _ if !details.is_empty() && !error.message.contains(details.trim()) => {
+                            return Err(AcpError {
+                                message: format!("{}: {}", error.message, details.trim()),
+                            });
+                        }
                         _ => return Err(error),
                     }
                 }
