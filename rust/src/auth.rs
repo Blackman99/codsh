@@ -1006,7 +1006,12 @@ pub fn run_logout(
     };
     Ok(format!(
         "{identity}\nModel API keys, {} MCP credentials, and Grove git credentials were not revoked.\n{OFFICIAL_LOGIN_NOTICE}",
-        if mcp.exists() || grove.exists() || dsh_creds.exists() {
+        // The empty placeholder dsh launches create (ticket 209) is not a
+        // stored credential.
+        if mcp.exists()
+            || grove.exists()
+            || fs::metadata(&dsh_creds).is_ok_and(|meta| meta.len() > 0)
+        {
             "existing"
         } else {
             "absent"

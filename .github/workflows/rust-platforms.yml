@@ -459,6 +459,74 @@ jobs:
           path: evidence/perf
           if-no-files-found: warn
 
+  stress:
+    # Concurrency and long-run resource stress against the pinned reference
+    # (#209): concurrent background subagents + a background command, an
+    # inline workflow with pause/resume/stop, a 30-turn session, quit and
+    # crash under load. Thresholds are frozen from this runner's reference
+    # samples before the candidate starts. Only on ci/** branches whose name
+    # carries "stress". The reference binary is downloaded, SHA-256 checked
+    # and never uploaded.
+    name: Stress (${{ matrix.name }})
+    needs: [native, package]
+    if: contains(github.ref_name, 'stress')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+          - name: macos-arm64
+            os: macos-15
+          - name: windows-x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Install the packed product with the registry dsh, as a user does
+        shell: bash
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          prefix="$RUNNER_TEMP/stress-prefix"
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            echo "STRESS_LAUNCHER=$prefix/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          else
+            echo "STRESS_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          fi
+      - name: Bench driver
+        shell: bash
+        run: |
+          python -m pip install --quiet 'pyte==0.8.2' 'psutil==7.2.2'
+          if [ "$RUNNER_OS" = "Windows" ]; then python -m pip install --quiet pywinpty==2.0.15; fi
+      - name: Fetch the pinned reference (checked, not redistributed)
+        shell: bash
+        run: |
+          reference=$(python scripts/rust-stress-bench.py --fetch-reference "$RUNNER_TEMP/reference")
+          echo "STRESS_REFERENCE=$reference" >> "$GITHUB_ENV"
+      - name: Reference baseline, freeze, candidate
+        shell: bash
+        run: |
+          python scripts/rust-stress-bench.py --reference "$STRESS_REFERENCE" --launcher "$STRESS_LAUNCHER" \
+            --runs "${STRESS_RUNS:-5}" --crash-runs "${STRESS_CRASH_RUNS:-2}" --output "$PWD/evidence/stress"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-${{ matrix.name }}
+          path: evidence/stress
+          if-no-files-found: warn
+
   capability-matrix:
     # Three-platform capability matrix (#201). Records OS/terminal versions and
     # runs the installed-product checks: keys, mouse, shell, cancel, screen

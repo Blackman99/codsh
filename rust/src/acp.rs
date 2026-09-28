@@ -582,6 +582,33 @@ fn stderr_event(text: String) -> AcpEvent {
     }
 }
 
+/// Ticket 209: dsh's `credentials-local` plugin watches
+/// `$DSH_HOME/.credentials.yaml`. When the file is absent, its chokidar
+/// watcher falls back to the whole dsh home, and every write there during
+/// quit (session records, MCP catalogs, the last-session marker) arms a 1 s
+/// readdir throttle timer that closing the watcher does not clear. That
+/// timer alone kept dsh alive ~1.1 s after quit with background work. An
+/// empty document is dsh's empty store, so creating one (owner-only, never
+/// replacing an existing file) keeps the watch on the file itself and
+/// changes nothing else. Failure is ignored: dsh then behaves as before.
+pub fn ensure_credentials_placeholder(dsh_home: &Path) {
+    if !dsh_home.is_dir() {
+        return;
+    }
+    let path = dsh_home.join(".credentials.yaml");
+    if std::fs::symlink_metadata(&path).is_ok() {
+        return;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let _ = options.open(&path);
+}
+
 pub fn dsh_spawn_spec(
     cwd: PathBuf,
     dsh_home: &Path,
@@ -699,6 +726,7 @@ pub fn dsh_spawn_spec(
     {
         env.push((name, value.to_string_lossy().into_owned()));
     }
+    ensure_credentials_placeholder(dsh_home);
     Ok(SpawnSpec {
         program,
         args,
@@ -3627,6 +3655,25 @@ mod tests {
             "{stop}"
         );
         assert_ne!(stop, "end_turn");
+    }
+
+    #[test]
+    fn credentials_placeholder_is_empty_owner_only_and_never_replaces() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(".credentials.yaml");
+        ensure_credentials_placeholder(&home.path().join("missing"));
+        assert!(!home.path().join("missing").exists());
+        ensure_credentials_placeholder(home.path());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{mode:o}");
+        }
+        std::fs::write(&path, "version: 1\n\nrefs:\n  XAI_API_KEY: keep\n").unwrap();
+        ensure_credentials_placeholder(home.path());
+        assert!(std::fs::read_to_string(&path).unwrap().contains("keep"));
     }
 
     #[test]
