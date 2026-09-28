@@ -92,7 +92,7 @@ OPTIONAL = ('input:paste', 'scroll:page-up', 'scroll:page-down', 'resize:narrow'
 THROUGHPUT = ('output:throughput',)
 RESOURCES = ('rss:tree-peak',)
 # Reported, not judged: model-fixture time, or measurements only one product has.
-BREAKDOWN = ('output:submit-to-request', 'output:model-stream', 'start:connected', 'rss:client-peak',
+BREAKDOWN = ('first-run:first-output', 'first-run:ready', 'output:submit-to-request', 'output:model-stream', 'start:connected', 'rss:client-peak',
              'output:bytes', 'paste:bytes', 'outputBytes')
 
 
@@ -520,17 +520,23 @@ def quit_session(session, run, keys):
             pass
 
 
-def start_run(subject, mode, env, cwd, purge):
-    """A cold start: fresh Home, file cache purged; first output, ready frame, quit."""
-    run = {'subject': subject.name, 'mode': mode, 'kind': 'cold', 'cachesPurged': purge_caches(purge), 'missing': []}
+def start_run(subject, mode, env, cwd, purge, kind='cold'):
+    """A start: first output, ready frame, quit.
+
+    'first-run' is the very first launch in a fresh Home (one-time setup; reported,
+    not judged). 'cold' is the next launch in that Home with the file cache purged
+    (macOS runner), as after a reboot.
+    """
+    run = {'subject': subject.name, 'mode': mode, 'kind': kind,
+           'cachesPurged': purge_caches(purge) if kind == 'cold' else False, 'missing': []}
     session = Session(subject.argv(mode), env, cwd)
     try:
         ready = session.wait(lambda text: subject.ready_mark in text, 30)
         with session.lock:
             first = session.chunks[0][0] - session.started if session.chunks else None
-        run['cold:first-output'] = first
-        run['cold:ready'] = ready
-        for key in ('cold:first-output', 'cold:ready'):
+        run[f'{kind}:first-output'] = first
+        run[f'{kind}:ready'] = ready
+        for key in (f'{kind}:first-output', f'{kind}:ready'):
             if run[key] is None:
                 run['missing'].append(key)
         session.sample(subject.client_names())
@@ -680,11 +686,16 @@ def measure(subject, mode, fixture, root, runs, cold_runs, log, label, purge):
         cold_root = root / f'{subject.name}-{mode}-cold-{label}-{number}'
         cold_root.mkdir(parents=True)
         (cold_root / 'workspace').mkdir()
-        run = start_run(subject, mode, subject.prepare(cold_root, fixture.port), cold_root / 'workspace', purge)
+        env = subject.prepare(cold_root, fixture.port)
+        setup = start_run(subject, mode, env, cold_root / 'workspace', False, kind='first-run')
+        setup['run'] = number
+        results.append(setup)
+        run = start_run(subject, mode, env, cold_root / 'workspace', purge)
         run['run'] = number
         results.append(run)
         log(f'{subject.name} {mode} cold {number + 1}/{cold_runs}: first={fmt(run.get("cold:first-output"))} '
-            f'ready={fmt(run.get("cold:ready"))} purged={run["cachesPurged"]} missing={run["missing"]}')
+            f'ready={fmt(run.get("cold:ready"))} purged={run["cachesPurged"]} first-run ready={fmt(setup.get("first-run:ready"))} '
+            f'missing={run["missing"] + setup["missing"]}')
         shutil.rmtree(cold_root, ignore_errors=True)
     return results
 
