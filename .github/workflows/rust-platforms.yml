@@ -385,6 +385,7 @@ jobs:
           prefix="$RUNNER_TEMP/perf-prefix"
           npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
           echo "PERF_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/perf-check-home"
           HOME="$RUNNER_TEMP/perf-check-home" "$prefix/bin/codsh" --rust install-check
       - name: Fetch the pinned reference (checked, not redistributed)
         run: |
