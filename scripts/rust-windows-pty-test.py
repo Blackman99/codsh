@@ -354,6 +354,13 @@ def main():
             console.close()
 
     def cancel_tree():
+        # dsh 0.1.5-rc.3 confines pwsh with its Windows ACL sandbox
+        # (workspace-write by default). That restricted token cannot enter a
+        # workspace inside the user profile (the shell step records pwsh
+        # starting in its own install directory, and writes there are denied),
+        # so this step uses a workspace outside the profile.
+        cwd = Path(os.environ.get('SystemDrive', 'C:') + '\\') / f'codsh-win-cancel-{os.getpid()}' / '工作 区'
+        cwd.mkdir(parents=True, exist_ok=True)
         for name in ('shell-started.txt', 'shell-finished.txt'):
             (cwd / name).unlink(missing_ok=True)
         console = Console('cancel', cwd, {**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'shell-long', 'CODSH_SHELL_MARKER': 'WIN200'}, output)
