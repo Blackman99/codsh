@@ -331,6 +331,26 @@ fn restore_terminal() {
     let _ = io::stdout().flush();
 }
 
+/// Waits up to `idle` for a terminal event, returning early (false) as soon as
+/// `wake` reports other work: an answer dsh sent is painted within one slice
+/// instead of after the rest of an idle tick (#202).
+fn wait_for_input(idle: Duration, wake: impl Fn() -> bool) -> io::Result<bool> {
+    const SLICE: Duration = Duration::from_millis(8);
+    let deadline = Instant::now() + idle;
+    loop {
+        if wake() {
+            return Ok(false);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        if event::poll(remaining.min(SLICE))? {
+            return Ok(true);
+        }
+    }
+}
+
 fn open_terminal(mode: ScreenMode) -> io::Result<Terminal<CrosstermBackend<io::Stdout>>> {
     let backend = CrosstermBackend::new(io::stdout());
     match mode {
@@ -3171,6 +3191,57 @@ fn connect(
         },
         turns,
     ))
+}
+
+/// The first connection waits for dsh to start (about a second). It runs on
+/// a worker thread so Ctrl+Q quits at once instead of after it (#202): the
+/// quit returns `None`. Every other terminal event is kept, in order, for the
+/// event loop.
+fn connect_at_startup(
+    mode: &LaunchMode,
+    extra_env: &[(String, String)],
+    patch: Option<&PathBuf>,
+    fork_session: bool,
+    child_id: Option<&str>,
+    pending: &mut std::collections::VecDeque<Event>,
+) -> Option<Result<(Connection, Vec<Turn>), String>> {
+    let (mode, extra_env, patch, child_id) = (
+        mode.clone(),
+        extra_env.to_vec(),
+        patch.cloned(),
+        child_id.map(str::to_string),
+    );
+    let worker = std::thread::spawn(move || {
+        connect(
+            &mode,
+            None,
+            &extra_env,
+            patch.as_ref(),
+            fork_session,
+            child_id.as_deref(),
+        )
+    });
+    while !worker.is_finished() {
+        if !event::poll(Duration::from_millis(10)).unwrap_or(false) {
+            continue;
+        }
+        match event::read() {
+            Ok(Event::Key(key))
+                if key.kind == KeyEventKind::Press
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('q') =>
+            {
+                return None;
+            }
+            Ok(event) => pending.push_back(event),
+            Err(_) => break,
+        }
+    }
+    Some(
+        worker
+            .join()
+            .unwrap_or_else(|_| Err("the dsh connection failed unexpectedly".into())),
+    )
 }
 
 /// Connect to the remote hub over ssh (ticket 190). The session directory is
@@ -9917,6 +9988,13 @@ fn run() -> io::Result<()> {
     ] {
         signal_hook::flag::register(signal, Arc::clone(&stopping))?;
     }
+    let loop_done = Arc::new(AtomicBool::new(false));
+    #[cfg(unix)]
+    {
+        let hangup = Arc::new(AtomicBool::new(false));
+        signal_hook::flag::register(signal_hook::consts::SIGHUP, Arc::clone(&hangup))?;
+        arm_hangup_watchdog(hangup, Arc::clone(&stopping), Arc::clone(&loop_done));
+    }
     let mut guard = TerminalGuard::enter(screen)?;
     profile()?;
     let mut terminal = open_terminal(screen)?;
@@ -10044,15 +10122,37 @@ fn run() -> io::Result<()> {
     // A resumed or forked transcript already had its first turn. `/new`
     // clears `turns`, so the next prompt is that session's first turn.
     let mut memory_injected: bool = resumed && !turns.is_empty();
+    let mut pending_events: std::collections::VecDeque<Event> = std::collections::VecDeque::new();
+    let mut typing_burst = false;
+    #[allow(clippy::type_complexity)]
+    let mut compaction_probe: Option<(
+        std::sync::mpsc::Receiver<
+            Result<session_history::RestoredSession, session_history::HistoryError>,
+        >,
+        String,
+        usize,
+    )> = None;
+    let mut last_paint = Instant::now();
     let mut client = if startup_can_execute {
-        match connect(
+        let connected = match connect_at_startup(
             &mode,
-            None,
             &extra_env,
             patch.as_ref(),
             launch.fork_session,
             launch.child_id.as_deref(),
+            &mut pending_events,
         ) {
+            Some(connected) => connected,
+            None => {
+                // Ctrl+Q while dsh was still starting. dsh would not notice
+                // its stdin closing until its startup is done, so end it
+                // (and its group) here before leaving.
+                acp::kill_last_spawned();
+                drop(guard);
+                std::process::exit(0);
+            }
+        };
+        match connected {
             Ok((connection, restored)) => {
                 resumed = connection.resumed;
                 previous_session = connection.client.session_id.clone();
@@ -10342,18 +10442,54 @@ fn run() -> io::Result<()> {
                 .filter(|active| !active.remote)
                 .and_then(|active| active.session_id.clone())
         {
-            match session_history::load_session(&effective.dsh_home, &session_id) {
-                Ok(restored) if restored.compaction.len() > last_compaction_count => {
-                    last_compaction_count = restored.compaction.len();
-                    replace_session_turns(&mut turns, &mut committed, &mut history, restored.turns);
-                    if screen == ScreenMode::Minimal {
-                        resize_purge_rerender(&mut terminal, "")?;
+            // Reading the session back starts a Node helper (about 100 ms).
+            // It runs off the event loop so the finished answer is painted at
+            // once (#202); the result is applied on a later pass if the
+            // transcript has not moved on meanwhile.
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let home = effective.dsh_home.clone();
+            let id = session_id.clone();
+            std::thread::spawn(move || {
+                let _ = sender.send(session_history::load_session(&home, &id));
+            });
+            compaction_probe = Some((receiver, session_id, turns.len()));
+        }
+        let probe_result = match &compaction_probe {
+            Some((receiver, _, _)) => match receiver.try_recv() {
+                Ok(result) => Some(Some(result)),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(None),
+            },
+            None => None,
+        };
+        if let Some(result) = probe_result
+            && let Some((_, probe_session, probe_turns)) = compaction_probe.take()
+            && let Some(result) = result
+        {
+            let current = client.as_ref().and_then(|active| active.session_id.clone());
+            let fresh = !inflight
+                && !compacting
+                && current.as_deref() == Some(probe_session.as_str())
+                && turns.len() == probe_turns;
+            if fresh {
+                match result {
+                    Ok(restored) if restored.compaction.len() > last_compaction_count => {
+                        last_compaction_count = restored.compaction.len();
+                        replace_session_turns(
+                            &mut turns,
+                            &mut committed,
+                            &mut history,
+                            restored.turns,
+                        );
+                        if screen == ScreenMode::Minimal {
+                            resize_purge_rerender(&mut terminal, "")?;
+                        }
+                        hint = compact_reload_hint(&turns, &restored.compaction, false);
+                        last_error.clear();
                     }
-                    hint = compact_reload_hint(&turns, &restored.compaction, false);
-                    last_error.clear();
+                    Ok(_) => {}
+                    Err(error) => last_error = error.to_string(),
                 }
-                Ok(_) => {}
-                Err(error) => last_error = error.to_string(),
             }
         }
         if let Some(detail) = disconnect {
@@ -10928,53 +11064,63 @@ fn run() -> io::Result<()> {
                 hint = navigation::dock_message(true).into();
             }
         }
-        let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
-        let memory_store = memory_store(&effective).ok();
-        let feedback_open = matches!(overlay, Overlay::Feedback(_));
-        let session_nav = (screen == ScreenMode::Fullscreen && !feedback_open).then_some(&nav);
-        let mut memory_browser = match &mut overlay {
-            Overlay::Memory(browser) if !browser.force_off => Some(std::mem::take(browser)),
-            _ => None,
-        };
-        nav_layout = if let (Some(browser), Some(store)) =
-            (memory_browser.as_mut(), memory_store.as_ref())
-        {
-            paint_memory(
-                &mut terminal,
-                screen,
-                &composer,
-                &notice,
-                selected,
-                &live_theme,
-                effective.appearance.compact_mode,
-                &mut ui_overlay,
-                feedback_open,
-                session_nav,
-                Some(browser),
-                Some(store),
-                tasks.as_mut().map(|modal| (&board, modal)),
-                Some(&mut side.ask),
-            )?
-        } else {
-            paint_memory(
-                &mut terminal,
-                screen,
-                &composer,
-                &notice,
-                selected,
-                &live_theme,
-                effective.appearance.compact_mode,
-                &mut ui_overlay,
-                feedback_open,
-                session_nav,
-                None,
-                None,
-                tasks.as_mut().map(|modal| (&board, modal)),
-                Some(&mut side.ask),
-            )?
-        };
-        if let (Some(browser), Overlay::Memory(slot)) = (memory_browser, &mut overlay) {
-            *slot = browser;
+        // A burst of typed keys or a paste followed by more input is painted
+        // once, after the burst (#202): a frame per key made a paste with
+        // trailing keys cost one full redraw per character.
+        let skip_paint = typing_burst
+            && pending_events.is_empty()
+            && last_paint.elapsed() < Duration::from_millis(25)
+            && event::poll(Duration::ZERO).unwrap_or(false);
+        if !skip_paint {
+            let _ = guard.set_mouse(screen == ScreenMode::Fullscreen && nav.mouse_captured);
+            let memory_store = memory_store(&effective).ok();
+            let feedback_open = matches!(overlay, Overlay::Feedback(_));
+            let session_nav = (screen == ScreenMode::Fullscreen && !feedback_open).then_some(&nav);
+            let mut memory_browser = match &mut overlay {
+                Overlay::Memory(browser) if !browser.force_off => Some(std::mem::take(browser)),
+                _ => None,
+            };
+            nav_layout = if let (Some(browser), Some(store)) =
+                (memory_browser.as_mut(), memory_store.as_ref())
+            {
+                paint_memory(
+                    &mut terminal,
+                    screen,
+                    &composer,
+                    &notice,
+                    selected,
+                    &live_theme,
+                    effective.appearance.compact_mode,
+                    &mut ui_overlay,
+                    feedback_open,
+                    session_nav,
+                    Some(browser),
+                    Some(store),
+                    tasks.as_mut().map(|modal| (&board, modal)),
+                    Some(&mut side.ask),
+                )?
+            } else {
+                paint_memory(
+                    &mut terminal,
+                    screen,
+                    &composer,
+                    &notice,
+                    selected,
+                    &live_theme,
+                    effective.appearance.compact_mode,
+                    &mut ui_overlay,
+                    feedback_open,
+                    session_nav,
+                    None,
+                    None,
+                    tasks.as_mut().map(|modal| (&board, modal)),
+                    Some(&mut side.ask),
+                )?
+            };
+            if let (Some(browser), Overlay::Memory(slot)) = (memory_browser, &mut overlay) {
+                *slot = browser;
+            }
+            last_paint = Instant::now();
         }
         if open_dashboard_at_start && matches!(overlay, Overlay::None) && client.is_some() {
             open_dashboard_at_start = false;
@@ -10987,14 +11133,33 @@ fn run() -> io::Result<()> {
             }
             continue;
         }
-        if !event::poll(Duration::from_millis(80))? {
-            continue;
-        }
-        let event = event::read()?;
+        // Keys typed while dsh was starting come first, in order.
+        let event = match pending_events.pop_front() {
+            Some(event) => event,
+            None => {
+                if !wait_for_input(Duration::from_millis(80), || {
+                    client.as_ref().is_some_and(AcpClient::has_unread)
+                })? {
+                    continue;
+                }
+                event::read()?
+            }
+        };
         #[cfg(windows)]
         let event = match event {
             Event::Key(key) => Event::Key(unpaired.normalize(key)),
             other => other,
+        };
+        typing_burst = match &event {
+            Event::Paste(_) => true,
+            Event::Key(key) => {
+                key.kind == KeyEventKind::Press
+                    && matches!(key.code, KeyCode::Char(_))
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+            }
+            _ => false,
         };
         match event {
             Event::Key(key) if key.kind == KeyEventKind::Release => {
@@ -12362,6 +12527,7 @@ fn run() -> io::Result<()> {
             _ => {}
         }
     }
+    loop_done.store(true, Ordering::Relaxed);
     // GROK_EXIT_TIMEOUT_SECS: a teardown that hangs cannot keep the
     // terminal hostage (ticket 155).
     arm_exit_watchdog(std::env::var("GROK_EXIT_TIMEOUT_SECS").ok().as_deref());
@@ -12418,6 +12584,54 @@ impl UnpairedReleases {
             },
         }
     }
+}
+
+/// Seconds after a terminal hangup before codsh gives up on its own loop.
+#[cfg(unix)]
+const HANGUP_GRACE: Duration = Duration::from_secs(2);
+
+/// A closed terminal window (the PTY master gone) must end the client. The
+/// launcher forwards SIGHUP, which sets `stopping`, but crossterm 0.28's
+/// reader loops on `read() == 0` forever once the terminal is gone, so the
+/// event loop never regains control to see it: the client and dsh then spin
+/// at high CPU with nobody attached. This thread notices the hangup (the
+/// signal, or POLLHUP on stdin when no signal arrives), lets the loop end on
+/// its own for a short grace, and otherwise exits 129 (128 + SIGHUP). dsh sees
+/// its stdin close and ends too; nothing can be restored on a dead terminal.
+#[cfg(unix)]
+fn arm_hangup_watchdog(
+    hangup: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
+    loop_done: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || {
+        let mut since: Option<Instant> = None;
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            if loop_done.load(Ordering::Relaxed) {
+                return;
+            }
+            if since.is_none() && (hangup.load(Ordering::Relaxed) || stdin_hung_up()) {
+                stopping.store(true, Ordering::Relaxed);
+                since = Some(Instant::now());
+            }
+            if since.is_some_and(|started| started.elapsed() >= HANGUP_GRACE) {
+                unsafe { libc::_exit(129) }
+            }
+        }
+    });
+}
+
+/// True when stdin is a terminal whose other side has gone away.
+#[cfg(unix)]
+fn stdin_hung_up() -> bool {
+    let mut fd = libc::pollfd {
+        fd: 0,
+        events: 0,
+        revents: 0,
+    };
+    let ready = unsafe { libc::poll(&mut fd, 1, 0) };
+    ready > 0 && fd.revents & (libc::POLLHUP | libc::POLLERR | libc::POLLNVAL) != 0
 }
 
 /// Default seconds a quit may spend tearing down before codsh force-exits.

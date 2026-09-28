@@ -342,6 +342,9 @@ pub struct AcpClient {
     child: Child,
     stdin: Option<ChildStdin>,
     rx: Receiver<Line>,
+    /// Lines the reader threads have queued and `pump` has not taken yet, so
+    /// the UI loop can stop waiting for a key the moment dsh sends something.
+    unread: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     next_id: u64,
     pending: HashMap<u64, PendingKind>,
     completed: HashMap<u64, Result<Value, AcpError>>,
@@ -866,6 +869,7 @@ impl AcpClient {
                 dsh_spawn_error(&spec.program, error)
             }
         })?;
+        LAST_SPAWNED.store(child.id(), std::sync::atomic::Ordering::SeqCst);
         let stdin = child.stdin.take();
         let stdout = child
             .stdout
@@ -873,12 +877,14 @@ impl AcpClient {
             .ok_or_else(|| io::Error::other("missing ACP stdout"))?;
         let stderr = child.stderr.take();
         let (tx, rx) = mpsc::channel();
+        let unread = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let remote_stderr = spec
             .remote
             .then(|| std::sync::Arc::new(std::sync::Mutex::new(String::new())));
         if let Some(stderr) = stderr {
             let log_path = spec.stderr_log.clone();
             let stderr_tx = tx.clone();
+            let stderr_unread = unread.clone();
             let last = remote_stderr.clone();
             thread::spawn(move || {
                 let mut file = log_path.and_then(|path| std::fs::File::create(path).ok());
@@ -898,17 +904,21 @@ impl AcpClient {
                             }
                         }
                         None => {
+                            stderr_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                             let _ = stderr_tx.send(Line::Stderr(text));
                         }
                     }
                 }
             });
         }
+        let stdout_unread = unread.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
                 match line {
                     Ok(text) => {
+                        // Counted before it is sent, so the count never trails the queue.
+                        stdout_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         if tx.send(Line::Text(text)).is_err() {
                             break;
                         }
@@ -916,12 +926,14 @@ impl AcpClient {
                     Err(_) => break,
                 }
             }
+            stdout_unread.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let _ = tx.send(Line::Eof);
         });
         Ok(Self {
             child,
             stdin,
             rx,
+            unread,
             next_id: 1,
             pending: HashMap::new(),
             completed: HashMap::new(),
@@ -1889,7 +1901,27 @@ impl AcpClient {
         }
     }
 
+    fn take_unread(&self) {
+        let _ = self.unread.fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |count| count.checked_sub(1),
+        );
+    }
+
+    /// dsh has sent something `pump` has not handed out yet.
+    pub fn has_unread(&self) -> bool {
+        !self.held.is_empty() || self.unread.load(std::sync::atomic::Ordering::SeqCst) > 0
+    }
+
     pub fn pump(&mut self, timeout: Duration) -> Vec<AcpEvent> {
+        self.pump_until(timeout, None)
+    }
+
+    /// `pump`, returning as soon as the response to `until` has arrived
+    /// instead of at the end of the slice (#202: every synchronous request,
+    /// session/close at quit included, waited up to 50 ms longer than dsh).
+    fn pump_until(&mut self, timeout: Duration, until: Option<u64>) -> Vec<AcpEvent> {
         let mut events = std::mem::take(&mut self.held);
         events.extend(self.renew_identity_when_due());
         let deadline = Instant::now() + timeout;
@@ -1903,8 +1935,17 @@ impl AcpClient {
             } else {
                 remaining
             };
-            match self.rx.recv_timeout(wait) {
-                Ok(Line::Text(line)) => events.extend(self.handle_line(&line)),
+            let received = self.rx.recv_timeout(wait);
+            if received.is_ok() {
+                self.take_unread();
+            }
+            match received {
+                Ok(Line::Text(line)) => {
+                    events.extend(self.handle_line(&line));
+                    if until.is_some_and(|id| self.completed.contains_key(&id)) {
+                        break;
+                    }
+                }
                 Ok(Line::Stderr(text)) => events.push(stderr_event(text)),
                 Ok(Line::Eof) => {
                     let detail = self
@@ -1925,6 +1966,7 @@ impl AcpClient {
             }
             if timeout == Duration::ZERO {
                 while let Ok(line) = self.rx.try_recv() {
+                    self.take_unread();
                     match line {
                         Line::Text(text) => events.extend(self.handle_line(&text)),
                         Line::Stderr(text) => events.push(stderr_event(text)),
@@ -2051,7 +2093,7 @@ impl AcpClient {
                 });
             }
             let goal_lines = self
-                .pump(Duration::from_millis(50))
+                .pump_until(Duration::from_millis(50), Some(id))
                 .into_iter()
                 .filter(|event| matches!(event, AcpEvent::Goal { .. }));
             self.held.extend(goal_lines);
@@ -2535,6 +2577,20 @@ impl AcpClient {
 /// grandchild running after the session ends.
 /// Upper bound for each shutdown step while background commands run.
 const LINGER_MS: u64 = 3000;
+
+/// The pid of the most recent dsh child, for [`kill_last_spawned`].
+static LAST_SPAWNED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Ends the most recently spawned dsh child and its group. Used when the
+/// user quits while the first connection is still starting (#202): dsh does
+/// not notice its stdin closing until its own startup is done, and without
+/// this it stays behind, reparented to init.
+pub fn kill_last_spawned() {
+    let pid = LAST_SPAWNED.swap(0, std::sync::atomic::Ordering::SeqCst);
+    if pid != 0 {
+        kill_process_group(pid);
+    }
+}
 
 fn kill_process_group(pid: u32) {
     #[cfg(unix)]

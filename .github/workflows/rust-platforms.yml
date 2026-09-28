@@ -409,3 +409,52 @@ jobs:
           name: windows-evidence-${{ matrix.os }}
           path: evidence
           if-no-files-found: warn
+
+  macos-perf:
+    # Interaction performance on the installed product against the pinned
+    # reference (#202). Only on ci/** branches whose name carries "perf":
+    # a full run takes most of an hour of a macOS runner. The reference binary
+    # is downloaded, SHA-256 checked and never uploaded.
+    name: macOS perf (reference baseline, frozen thresholds, candidate)
+    needs: [native, package]
+    if: contains(github.ref_name, 'perf')
+    runs-on: macos-15
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: codsh-cli-package
+          path: packed
+      - name: Install the packed product with the registry dsh, as a user does
+        run: |
+          tested=$(node -p "require('./packages/cli/package.json').codsh.testedDsh")
+          prefix="$RUNNER_TEMP/perf-prefix"
+          npm install -g --prefix "$prefix" --no-audit --no-fund "@deepseek-ai/dsh@$tested" "$(ls "$PWD"/packed/codsh-cli-*.tgz)"
+          echo "PERF_LAUNCHER=$prefix/lib/node_modules/codsh-cli/bin/codsh.mjs" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/perf-check-home"
+          HOME="$RUNNER_TEMP/perf-check-home" "$prefix/bin/codsh" --rust install-check
+      - name: Fetch the pinned reference (checked, not redistributed)
+        run: |
+          mkdir -p "$RUNNER_TEMP/reference"
+          curl -fsSL -o "$RUNNER_TEMP/reference/grok" https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-1.0.34-macos-aarch64
+          chmod +x "$RUNNER_TEMP/reference/grok"
+          shasum -a 256 "$RUNNER_TEMP/reference/grok"
+      - name: Bench driver
+        run: |
+          python3 -m venv "$RUNNER_TEMP/perf-venv"
+          "$RUNNER_TEMP/perf-venv/bin/pip" install --quiet 'pyte==0.8.2'
+      - name: Reference baseline, freeze, candidate (alternating with reference controls)
+        run: |
+          "$RUNNER_TEMP/perf-venv/bin/python" scripts/rust-perf-bench.py \
+            --reference "$RUNNER_TEMP/reference/grok" --launcher "$PERF_LAUNCHER" \
+            --runs "${PERF_RUNS:-30}" --cold-runs "${PERF_COLD_RUNS:-30}" --purge --output "$PWD/evidence/perf"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-perf
+          path: evidence/perf
+          if-no-files-found: warn

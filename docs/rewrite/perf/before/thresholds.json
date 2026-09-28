@@ -1,0 +1,278 @@
+{
+ "schemaVersion": 1,
+ "reference": "1.0.34 (3736acbc8658)",
+ "method": {
+  "latency": "ceiling = max(reference p95 * 1.20, reference p95 + 16.7 ms); candidate p95 must not exceed it",
+  "throughput": "floor = reference median * 0.90; candidate median must reach it",
+  "resources": "ceiling = reference p95 * 1.20; candidate p95 must not exceed it",
+  "observed": "a metric the reference produced in every valid run must be produced by the candidate too",
+  "notApplicable": "a metric the reference did not produce in every valid run gets no threshold"
+ },
+ "referenceRawSha256": "60e92a945dff2d382d37ed925c570d70507bbbefc2ed041b8bc18723da400aaf",
+ "frozenAt": "2026-09-28T08:58:22Z",
+ "environment": {
+  "system": "Darwin",
+  "release": "24.6.0",
+  "machine": "arm64",
+  "python": "3.14.7",
+  "ci": true,
+  "runner": "GitHub Actions 1000005398",
+  "image": "macos15",
+  "imageVersion": "20260907.0337.1",
+  "os": "15.7.9",
+  "cpu": "Apple M1 (Virtual)",
+  "cpus": "3",
+  "memoryBytes": "7516192768"
+ },
+ "terminal": {
+  "rows": 32,
+  "cols": 100,
+  "narrow": [
+   24,
+   80
+  ],
+  "term": "xterm-256color",
+  "driver": "POSIX PTY, pyte screen model, arrival-time stamps"
+ },
+ "fixture": {
+  "longLines": 1000,
+  "pasteLines": 2000,
+  "transport": "loopback chat_completions SSE"
+ },
+ "thresholds": {
+  "fullscreen:start:first-output": {
+   "samples": 30,
+   "median": 25.59231250011362,
+   "p95": 60.694707999937236,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 77.39470799993724
+  },
+  "fullscreen:start:ready": {
+   "samples": 30,
+   "median": 621.679375000007,
+   "p95": 821.3408750001108,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 985.6090500001329
+  },
+  "fullscreen:cold:first-output": {
+   "samples": 30,
+   "median": 923.9221460000845,
+   "p95": 1220.8499169999268,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 1465.019900399912
+  },
+  "fullscreen:cold:ready": {
+   "samples": 30,
+   "median": 1735.8012085000519,
+   "p95": 2299.945042000152,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 2759.9340504001825
+  },
+  "fullscreen:input:draft": {
+   "samples": 30,
+   "median": 6.775666499976069,
+   "p95": 7.561917000217363,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 24.261917000217363
+  },
+  "fullscreen:input:paste": {
+   "samples": 30,
+   "median": 19.14427050005179,
+   "p95": 26.121541999978945,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 42.82154199997895
+  },
+  "fullscreen:output:first-visible": {
+   "samples": 30,
+   "median": 47.16797899996163,
+   "p95": 74.81224999995902,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 91.51224999995902
+  },
+  "fullscreen:output:end-after-model": {
+   "samples": 30,
+   "median": 100.73472899995977,
+   "p95": 151.26358399982564,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 181.51630079979077
+  },
+  "fullscreen:scroll:page-up": {
+   "samples": 30,
+   "median": 1.3991875000065193,
+   "p95": 2.7323750000214204,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 19.43237500002142
+  },
+  "fullscreen:scroll:page-down": {
+   "samples": 30,
+   "median": 1.2308544999687,
+   "p95": 2.2490419999230653,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 18.949041999923065
+  },
+  "fullscreen:resize:narrow": {
+   "samples": 30,
+   "median": 21.136103999917395,
+   "p95": 29.3167910000775,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 46.016791000077504
+  },
+  "fullscreen:resize:wide": {
+   "samples": 30,
+   "median": 19.817854000022635,
+   "p95": 24.558582999976352,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 41.258582999976355
+  },
+  "fullscreen:quit:exit": {
+   "samples": 90,
+   "median": 114.25179150002077,
+   "p95": 142.9417910000775,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 171.530149200093
+  },
+  "fullscreen:output:throughput": {
+   "samples": 30,
+   "median": 666858.3534165372,
+   "p95": 882034.2294097934,
+   "kind": "throughput",
+   "unit": "bytes/s",
+   "floor": 600172.5180748835
+  },
+  "fullscreen:rss:tree-peak": {
+   "samples": 30,
+   "median": 107032.0,
+   "p95": 110256,
+   "kind": "resources",
+   "unit": "KiB",
+   "ceiling": 132307.19999999998
+  },
+  "minimal:start:first-output": {
+   "samples": 30,
+   "median": 39.096708499942906,
+   "p95": 67.4871249999851,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 84.1871249999851
+  },
+  "minimal:start:ready": {
+   "samples": 30,
+   "median": 627.7933540000813,
+   "p95": 846.4915000000037,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 1015.7898000000044
+  },
+  "minimal:cold:first-output": {
+   "samples": 30,
+   "median": 992.285708499956,
+   "p95": 1625.9203329999,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 1951.1043995998798
+  },
+  "minimal:cold:ready": {
+   "samples": 30,
+   "median": 1804.3272080000024,
+   "p95": 2371.987124999985,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 2846.384549999982
+  },
+  "minimal:input:draft": {
+   "samples": 30,
+   "median": 6.087874999968335,
+   "p95": 6.266125000081956,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 22.966125000081956
+  },
+  "minimal:input:paste": {
+   "samples": 30,
+   "median": 17.38791700010188,
+   "p95": 22.39566699997522,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 39.09566699997522
+  },
+  "minimal:output:first-visible": {
+   "samples": 30,
+   "median": 57.02195800002664,
+   "p95": 66.34637499996461,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 83.04637499996461
+  },
+  "minimal:output:end-after-model": {
+   "samples": 30,
+   "median": 94.46660399995744,
+   "p95": 154.50358300004154,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 185.40429960004985
+  },
+  "minimal:scroll:page-up": {
+   "kind": "not-applicable",
+   "reason": "the reference did not produce it in every valid run",
+   "observedRuns": 0,
+   "validRuns": 30
+  },
+  "minimal:scroll:page-down": {
+   "kind": "not-applicable",
+   "reason": "the reference did not produce it in every valid run",
+   "observedRuns": 0,
+   "validRuns": 30
+  },
+  "minimal:resize:narrow": {
+   "samples": 30,
+   "median": 48.547770499950275,
+   "p95": 59.42229100014083,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 76.12229100014083
+  },
+  "minimal:resize:wide": {
+   "kind": "not-applicable",
+   "reason": "the reference did not produce it in every valid run",
+   "observedRuns": 20,
+   "validRuns": 30
+  },
+  "minimal:quit:exit": {
+   "samples": 90,
+   "median": 112.48689599998761,
+   "p95": 168.22804199997336,
+   "kind": "latency",
+   "unit": "ms",
+   "ceiling": 201.87365039996803
+  },
+  "minimal:output:throughput": {
+   "samples": 30,
+   "median": 701092.7930666283,
+   "p95": 912121.7158647066,
+   "kind": "throughput",
+   "unit": "bytes/s",
+   "floor": 630983.5137599654
+  },
+  "minimal:rss:tree-peak": {
+   "samples": 30,
+   "median": 102800.0,
+   "p95": 106240,
+   "kind": "resources",
+   "unit": "KiB",
+   "ceiling": 127488.0
+  }
+ }
+}

@@ -433,7 +433,10 @@ export async function launchRust(args) {
   try {
     if (args[0] === 'install-check') return installCheck(args.slice(1))
     if (args[0] === 'update') return await rustUpdate(args.slice(1))
-    const artifact = verifyArtifact({ nativeRoot: fileURLToPath(new URL('../native/', import.meta.url)), version: OWN.version })
+    // An existing Rust Home remembers the verified client, so an unchanged one is not re-hashed
+    // on every launch (#202); the Home is not created for this.
+    const verifiedCache = join(realpathSync(homedir()), '.codsh-rust', 'artifact-verified.json')
+    const artifact = verifyArtifact({ nativeRoot: fileURLToPath(new URL('../native/', import.meta.url)), version: OWN.version, cacheFile: verifiedCache })
     if (!artifact.ok) {
       report(artifact)
       return 1

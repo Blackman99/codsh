@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -160,6 +160,47 @@ describe('staged artifact verification', () => {
     expect(verifyArtifact({ nativeRoot, version: '0.24.0', platform: 'linux', arch: 'x64' }).ok).toBe(true)
     writeFileSync(join(nativeRoot, 'linux-x64', 'artifact.json'), '{truncated')
     expect(verifyArtifact({ nativeRoot, version: '0.24.0', platform: 'linux', arch: 'x64' }).code).toBe('manifest')
+  })
+})
+
+describe('remembered verification (#202)', () => {
+  it('re-hashes a client only when its file changed, and keeps refusing a damaged one', () => {
+    const dir = temp('codsh-artifact-')
+    const nativeRoot = join(dir, 'native')
+    const binary = stage(nativeRoot, 'linux-x64')
+    const home = join(dir, 'home')
+    const cacheFile = join(home, 'artifact-verified.json')
+    const options = { nativeRoot, version: '0.24.0', platform: 'linux', arch: 'x64', cacheFile }
+    // No Home yet: nothing is written (the Home is not created for a cache).
+    expect(verifyArtifact(options).ok).toBe(true)
+    expect(existsSync(home)).toBe(false)
+    mkdirSync(home)
+    const first = verifyArtifact(options)
+    expect(first.ok).toBe(true)
+    const record = JSON.parse(readFileSync(cacheFile, 'utf8'))
+    expect(record).toMatchObject({ schema: 'codsh.artifact-verified.v1', binary, sha256: first.sha256 })
+    expect(statSync(cacheFile).mode & 0o777).toBe(0o600)
+    // The same unchanged file keeps its verdict and header check.
+    expect(verifyArtifact(options)).toMatchObject({ ok: true, sha256: first.sha256, header: { format: 'elf', cpus: ['x64'] } })
+    // A byte flipped in place, even with the old mtime put back, changes ctime: hashed again, refused.
+    const { atime, mtime } = statSync(binary)
+    const bytes = readFileSync(binary)
+    bytes[100] ^= 0xff
+    writeFileSync(binary, bytes)
+    utimesSync(binary, atime, mtime)
+    expect(verifyArtifact(options)).toMatchObject({ ok: false, code: 'corrupt' })
+    // A record that names another hash, or is a symlink, is not trusted.
+    stage(nativeRoot, 'linux-x64')
+    const fresh = verifyArtifact(options)
+    expect(fresh.ok).toBe(true)
+    writeFileSync(cacheFile, JSON.stringify({ ...JSON.parse(readFileSync(cacheFile, 'utf8')), sha256: 'f'.repeat(64) }))
+    expect(verifyArtifact(options).ok).toBe(true)
+    expect(JSON.parse(readFileSync(cacheFile, 'utf8')).sha256).toBe(fresh.sha256)
+    rmSync(cacheFile)
+    const elsewhere = join(dir, 'elsewhere.json')
+    symlinkSync(elsewhere, cacheFile)
+    expect(verifyArtifact(options).ok).toBe(true)
+    expect(existsSync(elsewhere)).toBe(false)
   })
 })
 

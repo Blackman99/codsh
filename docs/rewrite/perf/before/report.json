@@ -1,0 +1,590 @@
+{
+ "reference": "1.0.34 (3736acbc8658)",
+ "referenceSha256": "9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e",
+ "environment": {
+  "system": "Darwin",
+  "release": "24.6.0",
+  "machine": "arm64",
+  "python": "3.14.7",
+  "ci": true,
+  "runner": "GitHub Actions 1000005398",
+  "image": "macos15",
+  "imageVersion": "20260907.0337.1",
+  "os": "15.7.9",
+  "cpu": "Apple M1 (Virtual)",
+  "cpus": "3",
+  "memoryBytes": "7516192768"
+ },
+ "terminal": {
+  "rows": 32,
+  "cols": 100,
+  "narrow": [
+   24,
+   80
+  ],
+  "term": "xterm-256color",
+  "driver": "POSIX PTY, pyte screen model, arrival-time stamps"
+ },
+ "fixture": {
+  "longLines": 1000,
+  "pasteLines": 2000,
+  "transport": "loopback chat_completions SSE"
+ },
+ "runs": 30,
+ "coldRuns": 30,
+ "modes": [
+  "fullscreen",
+  "minimal"
+ ],
+ "purge": true,
+ "thresholdsSha256": "7919240de360ad29a3bdae6367ab97ba64df9ccfc171d8599fc21d3a6729c047",
+ "verdicts": {
+  "fullscreen:start:first-output": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 45.74495849991217,
+    "p95": 57.34675000002608
+   },
+   "median": 133.19100050022826,
+   "p95": 157.81887500011362,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:start:ready": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 674.7186874998733,
+    "p95": 784.976250000298
+   },
+   "median": 137.52718749991618,
+   "p95": 162.95233300002292,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:cold:first-output": {
+   "samples": 30,
+   "median": 877.4575414997526,
+   "p95": 971.9569589998573,
+   "verdict": "pass"
+  },
+  "fullscreen:cold:ready": {
+   "samples": 30,
+   "median": 880.5928954998963,
+   "p95": 975.4939589998685,
+   "verdict": "pass"
+  },
+  "fullscreen:input:draft": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 7.376145999878645,
+    "p95": 8.76291700033471
+   },
+   "median": 2.778457999927923,
+   "p95": 6.369165999814868,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:input:paste": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 20.69854150013998,
+    "p95": 29.845833000261337
+   },
+   "median": 54.07470799982548,
+   "p95": 66.83929200004786,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:output:first-visible": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 49.692666499875486,
+    "p95": 65.18600000021979
+   },
+   "median": 375.4958130000159,
+   "p95": 485.84870900027454,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:output:end-after-model": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 90.36933350004256,
+    "p95": 133.05808300012723
+   },
+   "median": 240.34587449999526,
+   "p95": 315.1566250002943,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:scroll:page-up": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 2.107312500011176,
+    "p95": 2.748207999859005
+   },
+   "median": 7.034062499878928,
+   "p95": 8.873875000048429,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:scroll:page-down": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 1.3298334998544306,
+    "p95": 2.2086249999701977
+   },
+   "median": 8.058707999996841,
+   "p95": 17.619625000283122,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:resize:narrow": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 23.347458500182256,
+    "p95": 29.730750000104308
+   },
+   "median": 0.5893959999084473,
+   "p95": 6.059208999853581,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:resize:wide": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 23.369396000169218,
+    "p95": 26.747999999672174
+   },
+   "median": 0.441750000230968,
+   "p95": 3.4796670000068843,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:quit:exit": {
+   "samples": 90,
+   "control": {
+    "samples": 10,
+    "median": 110.70535449986346,
+    "p95": 156.87683300022036
+   },
+   "median": 679.2268540000077,
+   "p95": 1931.3010829999112,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:output:throughput": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 719154.7264090956,
+    "p95": 883880.4403453949
+   },
+   "median": 290761.1859949962,
+   "p95": 974699.5256190946,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:rss:tree-peak": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 101672.0,
+    "p95": 102304
+   },
+   "median": 336608.0,
+   "p95": 343088,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:start:first-output": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 37.137750500114635,
+    "p95": 216.8824159996584
+   },
+   "median": 110.82993749994785,
+   "p95": 166.45962499966845,
+   "verdict": "fail",
+   "controlWithin": false
+  },
+  "minimal:start:ready": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 573.766125000082,
+    "p95": 723.8475829996169
+   },
+   "median": 113.04335399996489,
+   "p95": 168.38945799972862,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:cold:first-output": {
+   "samples": 30,
+   "median": 475.10016699996777,
+   "p95": 1052.7819590000436,
+   "verdict": "pass"
+  },
+  "minimal:cold:ready": {
+   "samples": 30,
+   "median": 489.2412914999295,
+   "p95": 1054.9614169998094,
+   "verdict": "pass"
+  },
+  "minimal:input:draft": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 6.035541999852285,
+    "p95": 6.384999999776483
+   },
+   "median": 1.7982499999925494,
+   "p95": 3.0986669999547303,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:input:paste": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 17.534041500184685,
+    "p95": 27.471916999667883
+   },
+   "median": 49.505542000057176,
+   "p95": 68.47879099985585,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:output:first-visible": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 45.25879150000401,
+    "p95": 60.3249590001069
+   },
+   "median": 298.6740000001155,
+   "p95": 400.7468749997206,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:output:end-after-model": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 84.36908350000158,
+    "p95": 150.5960840000771
+   },
+   "median": 195.15785400010645,
+   "p95": 533.0854159998707,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:scroll:page-up": {
+   "verdict": "not-applicable"
+  },
+  "minimal:scroll:page-down": {
+   "verdict": "not-applicable"
+  },
+  "minimal:resize:narrow": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 50.13741699978709,
+    "p95": 56.737832999788225
+   },
+   "median": 0.7025419999845326,
+   "p95": 9.48312500026077,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:resize:wide": {
+   "verdict": "not-applicable"
+  },
+  "minimal:quit:exit": {
+   "samples": 90,
+   "control": {
+    "samples": 10,
+    "median": 126.1479789998848,
+    "p95": 152.47316699987277
+   },
+   "median": 621.5440624998882,
+   "p95": 1652.266416999977,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:output:throughput": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 789729.4737816437,
+    "p95": 1014951.3512961876
+   },
+   "median": 358836.893198021,
+   "p95": 476794.00680206553,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:rss:tree-peak": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 96704.0,
+    "p95": 97328
+   },
+   "median": 335720.0,
+   "p95": 341520,
+   "verdict": "fail",
+   "controlWithin": true
+  }
+ },
+ "failed": [
+  "fullscreen:input:paste",
+  "fullscreen:output:end-after-model",
+  "fullscreen:output:first-visible",
+  "fullscreen:output:throughput",
+  "fullscreen:quit:exit",
+  "fullscreen:rss:tree-peak",
+  "fullscreen:start:first-output",
+  "minimal:input:paste",
+  "minimal:output:end-after-model",
+  "minimal:output:first-visible",
+  "minimal:output:throughput",
+  "minimal:quit:exit",
+  "minimal:rss:tree-peak",
+  "minimal:start:first-output"
+ ],
+ "controlDrift": [
+  "minimal:start:first-output"
+ ],
+ "candidateLeftoverProcesses": [],
+ "invalidRuns": {
+  "candidate": 0,
+  "control": 0
+ },
+ "breakdown": {
+  "fullscreen": {
+   "first-run:first-output": {
+    "candidate": {
+     "samples": 30,
+     "median": 97.5982915002387,
+     "p95": 128.77495900029317
+    },
+    "reference": {
+     "samples": 30,
+     "median": 34.837271000025794,
+     "p95": 69.94441700004973
+    }
+   },
+   "first-run:ready": {
+    "candidate": {
+     "samples": 30,
+     "median": 100.06454199994914,
+     "p95": 131.89233400020748
+    },
+    "reference": {
+     "samples": 30,
+     "median": 1412.7207284999313,
+     "p95": 1739.2099580001086
+    }
+   },
+   "output:submit-to-request": {
+    "candidate": {
+     "samples": 30,
+     "median": 121.15577049995773,
+     "p95": 163.91558400029317
+    },
+    "reference": {
+     "samples": 30,
+     "median": 38.5088125000475,
+     "p95": 68.06466699996963
+    }
+   },
+   "output:model-stream": {
+    "candidate": {
+     "samples": 30,
+     "median": 7.018500000005588,
+     "p95": 15.572709000203758
+    },
+    "reference": {
+     "samples": 30,
+     "median": 6.639811999979429,
+     "p95": 13.354583000065759
+    }
+   },
+   "start:connected": {
+    "candidate": {
+     "samples": 30,
+     "median": 1238.563041999936,
+     "p95": 1719.9687080001459
+    },
+    "reference": null
+   },
+   "rss:client-peak": {
+    "candidate": {
+     "samples": 30,
+     "median": 18120.0,
+     "p95": 18880
+    },
+    "reference": {
+     "samples": 30,
+     "median": 107032.0,
+     "p95": 110256
+    }
+   },
+   "output:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    },
+    "reference": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    }
+   },
+   "paste:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    },
+    "reference": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    }
+   },
+   "outputBytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 21621.5,
+     "p95": 21819
+    },
+    "reference": {
+     "samples": 30,
+     "median": 34041.5,
+     "p95": 34892
+    }
+   }
+  },
+  "minimal": {
+   "first-run:first-output": {
+    "candidate": {
+     "samples": 30,
+     "median": 77.35250000027008,
+     "p95": 124.07245899969712
+    },
+    "reference": {
+     "samples": 30,
+     "median": 39.15443800005596,
+     "p95": 65.82729199994355
+    }
+   },
+   "first-run:ready": {
+    "candidate": {
+     "samples": 30,
+     "median": 78.47670800006017,
+     "p95": 125.35820899996907
+    },
+    "reference": {
+     "samples": 30,
+     "median": 1304.1566254999489,
+     "p95": 1650.2451669999864
+    }
+   },
+   "output:submit-to-request": {
+    "candidate": {
+     "samples": 30,
+     "median": 108.70177050004713,
+     "p95": 145.18870900012553
+    },
+    "reference": {
+     "samples": 30,
+     "median": 41.93929200002458,
+     "p95": 54.04283299995586
+    }
+   },
+   "output:model-stream": {
+    "candidate": {
+     "samples": 30,
+     "median": 5.301125000230968,
+     "p95": 13.574916000012308
+    },
+    "reference": {
+     "samples": 30,
+     "median": 8.028249499970116,
+     "p95": 13.122750000096858
+    }
+   },
+   "start:connected": {
+    "candidate": {
+     "samples": 30,
+     "median": 1066.6369790001772,
+     "p95": 1600.265875000041
+    },
+    "reference": null
+   },
+   "rss:client-peak": {
+    "candidate": {
+     "samples": 30,
+     "median": 17304.0,
+     "p95": 18400
+    },
+    "reference": {
+     "samples": 30,
+     "median": 102800.0,
+     "p95": 106240
+    }
+   },
+   "output:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    },
+    "reference": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    }
+   },
+   "paste:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    },
+    "reference": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    }
+   },
+   "outputBytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 231871.5,
+     "p95": 231970
+    },
+    "reference": {
+     "samples": 30,
+     "median": 226036.0,
+     "p95": 227358
+    }
+   }
+  }
+ }
+}

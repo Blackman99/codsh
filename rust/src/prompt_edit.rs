@@ -2548,26 +2548,20 @@ impl PromptComposer {
         if lines.is_empty() {
             return false;
         }
-        let paths: Vec<std::result::Result<FileRef, crate::attachments::AttachRefusal>> = lines
-            .iter()
-            .copied()
-            .map(|line| index.resolve_drop(line))
-            .collect();
         // Every line has to be a workspace file. A sentence that only mentions
         // a path does not resolve, so it stays in the draft. Names may contain
-        // spaces; the whole line is the path.
-        let looks_like_paths = !paths.is_empty() && paths.iter().all(Result::is_ok);
-        if !looks_like_paths {
-            return false;
-        }
-        for item in paths {
-            match item {
-                Ok(reference) => self.insert_file_chip(reference),
-                Err(rejected) => {
-                    self.footer_notice =
-                        format!("{}: {}", rejected.status.label(), rejected.detail);
-                }
+        // spaces; the whole line is the path. The first line that is not a
+        // file ends the check: a large text paste must not resolve each of
+        // its lines on disk (#202).
+        let mut references = Vec::with_capacity(lines.len());
+        for line in lines {
+            match index.resolve_drop(line) {
+                Ok(reference) => references.push(reference),
+                Err(_) => return false,
             }
+        }
+        for reference in references {
+            self.insert_file_chip(reference);
         }
         true
     }

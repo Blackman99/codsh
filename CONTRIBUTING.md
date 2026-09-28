@@ -388,6 +388,24 @@ integration branch and on branches whose name contains `windows`. It installs
 the packed tarball with registry dsh into a clean prefix after removing the Rust
 toolchain and drives the installed client through ConPTY; the evidence artifact
 is `windows-evidence-<os>`.
+Interaction performance (#202) is measured by `scripts/rust-perf-bench.py`
+(Python 3 with `pyte`) against the pinned reference binary (SHA-256 checked,
+never redistributed). One run measures the reference in both screen modes,
+freezes `thresholds.json` from those samples (latency ceiling max(p95 × 1.2,
+p95 + 16.7 ms), throughput floor median × 0.9, resource ceiling p95 × 1.2) and
+logs its SHA-256 before any candidate process starts, then measures the
+installed candidate alternating with reference control sessions and judges it
+against the frozen file only; thresholds are never loosened after the fact.
+Both products talk to one loopback model fixture, so model time is reported
+apart from client and dsh time. The `macos-perf` job of `rust-platforms.yml`
+runs it on `macos-15` for `ci/**` branches whose name contains `perf` (most of an
+hour); `docs/rewrite/perf/` keeps the frozen thresholds and the before/after
+reports with the method and the breakdown. The pinned reference is the macOS arm64 build; elsewhere, pass `--only candidate`
+(measurements only, no judging).
+`rust-terminal-pty-test.py` also checks that a closed terminal ends the client,
+dsh and the launcher (with and without SIGHUP), and that Ctrl+Q while dsh is
+still starting quits at once without leaving dsh behind and that text typed
+during startup is kept.
 `build:rust` passes the `codsh-cli` version to the build
 (`CODSH_PACKAGE_VERSION`), so `codsh --rust --version`, the ACP `clientInfo` and
 `artifact.json` all name the package version; a plain `cargo build` reports the

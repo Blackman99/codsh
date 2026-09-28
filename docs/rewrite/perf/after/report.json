@@ -1,0 +1,587 @@
+{
+ "reference": "1.0.34 (3736acbc8658)",
+ "referenceSha256": "9cd26b579840f0f5c9148a8059ad651904c08b41b7f2ef0b4ec04b9ba898844e",
+ "environment": {
+  "system": "Darwin",
+  "release": "24.6.0",
+  "machine": "arm64",
+  "python": "3.14.7",
+  "ci": true,
+  "runner": "GitHub Actions 1000005489",
+  "image": "macos15",
+  "imageVersion": "20260907.0337.1",
+  "os": "15.7.9",
+  "cpu": "Apple M1 (Virtual)",
+  "cpus": "3",
+  "memoryBytes": "7516192768"
+ },
+ "terminal": {
+  "rows": 32,
+  "cols": 100,
+  "narrow": [
+   24,
+   80
+  ],
+  "term": "xterm-256color",
+  "driver": "POSIX PTY, pyte screen model, arrival-time stamps"
+ },
+ "fixture": {
+  "longLines": 1000,
+  "pasteLines": 2000,
+  "transport": "loopback chat_completions SSE"
+ },
+ "runs": 30,
+ "coldRuns": 30,
+ "modes": [
+  "fullscreen",
+  "minimal"
+ ],
+ "purge": true,
+ "thresholdsSha256": "3a26526388f7db20a413179a1c273b31935f25281236d4f557c41139dda0e40b",
+ "verdicts": {
+  "fullscreen:start:first-output": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 32.284791500191204,
+    "p95": 72.92554199998267
+   },
+   "median": 89.42310400004499,
+   "p95": 140.9036250000354,
+   "verdict": "fail",
+   "controlWithin": false
+  },
+  "fullscreen:start:ready": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 594.265478999936,
+    "p95": 744.6253329999745
+   },
+   "median": 91.79770800005645,
+   "p95": 145.45766600011848,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:cold:first-output": {
+   "samples": 30,
+   "median": 483.73829150013626,
+   "p95": 904.2083749999292,
+   "verdict": "pass"
+  },
+  "fullscreen:cold:ready": {
+   "samples": 30,
+   "median": 487.1810834999196,
+   "p95": 911.2485830001533,
+   "verdict": "pass"
+  },
+  "fullscreen:input:draft": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 5.976520500029437,
+    "p95": 7.367041999939829
+   },
+   "median": 1.0612709999550134,
+   "p95": 2.228166999993846,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:input:paste": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 17.01668700017035,
+    "p95": 32.552832999965176
+   },
+   "median": 20.999666499905288,
+   "p95": 33.07383400015533,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:output:first-visible": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 47.478562499862164,
+    "p95": 57.114916999824345
+   },
+   "median": 185.84335400001146,
+   "p95": 246.3000830002129,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "fullscreen:output:end-after-model": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 86.21235450007953,
+    "p95": 128.9536659999285
+   },
+   "median": 72.39247949991841,
+   "p95": 102.06429100013338,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:scroll:page-up": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 1.595979000092484,
+    "p95": 2.9086249999236315
+   },
+   "median": 4.8481250000186265,
+   "p95": 10.511124999728054,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:scroll:page-down": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 1.460666500031948,
+    "p95": 2.937749999575317
+   },
+   "median": 8.217000000062399,
+   "p95": 17.21520800003782,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:resize:narrow": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 20.880832999944687,
+    "p95": 36.614333000034094
+   },
+   "median": 0.5181254999479279,
+   "p95": 2.6547499999869615,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:resize:wide": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 20.545062500052154,
+    "p95": 24.121291999937966
+   },
+   "median": 0.34839599998667836,
+   "p95": 1.8968330000061542,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:quit:exit": {
+   "samples": 90,
+   "control": {
+    "samples": 10,
+    "median": 104.45639549999032,
+    "p95": 151.28029199992307
+   },
+   "median": 35.159396000090055,
+   "p95": 73.67474999977276,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:output:throughput": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 763387.4157752695,
+    "p95": 944976.630934574
+   },
+   "median": 935204.6492024115,
+   "p95": 1268089.168908832,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "fullscreen:rss:tree-peak": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 101984.0,
+    "p95": 102464
+   },
+   "median": 312552.0,
+   "p95": 319328,
+   "verdict": "fail",
+   "controlWithin": true
+  },
+  "minimal:start:first-output": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 69.69260399998166,
+    "p95": 108.96770799998194
+   },
+   "median": 95.07518749986775,
+   "p95": 134.4061670000665,
+   "verdict": "fail",
+   "controlWithin": false
+  },
+  "minimal:start:ready": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 686.9012289999519,
+    "p95": 839.2111249999143
+   },
+   "median": 97.05643749982119,
+   "p95": 143.35791700007394,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:cold:first-output": {
+   "samples": 30,
+   "median": 671.1783960000612,
+   "p95": 1021.4640000001527,
+   "verdict": "pass"
+  },
+  "minimal:cold:ready": {
+   "samples": 30,
+   "median": 676.7866249999497,
+   "p95": 1025.6374589996412,
+   "verdict": "pass"
+  },
+  "minimal:input:draft": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 5.949937500059605,
+    "p95": 6.509874999988824
+   },
+   "median": 0.9033334997948259,
+   "p95": 2.1182499998249114,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:input:paste": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 21.99877049983479,
+    "p95": 30.416290999855846
+   },
+   "median": 22.368250500177965,
+   "p95": 35.4844159996137,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:output:first-visible": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 60.12202150002122,
+    "p95": 102.45891699986532
+   },
+   "median": 206.39429149986245,
+   "p95": 347.1607080004178,
+   "verdict": "fail",
+   "controlWithin": false
+  },
+  "minimal:output:end-after-model": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 109.93054199987091,
+    "p95": 172.32962500024587
+   },
+   "median": 90.10385449999012,
+   "p95": 405.68987500015646,
+   "verdict": "fail",
+   "controlWithin": false
+  },
+  "minimal:scroll:page-up": {
+   "verdict": "not-applicable"
+  },
+  "minimal:scroll:page-down": {
+   "verdict": "not-applicable"
+  },
+  "minimal:resize:narrow": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 23.091103999875486,
+    "p95": 58.74962500017136
+   },
+   "median": 0.7752294999081641,
+   "p95": 2.4953749999403954,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:resize:wide": {
+   "verdict": "not-applicable"
+  },
+  "minimal:quit:exit": {
+   "samples": 90,
+   "control": {
+    "samples": 10,
+    "median": 124.40866649989039,
+    "p95": 165.4148750002496
+   },
+   "median": 36.56729199993424,
+   "p95": 67.08933299966156,
+   "verdict": "pass",
+   "controlWithin": true
+  },
+  "minimal:output:throughput": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 627066.6291194253,
+    "p95": 862427.4665055866
+   },
+   "median": 738555.7589603844,
+   "p95": 1076625.906793996,
+   "verdict": "pass",
+   "controlWithin": false
+  },
+  "minimal:rss:tree-peak": {
+   "samples": 30,
+   "control": {
+    "samples": 10,
+    "median": 96824.0,
+    "p95": 97584
+   },
+   "median": 310696.0,
+   "p95": 317040,
+   "verdict": "fail",
+   "controlWithin": true
+  }
+ },
+ "failed": [
+  "fullscreen:output:first-visible",
+  "fullscreen:rss:tree-peak",
+  "fullscreen:start:first-output",
+  "minimal:output:end-after-model",
+  "minimal:output:first-visible",
+  "minimal:rss:tree-peak",
+  "minimal:start:first-output"
+ ],
+ "controlDrift": [
+  "fullscreen:start:first-output",
+  "minimal:output:end-after-model",
+  "minimal:output:first-visible",
+  "minimal:output:throughput",
+  "minimal:start:first-output"
+ ],
+ "candidateLeftoverProcesses": [],
+ "invalidRuns": {
+  "candidate": 0,
+  "control": 0
+ },
+ "breakdown": {
+  "fullscreen": {
+   "first-run:first-output": {
+    "candidate": {
+     "samples": 30,
+     "median": 102.0123545001261,
+     "p95": 121.34812500001863
+    },
+    "reference": {
+     "samples": 30,
+     "median": 38.63733300002059,
+     "p95": 346.92587499995716
+    }
+   },
+   "first-run:ready": {
+    "candidate": {
+     "samples": 30,
+     "median": 104.5008955001831,
+     "p95": 123.54858400020748
+    },
+    "reference": {
+     "samples": 30,
+     "median": 1308.024312500027,
+     "p95": 4026.6608750000596
+    }
+   },
+   "output:submit-to-request": {
+    "candidate": {
+     "samples": 30,
+     "median": 111.66539550002199,
+     "p95": 152.0427919998765
+    },
+    "reference": {
+     "samples": 30,
+     "median": 47.31949999992503,
+     "p95": 77.43900000001304
+    }
+   },
+   "output:model-stream": {
+    "candidate": {
+     "samples": 30,
+     "median": 5.430624999920838,
+     "p95": 10.407374999951571
+    },
+    "reference": {
+     "samples": 30,
+     "median": 5.490833499934524,
+     "p95": 16.04312500002561
+    }
+   },
+   "start:connected": {
+    "candidate": {
+     "samples": 30,
+     "median": 1015.8233334999532,
+     "p95": 1335.5282910000533
+    },
+    "reference": null
+   },
+   "rss:client-peak": {
+    "candidate": {
+     "samples": 30,
+     "median": 18272.0,
+     "p95": 18976
+    },
+    "reference": {
+     "samples": 30,
+     "median": 107096.0,
+     "p95": 110064
+    }
+   },
+   "output:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    },
+    "reference": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    }
+   },
+   "paste:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    },
+    "reference": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    }
+   },
+   "outputBytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 20697.5,
+     "p95": 20848
+    },
+    "reference": {
+     "samples": 30,
+     "median": 33881.0,
+     "p95": 35146
+    }
+   }
+  },
+  "minimal": {
+   "first-run:first-output": {
+    "candidate": {
+     "samples": 30,
+     "median": 137.97243800014257,
+     "p95": 190.16820800025016
+    },
+    "reference": {
+     "samples": 30,
+     "median": 32.83297899994068,
+     "p95": 69.16833300003782
+    }
+   },
+   "first-run:ready": {
+    "candidate": {
+     "samples": 30,
+     "median": 139.78281249990687,
+     "p95": 191.96529200021178
+    },
+    "reference": {
+     "samples": 30,
+     "median": 1282.6374795001466,
+     "p95": 1577.4102499999572
+    }
+   },
+   "output:submit-to-request": {
+    "candidate": {
+     "samples": 30,
+     "median": 115.0625,
+     "p95": 223.62795800017193
+    },
+    "reference": {
+     "samples": 30,
+     "median": 36.93412500002887,
+     "p95": 55.59341699979268
+    }
+   },
+   "output:model-stream": {
+    "candidate": {
+     "samples": 30,
+     "median": 7.960500000277534,
+     "p95": 17.174875000026077
+    },
+    "reference": {
+     "samples": 30,
+     "median": 5.707187500083819,
+     "p95": 12.57716599991545
+    }
+   },
+   "start:connected": {
+    "candidate": {
+     "samples": 30,
+     "median": 1029.3042089999653,
+     "p95": 1485.9634589999914
+    },
+    "reference": null
+   },
+   "rss:client-peak": {
+    "candidate": {
+     "samples": 30,
+     "median": 17424.0,
+     "p95": 18448
+    },
+    "reference": {
+     "samples": 30,
+     "median": 102368.0,
+     "p95": 106064
+    }
+   },
+   "output:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    },
+    "reference": {
+     "samples": 30,
+     "median": 72016.0,
+     "p95": 72016
+    }
+   },
+   "paste:bytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    },
+    "reference": {
+     "samples": 30,
+     "median": 143999.0,
+     "p95": 143999
+    }
+   },
+   "outputBytes": {
+    "candidate": {
+     "samples": 30,
+     "median": 230992.0,
+     "p95": 231415
+    },
+    "reference": {
+     "samples": 30,
+     "median": 225809.0,
+     "p95": 227758
+    }
+   }
+  }
+ }
+}

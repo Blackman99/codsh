@@ -1260,6 +1260,18 @@ ends the whole process tree, a resume, and install/update/refusal/rollback
 through a real ConPTY (`scripts/rust-windows-pty-test.py`, which lists what it
 does not cover).
 
+On macOS the installed client is measured against the pinned Grok 1.0.34
+reference by `scripts/rust-perf-bench.py` (thresholds frozen before the
+candidate runs; method and before/after reports in `docs/rewrite/perf/`).
+Ctrl+Q quits at once even while dsh is still starting and leaves no dsh
+behind; text typed during startup is kept; a large paste no longer looks up
+each of its lines on disk; a finished answer is shown before the session is
+read back for auto-compaction; closing the terminal window ends the client
+and dsh instead of leaving them spinning. Remaining differences against the
+reference (dsh turn start, no ACP token streaming, process-tree RSS of the
+Node launcher + dsh) are recorded in that directory and need an explicit
+decision before the ticket can close.
+
 ## `/ship`: One Sentence to Verified Code
 
 ```sh
