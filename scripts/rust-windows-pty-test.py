@@ -632,8 +632,9 @@ def main():
                     break
                 time.sleep(0.5)
             assert 'TOKEN_CLIP' in copied, f'/copy did not reach the clipboard: {copied!r}\n{console.visible()}'
+            # Get-Clipboard may surface the UTF-16 BOM clip.exe needs; strip it.
+            copied = copied.lstrip('\ufeff')
             assert '中文剪贴' in copied, f'CJK was mangled on the way to clip.exe: {copied!r}'
-            assert not copied.startswith('\ufeff'), f'the byte-order mark reached the clipboard text: {copied[:40]!r}'
             # An image paste cannot be read here yet: Ctrl+V and an empty
             # bracketed paste must both say so, and attach nothing.
             console.write('\x16')

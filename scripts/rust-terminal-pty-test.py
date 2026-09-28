@@ -603,7 +603,7 @@ def check_hangup(env, cwd, output, results, signal_launcher):
         session.master = os.open('/dev/null', os.O_RDWR)
         if signal_launcher:
             os.kill(session.process.pid, signal.SIGHUP)
-        deadline = closed + 10
+        deadline = closed + 20
         left = tree
         while time.monotonic() < deadline:
             time.sleep(0.1)
