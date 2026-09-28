@@ -582,6 +582,13 @@ fn stderr_event(text: String) -> AcpEvent {
     }
 }
 
+/// Ticket 209: the long-lived dsh Node process keeps Node 22's young
+/// generation cap (16 MiB semi-spaces). Node 24's larger default let the
+/// young generation alone add ~40-55 MiB of RSS over the first 20-30 turns
+/// of a session (measured on Linux and macOS; a 100-turn run showed it is
+/// sizing, not a leak). `process.argv` in dsh is unchanged by a V8 flag.
+const DSH_NODE_YOUNG_GENERATION: &str = "--max-semi-space-size=16";
+
 /// Ticket 209: dsh's `credentials-local` plugin watches
 /// `$DSH_HOME/.credentials.yaml`. When the file is absent, its chokidar
 /// watcher falls back to the whole dsh home, and every write there during
@@ -609,6 +616,27 @@ pub fn ensure_credentials_placeholder(dsh_home: &Path) {
     let _ = options.open(&path);
 }
 
+/// Program and arguments for the ACP dsh: a JS entry runs under `node`.
+fn dsh_command(dsh: PathBuf, node: PathBuf) -> (PathBuf, Vec<String>) {
+    let js = dsh
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs");
+    if js {
+        (
+            node,
+            vec![
+                DSH_NODE_YOUNG_GENERATION.into(),
+                dsh.to_string_lossy().into_owned(),
+                "--profile".into(),
+                "acp".into(),
+            ],
+        )
+    } else {
+        (dsh, vec!["--profile".into(), "acp".into()])
+    }
+}
+
 pub fn dsh_spawn_spec(
     cwd: PathBuf,
     dsh_home: &Path,
@@ -618,24 +646,8 @@ pub fn dsh_spawn_spec(
     let dsh = std::env::var_os("DSH_BIN").ok_or_else(|| AcpError {
         message: "missing DSH_BIN; use codsh --rust".into(),
     })?;
-    let dsh = PathBuf::from(dsh);
-    let js = dsh
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs");
-    let (program, mut args) = if js {
-        let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
-        (
-            PathBuf::from(node),
-            vec![
-                dsh.to_string_lossy().into_owned(),
-                "--profile".into(),
-                "acp".into(),
-            ],
-        )
-    } else {
-        (dsh, vec!["--profile".into(), "acp".into()])
-    };
+    let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
+    let (program, mut args) = dsh_command(PathBuf::from(dsh), PathBuf::from(node));
     let patch = patch.or_else(|| std::env::var_os("CODSH_ACP_PATCH").map(PathBuf::from));
     if let Some(patch) = patch {
         args.push("--patch".into());
@@ -3655,6 +3667,28 @@ mod tests {
             "{stop}"
         );
         assert_ne!(stop, "end_turn");
+    }
+
+    #[test]
+    fn js_dsh_runs_with_the_young_generation_cap_before_the_script() {
+        let (program, args) = dsh_command(
+            PathBuf::from("/opt/dsh/lib/bin.js"),
+            PathBuf::from("/usr/bin/node"),
+        );
+        assert_eq!(program, PathBuf::from("/usr/bin/node"));
+        assert_eq!(
+            args,
+            [
+                DSH_NODE_YOUNG_GENERATION,
+                "/opt/dsh/lib/bin.js",
+                "--profile",
+                "acp"
+            ]
+        );
+        let (program, args) =
+            dsh_command(PathBuf::from("/usr/local/bin/dsh"), PathBuf::from("node"));
+        assert_eq!(program, PathBuf::from("/usr/local/bin/dsh"));
+        assert_eq!(args, ["--profile", "acp"]);
     }
 
     #[test]
