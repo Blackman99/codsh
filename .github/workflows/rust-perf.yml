@@ -1,0 +1,32 @@
+# macOS interaction performance (#202): reference baseline, frozen thresholds,
+# then the installed candidate. Runs only on ci/**perf** branches.
+name: Rust perf
+
+on:
+  push:
+    branches:
+      - 'ci/**perf**'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-15
+    steps:
+      - name: Fetch the pinned reference (not redistributed)
+        run: |
+          set -eu
+          for arch in aarch64 x86_64; do
+            for base in https://x.ai/cli https://storage.googleapis.com/grok-build-public-artifacts/cli; do
+              url="$base/grok-1.0.34-macos-$arch"
+              code=$(curl -o /dev/null -sSL -w '%{http_code}' --head "$url" || true)
+              echo "$url -> $code"
+            done
+          done
+          curl -fsSL -o grok "https://storage.googleapis.com/grok-build-public-artifacts/cli/grok-1.0.34-macos-aarch64"
+          shasum -a 256 grok
+          chmod +x grok
+          ./grok --version || true
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          sw_vers
