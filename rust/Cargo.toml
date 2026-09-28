@@ -80,6 +80,7 @@ workspace = true
 anstyle.workspace = true
 base64 = "0.22"
 crossterm = { workspace = true, features = ["bracketed-paste"] }
+dunce = "1.0.5"
 ed25519-dalek = "2"
 getrandom = "0.3"
 ignore.workspace = true

@@ -175,6 +175,9 @@ def tree_pids(root_pid):
 
 
 def main():
+    # The runner's console code page is cp1252; screen text is Unicode.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser()
     parser.add_argument('--package', required=True, help='packed codsh-cli tarball')
     parser.add_argument('--output', required=True)

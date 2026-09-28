@@ -818,7 +818,7 @@ pub fn parse_json_server(
 }
 
 fn canonical(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// cwd first, then each parent up to and including the git root. Without a
@@ -999,7 +999,7 @@ fn inside_root(root: &Path, rel: &str) -> Option<PathBuf> {
     let joined = parts
         .iter()
         .fold(root.to_path_buf(), |path, part| path.join(part));
-    if let (Ok(real), Ok(real_root)) = (fs::canonicalize(&joined), fs::canonicalize(root))
+    if let (Ok(real), Ok(real_root)) = (dunce::canonicalize(&joined), dunce::canonicalize(root))
         && !real.starts_with(&real_root)
     {
         return None;

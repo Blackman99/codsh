@@ -877,16 +877,27 @@ function globMatch(pattern, text, pathMode) {
   return walk(0, 0)
 }
 
+const WINDOWS = process.platform === 'win32'
+const DRIVE = /^[A-Za-z]:\//u
+
+/**
+ * Absolute, `/`-separated form of a tool path for rule matching. On Windows
+ * backslashes are separators and `C:/…` is absolute; the drive stays in front
+ * (`C:/Users/…`), matching the realpath forms of the workspace (#200).
+ */
 function normalizePath(path, cwd) {
   if (path.startsWith('~')) return path.replaceAll('\\', '/')
-  const joined = path.startsWith('/') ? path : `${cwd.replaceAll('\\', '/')}/${path}`
+  const own = WINDOWS ? path.replaceAll('\\', '/') : path
+  const absolute = own.startsWith('/') || (WINDOWS && DRIVE.test(own))
+  const joined = absolute ? own : `${cwd.replaceAll('\\', '/')}/${own}`
+  const root = WINDOWS && DRIVE.test(joined) ? joined.slice(0, 2) : ''
   const parts = []
-  for (const part of joined.split('/')) {
+  for (const part of joined.slice(root.length).split('/')) {
     if (!part || part === '.') continue
     if (part === '..') parts.pop()
     else parts.push(part)
   }
-  return `/${parts.join('/')}`
+  return `${root}/${parts.join('/')}`
 }
 
 function cwdRoots(cwd) {

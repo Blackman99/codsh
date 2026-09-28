@@ -72,7 +72,7 @@ fn env_bool(value: Option<&str>) -> Option<bool> {
 }
 
 pub fn canonicalize_or_owned(path: &Path) -> PathBuf {
-    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn is_home_dir(path: &Path, home: &Path) -> bool {
@@ -646,7 +646,7 @@ pub fn is_trusted_this_process(key: &Path, store: &TrustStore) -> bool {
 }
 
 pub fn grant_folder_trust_key(store_home: Option<&Path>, home: &Path, key: &Path) -> GrantOutcome {
-    if let Ok(canonical) = fs::canonicalize(key) {
+    if let Ok(canonical) = dunce::canonicalize(key) {
         if canonical != key {
             return GrantOutcome::Refused {
                 reason: GrantRefuse::KeyMoved,
@@ -875,7 +875,7 @@ mod tests {
         assert!(!store.is_trusted(&home.join("repo")));
         let key = home.join("repo");
         fs::create_dir_all(&key).unwrap();
-        let canonical = fs::canonicalize(&key).unwrap();
+        let canonical = dunce::canonicalize(&key).unwrap();
         let outcome = grant_folder_trust_key(Some(&home), &tmp.path().join("other"), &canonical);
         assert!(matches!(
             outcome,
