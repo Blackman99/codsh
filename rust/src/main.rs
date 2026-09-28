@@ -10124,6 +10124,14 @@ fn run() -> io::Result<()> {
     let mut memory_injected: bool = resumed && !turns.is_empty();
     let mut pending_events: std::collections::VecDeque<Event> = std::collections::VecDeque::new();
     let mut typing_burst = false;
+    #[allow(clippy::type_complexity)]
+    let mut compaction_probe: Option<(
+        std::sync::mpsc::Receiver<
+            Result<session_history::RestoredSession, session_history::HistoryError>,
+        >,
+        String,
+        usize,
+    )> = None;
     let mut last_paint = Instant::now();
     let mut client = if startup_can_execute {
         let connected = match connect_at_startup(
@@ -10434,18 +10442,54 @@ fn run() -> io::Result<()> {
                 .filter(|active| !active.remote)
                 .and_then(|active| active.session_id.clone())
         {
-            match session_history::load_session(&effective.dsh_home, &session_id) {
-                Ok(restored) if restored.compaction.len() > last_compaction_count => {
-                    last_compaction_count = restored.compaction.len();
-                    replace_session_turns(&mut turns, &mut committed, &mut history, restored.turns);
-                    if screen == ScreenMode::Minimal {
-                        resize_purge_rerender(&mut terminal, "")?;
+            // Reading the session back starts a Node helper (about 100 ms).
+            // It runs off the event loop so the finished answer is painted at
+            // once (#202); the result is applied on a later pass if the
+            // transcript has not moved on meanwhile.
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let home = effective.dsh_home.clone();
+            let id = session_id.clone();
+            std::thread::spawn(move || {
+                let _ = sender.send(session_history::load_session(&home, &id));
+            });
+            compaction_probe = Some((receiver, session_id, turns.len()));
+        }
+        let probe_result = match &compaction_probe {
+            Some((receiver, _, _)) => match receiver.try_recv() {
+                Ok(result) => Some(Some(result)),
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(None),
+            },
+            None => None,
+        };
+        if let Some(result) = probe_result
+            && let Some((_, probe_session, probe_turns)) = compaction_probe.take()
+            && let Some(result) = result
+        {
+            let current = client.as_ref().and_then(|active| active.session_id.clone());
+            let fresh = !inflight
+                && !compacting
+                && current.as_deref() == Some(probe_session.as_str())
+                && turns.len() == probe_turns;
+            if fresh {
+                match result {
+                    Ok(restored) if restored.compaction.len() > last_compaction_count => {
+                        last_compaction_count = restored.compaction.len();
+                        replace_session_turns(
+                            &mut turns,
+                            &mut committed,
+                            &mut history,
+                            restored.turns,
+                        );
+                        if screen == ScreenMode::Minimal {
+                            resize_purge_rerender(&mut terminal, "")?;
+                        }
+                        hint = compact_reload_hint(&turns, &restored.compaction, false);
+                        last_error.clear();
                     }
-                    hint = compact_reload_hint(&turns, &restored.compaction, false);
-                    last_error.clear();
+                    Ok(_) => {}
+                    Err(error) => last_error = error.to_string(),
                 }
-                Ok(_) => {}
-                Err(error) => last_error = error.to_string(),
             }
         }
         if let Some(detail) = disconnect {
