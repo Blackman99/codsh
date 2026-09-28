@@ -336,10 +336,19 @@ function* fileToolTurn(options) {
           : MODE === 'shell-deny'
             ? `printf 'DENIED_RAN_${marker}\\n' > denied-ran.txt`
             : `printf 'STDOUT_${marker}\\n'; printf 'STDERR_${marker}\\n' >&2; printf '%s\\n' "$PWD"`
-      const args = { command, description: 'Run the shell probe' }
+      // dsh on Windows offers `pwsh` instead of `bash` (#200).
+      const windows = process.platform === 'win32'
+      const pwshCommand = MODE === 'shell-fail'
+        ? `Write-Output 'STDOUT_${marker}'; [Console]::Error.WriteLine('STDERR_${marker}'); exit 7`
+        : MODE === 'shell-long'
+          ? `Set-Content -Path shell-started.txt -Value 'STARTED_${marker}'; Start-Sleep -Seconds 30; Set-Content -Path shell-finished.txt -Value 'FINISHED_${marker}'`
+          : MODE === 'shell-deny'
+            ? `Set-Content -Path denied-ran.txt -Value 'DENIED_RAN_${marker}'`
+            : `Write-Output 'STDOUT_${marker}'; [Console]::Error.WriteLine('STDERR_${marker}'); (Get-Location).Path`
+      const args = { command: windows ? pwshCommand : command, description: 'Run the shell probe' }
       if (workdir) args.workdir = workdir
       if (MODE === 'shell-fail') args.timeoutMs = 15000
-      yield* mockToolCall('rust-acp-shell', 'bash', args)
+      yield* mockToolCall('rust-acp-shell', windows ? 'pwsh' : 'bash', args)
       return
     }
     const last = done.at(-1)

@@ -661,7 +661,8 @@ pub fn access_from_tool(name: &str, args: &JsonValue) -> AccessKind {
         "read" | "read_file" | "list_dir" | "read_image" => AccessKind::Read(path),
         "grep" | "glob" => AccessKind::Grep { path },
         "write" | "edit" | "search_replace" => AccessKind::Edit(path.unwrap_or_default()),
-        "bash" | "run_terminal_cmd" | "run_terminal_command" => {
+        // dsh on Windows runs commands through its `pwsh` tool instead of bash.
+        "bash" | "pwsh" | "run_terminal_cmd" | "run_terminal_command" => {
             AccessKind::Bash(string_field(args, &["command"]).unwrap_or_default())
         }
         "web_fetch" => AccessKind::WebFetch(string_field(args, &["url"]).unwrap_or_default()),

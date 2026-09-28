@@ -559,7 +559,12 @@ pub fn shell_exit_line(title: &str, result: &str, status: &str) -> Option<String
 pub fn is_shell_tool(title: &str) -> bool {
     matches!(
         title,
-        "bash" | "run_terminal_cmd" | "run_terminal_command" | "terminal_send" | "terminal_open"
+        "bash"
+            | "pwsh"
+            | "run_terminal_cmd"
+            | "run_terminal_command"
+            | "terminal_send"
+            | "terminal_open"
     )
 }
 

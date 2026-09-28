@@ -10,13 +10,17 @@ the client must hand it back unchanged, and the shell must still take a line.
 Scenarios: install-check, headless turn, interactive turn with Unicode,
 file tool with approval in a workspace path with spaces and CJK, Git Bash
 shell tool, cancel of a running shell (the whole process tree must end),
-resume with --continue, and a sandbox profile refusal.
+resume with --continue, a sandbox profile refusal, and install / update /
+refused broken installs / rollback of the packed product with the Rust Home
+kept and the legacy Homes untouched.
 
 Usage (Windows, from the repository after `pnpm install` and `npm pack`):
     python scripts/rust-windows-pty-test.py --package <codsh-cli-*.tgz> --output <dir>
 """
 import argparse
 import base64
+import hashlib
+import http.server
 import json
 import os
 from pathlib import Path
@@ -24,6 +28,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -180,6 +185,31 @@ def tree_pids(root_pid):
     return out
 
 
+def tree_digest(path):
+    digest = hashlib.sha256()
+    for item in sorted(Path(path).rglob('*')):
+        digest.update(str(item.relative_to(path)).encode())
+        if item.is_file() and not item.is_symlink():
+            digest.update(item.read_bytes())
+    return digest.hexdigest()
+
+
+class Registry(http.server.BaseHTTPRequestHandler):
+    """dist-tags for `codsh --rust update --check`."""
+    latest = None
+
+    def log_message(self, *_):
+        pass
+
+    def do_GET(self):
+        body = json.dumps({'latest': Registry.latest}).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
 def main():
     # The runner's console code page is cp1252; screen text is Unicode.
     for stream in (sys.stdout, sys.stderr):
@@ -317,7 +347,7 @@ def main():
             assert 'STDERR_WIN200' in shown, shown
             result = console.finish()
             assert result['exit'] == 0, result
-            return {'bash': shutil.which('bash')}
+            return {'pwsh': shutil.which('pwsh'), 'powershell': shutil.which('powershell')}
         finally:
             console.close()
 
@@ -337,8 +367,8 @@ def main():
             while time.monotonic() < deadline and not (cwd / 'shell-started.txt').exists():
                 time.sleep(0.3)
             assert (cwd / 'shell-started.txt').exists(), 'long shell never started'
-            before = [p for p in tree_pids(console.proc.pid) if p[1].lower() in ('sleep.exe', 'bash.exe')]
-            assert before, 'no bash/sleep under the console while the shell ran'
+            before = [p for p in tree_pids(console.proc.pid) if p[1].lower() in ('pwsh.exe', 'powershell.exe')]
+            assert before, 'no PowerShell under the console while the shell ran'
             console.write('\x03')
             time.sleep(0.4)
             console.write('\x03')
@@ -391,9 +421,129 @@ def main():
         assert result.returncode != 0 and 'not implemented on Windows' in result.stderr, result.stdout + result.stderr
         return result.stderr.strip()[-300:]
 
+    def install_update_rollback():
+        """The packed product updated in place, broken installs refused, rolled back (#198 flow on Windows)."""
+        tarball = Path(args.package).resolve()
+        version = json.loads((package / 'package.json').read_text(encoding='utf-8'))['version']
+        key = 'win32-x64'
+        for name, body in (('.dsh/settings.yaml', 'agent-default-model:\n  provider: legacy\n'),
+                           ('.grok/config.toml', '[models]\ndefault = "legacy"\n'),
+                           ('.grok/sessions/keep.jsonl', '{"legacy":true}\n')):
+            (home / name).parent.mkdir(parents=True, exist_ok=True)
+            (home / name).write_text(body, encoding='utf-8')
+        legacy_before = {name: tree_digest(home / name) for name in ('.dsh', '.grok')}
+        source = work / 'pkg-src'
+        with tarfile.open(tarball) as archive:
+            archive.extractall(source, filter='data')
+
+        def variant(new_version, drop_native=False):
+            copy = work / f'pkg-{new_version}'
+            shutil.copytree(source / 'package', copy)
+            manifest = json.loads((copy / 'package.json').read_text(encoding='utf-8'))
+            manifest['version'] = new_version
+            (copy / 'package.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+            if drop_native:
+                shutil.rmtree(copy / 'native' / key)
+            else:
+                artifact = json.loads((copy / 'native' / key / 'artifact.json').read_text(encoding='utf-8'))
+                artifact['version'] = new_version
+                (copy / 'native' / key / 'artifact.json').write_text(json.dumps(artifact, indent=2) + '\n', encoding='utf-8')
+            out = work / f'tarballs-{new_version}'
+            out.mkdir()
+            name = json.loads(run([NPM, 'pack', '--json', '--ignore-scripts', '--offline', '--pack-destination', str(out)],
+                                  cwd=copy, env=npm_env).stdout)[0]['filename']
+            return out / name
+
+        def install(tar):
+            run([NPM, 'install', '-g', '--prefix', str(prefix), '--offline', '--ignore-scripts', '--no-audit', '--no-fund', str(tar)],
+                env=npm_env, cwd=work)
+
+        def turn(prompt):
+            return subprocess.run(client('-p', prompt), env={**base_env, 'DSH_CODE_CLI_MOCK_TOOL': 'echo'}, cwd=cwd,
+                                  capture_output=True, text=True, encoding='utf-8', timeout=180)
+
+        def refused(result, *needles):
+            assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+            for needle in needles:
+                assert needle in result.stderr, (needle, result.stderr)
+            return result.stderr.strip().splitlines()[0]
+
+        def session_ids():
+            listed = subprocess.run(client('sessions', 'list'), env=base_env, cwd=cwd, capture_output=True, text=True,
+                                    encoding='utf-8', timeout=120)
+            assert listed.returncode == 0, listed.stdout + listed.stderr
+            return set(SESSION_RE.findall(listed.stdout))
+
+        newer, broken = '99.0.1', '99.0.2'
+        tar_newer, tar_broken = variant(newer), variant(broken, drop_native=True)
+        isolated = home / '.codsh-rust'
+        result = {'version': version}
+        first = turn('TOKEN_BEFORE_UPDATE')
+        assert first.returncode == 0 and 'RUST_ACP_ANSWER' in first.stdout, first.stdout + first.stderr
+        assert json.loads((isolated / 'codsh-version.json').read_text(encoding='utf-8'))['lastVersion'] == version
+        before = session_ids()
+        assert before, 'no durable session before the update'
+        # Update in place: announced once, sessions kept.
+        install(tar_newer)
+        updated = turn('TOKEN_AFTER_UPDATE')
+        assert updated.returncode == 0 and 'RUST_ACP_ANSWER' in updated.stdout, updated.stdout + updated.stderr
+        assert f'Rust client updated {version} → {newer}' in updated.stderr, updated.stderr
+        again = turn('TOKEN_QUIET')
+        assert 'updated' not in again.stderr, again.stderr
+        assert before <= session_ids()
+        result['update'] = updated.stderr.strip()
+        # Broken installs are refused before the Rust Home or dsh is touched.
+        home_before = tree_digest(isolated)
+        installed = prefix / 'node_modules/codsh-cli'
+        artifact_file = installed / 'native' / key / 'artifact.json'
+        exe = installed / 'native' / key / 'codsh-rust.exe'
+        original_artifact, original_exe = artifact_file.read_text(encoding='utf-8'), exe.read_bytes()
+        stale = json.loads(original_artifact)
+        stale['version'] = version
+        artifact_file.write_text(json.dumps(stale), encoding='utf-8')
+        refusals = [refused(turn('x'), f'Rust client {version} does not match this codsh-cli {newer}: an update did not finish.',
+                            f'npm install -g codsh-cli@{newer}')]
+        artifact_file.write_text(original_artifact, encoding='utf-8')
+        damaged = bytearray(original_exe)
+        damaged[len(damaged) // 2] ^= 0xFF
+        exe.write_bytes(bytes(damaged))
+        refusals.append(refused(turn('x'), 'damaged or incomplete download', f'npm install -g codsh-cli@{newer}'))
+        exe.write_bytes(original_exe)
+        assert tree_digest(isolated) == home_before, 'a refused launch wrote to the Rust Home'
+        # A package without this platform's client, then back to the version before.
+        install(tar_broken)
+        refusals.append(refused(turn('x'), f'Rust client artifact is not installed for {key}', 'ordinary codsh remains available'))
+        install(tarball)
+        rolled = turn('TOKEN_AFTER_ROLLBACK')
+        assert rolled.returncode == 0 and 'RUST_ACP_ANSWER' in rolled.stdout, rolled.stdout + rolled.stderr
+        assert f'last used by codsh {newer}; now running {version} (an earlier version)' in rolled.stderr, rolled.stderr
+        assert before <= session_ids()
+        stamp = json.loads((isolated / 'codsh-version.json').read_text(encoding='utf-8'))
+        assert stamp['lastVersion'] == version and stamp['newestVersion'] == newer, stamp
+        result['refusals'] = refusals
+        result['rollback'] = rolled.stderr.strip()
+        # `codsh --rust update --check` names the installer that owns this install.
+        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Registry)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            Registry.latest = newer
+            planned = subprocess.run(client('update', '--check', '--json'), cwd=cwd, capture_output=True, text=True, encoding='utf-8',
+                                     timeout=120, env={**base_env, 'CODSH_UPDATE_REGISTRY': f'http://127.0.0.1:{server.server_address[1]}'})
+        finally:
+            server.shutdown()
+        assert planned.returncode == 0, planned.stdout + planned.stderr
+        plan = json.loads(planned.stdout)
+        assert plan['action'] == 'install' and plan['installer'] == 'npm' and plan['command'][-1] == f'codsh-cli@{newer}', plan
+        result['plan'] = plan
+        for name, digest in legacy_before.items():
+            assert tree_digest(home / name) == digest, f'legacy {name} changed'
+        result['legacyUntouched'] = True
+        return result
+
     for name, fn in (('install-check', install_check), ('headless', headless), ('turn', interactive_turn),
                      ('file-approval', file_approval), ('shell', shell_tool), ('cancel', cancel_tree),
-                     ('resume', resume), ('sandbox-refused', sandbox_refused)):
+                     ('resume', resume), ('sandbox-refused', sandbox_refused),
+                     ('install-update-rollback', install_update_rollback)):
         step(name, fn)
     report['ok'] = all(item['ok'] for item in report['steps'])
     # dsh's own logs from the isolated Home, for the evidence artifact.

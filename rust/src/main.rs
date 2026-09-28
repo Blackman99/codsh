@@ -9929,6 +9929,8 @@ fn run() -> io::Result<()> {
     // Kitty event types are requested. A terminal that never emits a release
     // still cannot stop hold-to-talk; the first release flips this on.
     let mut voice_release_supported = false;
+    #[cfg(windows)]
+    let mut unpaired = UnpairedReleases::default();
     composer.set_workspace(&effective.cwd);
     // The composer starts empty. Like the reference, an unsent draft lives
     // in this process only: a sent prompt must never come back on the next
@@ -10988,7 +10990,13 @@ fn run() -> io::Result<()> {
         if !event::poll(Duration::from_millis(80))? {
             continue;
         }
-        match event::read()? {
+        let event = event::read()?;
+        #[cfg(windows)]
+        let event = match event {
+            Event::Key(key) => Event::Key(unpaired.normalize(key)),
+            other => other,
+        };
+        match event {
             Event::Key(key) if key.kind == KeyEventKind::Release => {
                 voice_release_supported = true;
                 // Only the voice chord acts on release. Windows consoles report a
@@ -12361,6 +12369,55 @@ fn run() -> io::Result<()> {
     drop_connection(&mut client, &mut owner);
     subagents::cleanup(&effective.dsh_home);
     Ok(())
+}
+
+/// Windows consoles deliver a character that is not on the keyboard layout
+/// (ConPTY input such as "✓", or an Alt+numpad code) only on the Alt key's
+/// release, which crossterm reports as a `Release` of that character with no
+/// press before it. Such a release is the typed character; a release that
+/// matches an earlier press is only the key going up. Every printable ASCII
+/// character is on the layout ConPTY uses, so only non-ASCII releases count.
+#[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct UnpairedReleases {
+    held: std::collections::VecDeque<char>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl UnpairedReleases {
+    /// A release that never comes cannot grow this without bound.
+    const LIMIT: usize = 32;
+
+    fn normalize(&mut self, key: event::KeyEvent) -> event::KeyEvent {
+        let KeyCode::Char(ch) = key.code else {
+            return key;
+        };
+        if ch.is_ascii() {
+            return key;
+        }
+        let same = |held: &char| held.to_lowercase().eq(ch.to_lowercase());
+        match key.kind {
+            KeyEventKind::Press => {
+                self.held.push_back(ch);
+                if self.held.len() > Self::LIMIT {
+                    self.held.pop_front();
+                }
+                key
+            }
+            KeyEventKind::Repeat => key,
+            KeyEventKind::Release => match self.held.iter().position(same) {
+                Some(index) => {
+                    self.held.remove(index);
+                    key
+                }
+                None => event::KeyEvent::new_with_kind(
+                    key.code,
+                    key.modifiers - KeyModifiers::ALT,
+                    KeyEventKind::Press,
+                ),
+            },
+        }
+    }
 }
 
 /// Default seconds a quit may spend tearing down before codsh force-exits.
@@ -15256,6 +15313,41 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_unpaired_release_types_the_character() {
+        use crossterm::event::KeyEvent;
+        let mut unpaired = UnpairedReleases::default();
+        let key = |ch, kind| KeyEvent::new_with_kind(KeyCode::Char(ch), KeyModifiers::NONE, kind);
+        // An Alt+numpad code: only the release carries the character.
+        let typed = unpaired.normalize(key('✓', KeyEventKind::Release));
+        assert_eq!(typed.kind, KeyEventKind::Press);
+        assert_eq!(typed.code, KeyCode::Char('✓'));
+        // A layout key: the release after the press stays a release.
+        assert_eq!(
+            unpaired.normalize(key('中', KeyEventKind::Press)).kind,
+            KeyEventKind::Press
+        );
+        assert_eq!(
+            unpaired.normalize(key('中', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // Shift let go first: the release reports the other case.
+        unpaired.normalize(key('É', KeyEventKind::Press));
+        assert_eq!(
+            unpaired.normalize(key('é', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // ASCII releases are never characters.
+        assert_eq!(
+            unpaired.normalize(key('a', KeyEventKind::Release)).kind,
+            KeyEventKind::Release
+        );
+        // The Alt of the numpad code does not reach the composer.
+        let alt =
+            KeyEvent::new_with_kind(KeyCode::Char('✓'), KeyModifiers::ALT, KeyEventKind::Release);
+        assert_eq!(unpaired.normalize(alt).modifiers, KeyModifiers::NONE);
+    }
 
     #[test]
     fn memory_notice_retires_a_stale_busy_refusal_only() {
