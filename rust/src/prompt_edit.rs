@@ -3027,7 +3027,7 @@ pub fn slash_action(text: &str) -> Option<PromptSlash> {
     }
 }
 
-fn is_voice_chord(key: &KeyEvent) -> bool {
+pub(crate) fn is_voice_chord(key: &KeyEvent) -> bool {
     let ctrl_space = key.modifiers.contains(KeyModifiers::CONTROL)
         && matches!(key.code, KeyCode::Char(' '))
         && !key.modifiers.contains(KeyModifiers::ALT)

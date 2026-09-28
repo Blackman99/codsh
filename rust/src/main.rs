@@ -10991,9 +10991,13 @@ fn run() -> io::Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Release => {
                 voice_release_supported = true;
+                // Only the voice chord acts on release. Windows consoles report a
+                // release for every key; handing those to the composer typed each
+                // character twice.
                 if matches!(overlay, Overlay::None)
                     && ui_overlay.is_none()
                     && matches!(nav.overlay, NavOverlay::None)
+                    && prompt_edit::is_voice_chord(&key)
                 {
                     let host = HostContext {
                         inflight,
