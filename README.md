@@ -1271,8 +1271,9 @@ each of its lines on disk; a finished answer is shown before the session is
 read back for auto-compaction; closing the terminal window ends the client
 and dsh instead of leaving them spinning. Remaining differences against the
 reference (dsh turn start, no ACP token streaming, process-tree RSS of the
-Node launcher + dsh) are recorded in that directory and need an explicit
-decision before the ticket can close.
+Node launcher + dsh) are recorded in that directory. Kara accepted those three
+gaps on 2026-09-28 (measured numbers and causes in `docs/rewrite/perf/`);
+thresholds were not loosened.
 
 The three-platform capability matrix (`scripts/rust-capability-matrix.py`, the
 `capability-matrix` job, `docs/rewrite/platform-capabilities.md`) records OS

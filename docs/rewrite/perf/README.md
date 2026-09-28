@@ -106,19 +106,24 @@ submit-to-chunk path; the reference streams tokens into the transcript.
 - Auto-compaction session read runs off the event loop so the finished answer is painted first.
 - Synchronous ACP requests (including `session/close` at quit) return when answered instead of waiting out a 50 ms pump slice.
 
-## Remaining regressions (need an explicit decision)
+## Accepted gaps (Kara, 2026-09-28 CST)
 
-Per "明显回归必须解决或明确决策":
+Kara accepted the three remaining regressions against the frozen reference
+so #202 can close. Thresholds were **not** loosened; the numbers below are
+from `ci/202-perf-after-f` run
+[36420609436](https://github.com/Blackman99/codsh/actions/runs/36420609436)
+(`docs/rewrite/perf/after/`). Paste, quit, throughput and fullscreen
+`end-after-model` already pass those limits.
 
-1. **dsh-side latency / no ACP streaming** — `first-visible`, and part of
-   `end-after-model` / throughput when dsh is slow. Fixing it needs a newer
-   dsh or a different transport, not more client paint work.
-2. **RSS architecture** — tree peak is Node launcher + dsh Node (~300 MiB)
-   vs the reference's single process (~100 MiB). Client alone is ~18 MiB.
-3. **start:first-output p95** — warm start first paint still misses the
-   ceiling on some runs (CI noise + Node launcher). Median is often under.
-Paste, quit, throughput and fullscreen end-after-model now pass the frozen
-limits on after-f.
+| Gap | Measured (fullscreen after-f) | Frozen limit | Cause |
+| --- | --- | --- | --- |
+| `output:first-visible` | p50 **186 ms** / p95 246 ms | ≤ **105 ms** | dsh 0.1.5-rc.3 ACP turn start ~120–140 ms (reference ~40–50 ms) and the long answer arrives as **one** `agent_message_chunk` — no ACP token streaming — so first paint cannot beat the full submit→chunk path. Fix needs a newer dsh or a different transport, not more client paint work. Minimal mode fails the same way (p50 206 ms vs ≤ 80 ms); minimal `end-after-model` also fails (p50 90 / p95 406 vs ≤ 152) for the same dsh timing. |
+| `rss:tree-peak` | p50 **~305 MiB** (report median 312552 KiB ≈ 305 MiB) / p95 ~312 MiB | ≤ **~129 MiB** (ceiling 132077 KiB) | Architecture: Node launcher + dsh Node dominate the process tree. The Rust client alone is ~18 MiB; the reference is a single ~100 MiB process. Accepting the multi-process stack, not a client leak. |
+| `start:first-output` (warm) | p50 **89 ms** / p95 141 ms | ≤ **69 ms** | Warm-start first paint; Node launcher + CI noise. Cold start already passes. Median is close; p95 still crosses the ceiling on some runs. |
+
+These three stay documented product differences for the rewrite vs Grok 1.0.34
+on macOS-15. Closing #202 does **not** change the frozen `thresholds.json`
+or claim the gates pass.
 
 ## Minor UX note (not a gate)
 
