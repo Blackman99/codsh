@@ -582,6 +582,61 @@ fn stderr_event(text: String) -> AcpEvent {
     }
 }
 
+/// Ticket 209: the long-lived dsh Node process keeps Node 22's young
+/// generation cap (16 MiB semi-spaces). Node 24's larger default let the
+/// young generation alone add ~40-55 MiB of RSS over the first 20-30 turns
+/// of a session (measured on Linux and macOS; a 100-turn run showed it is
+/// sizing, not a leak). `process.argv` in dsh is unchanged by a V8 flag.
+const DSH_NODE_YOUNG_GENERATION: &str = "--max-semi-space-size=16";
+
+/// Ticket 209: dsh's `credentials-local` plugin watches
+/// `$DSH_HOME/.credentials.yaml`. When the file is absent, its chokidar
+/// watcher falls back to the whole dsh home, and every write there during
+/// quit (session records, MCP catalogs, the last-session marker) arms a 1 s
+/// readdir throttle timer that closing the watcher does not clear. That
+/// timer alone kept dsh alive ~1.1 s after quit with background work. An
+/// empty document is dsh's empty store, so creating one (owner-only, never
+/// replacing an existing file) keeps the watch on the file itself and
+/// changes nothing else. Failure is ignored: dsh then behaves as before.
+pub fn ensure_credentials_placeholder(dsh_home: &Path) {
+    if !dsh_home.is_dir() {
+        return;
+    }
+    let path = dsh_home.join(".credentials.yaml");
+    if std::fs::symlink_metadata(&path).is_ok() {
+        return;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let _ = options.open(&path);
+}
+
+/// Program and arguments for the ACP dsh: a JS entry runs under `node`.
+fn dsh_command(dsh: PathBuf, node: PathBuf) -> (PathBuf, Vec<String>) {
+    let js = dsh
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs");
+    if js {
+        (
+            node,
+            vec![
+                DSH_NODE_YOUNG_GENERATION.into(),
+                dsh.to_string_lossy().into_owned(),
+                "--profile".into(),
+                "acp".into(),
+            ],
+        )
+    } else {
+        (dsh, vec!["--profile".into(), "acp".into()])
+    }
+}
+
 pub fn dsh_spawn_spec(
     cwd: PathBuf,
     dsh_home: &Path,
@@ -591,24 +646,8 @@ pub fn dsh_spawn_spec(
     let dsh = std::env::var_os("DSH_BIN").ok_or_else(|| AcpError {
         message: "missing DSH_BIN; use codsh --rust".into(),
     })?;
-    let dsh = PathBuf::from(dsh);
-    let js = dsh
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext == "js" || ext == "mjs" || ext == "cjs");
-    let (program, mut args) = if js {
-        let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
-        (
-            PathBuf::from(node),
-            vec![
-                dsh.to_string_lossy().into_owned(),
-                "--profile".into(),
-                "acp".into(),
-            ],
-        )
-    } else {
-        (dsh, vec!["--profile".into(), "acp".into()])
-    };
+    let node = std::env::var_os("CODSH_NODE").unwrap_or_else(|| "node".into());
+    let (program, mut args) = dsh_command(PathBuf::from(dsh), PathBuf::from(node));
     let patch = patch.or_else(|| std::env::var_os("CODSH_ACP_PATCH").map(PathBuf::from));
     if let Some(patch) = patch {
         args.push("--patch".into());
@@ -699,6 +738,7 @@ pub fn dsh_spawn_spec(
     {
         env.push((name, value.to_string_lossy().into_owned()));
     }
+    ensure_credentials_placeholder(dsh_home);
     Ok(SpawnSpec {
         program,
         args,
@@ -3627,6 +3667,47 @@ mod tests {
             "{stop}"
         );
         assert_ne!(stop, "end_turn");
+    }
+
+    #[test]
+    fn js_dsh_runs_with_the_young_generation_cap_before_the_script() {
+        let (program, args) = dsh_command(
+            PathBuf::from("/opt/dsh/lib/bin.js"),
+            PathBuf::from("/usr/bin/node"),
+        );
+        assert_eq!(program, PathBuf::from("/usr/bin/node"));
+        assert_eq!(
+            args,
+            [
+                DSH_NODE_YOUNG_GENERATION,
+                "/opt/dsh/lib/bin.js",
+                "--profile",
+                "acp"
+            ]
+        );
+        let (program, args) =
+            dsh_command(PathBuf::from("/usr/local/bin/dsh"), PathBuf::from("node"));
+        assert_eq!(program, PathBuf::from("/usr/local/bin/dsh"));
+        assert_eq!(args, ["--profile", "acp"]);
+    }
+
+    #[test]
+    fn credentials_placeholder_is_empty_owner_only_and_never_replaces() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join(".credentials.yaml");
+        ensure_credentials_placeholder(&home.path().join("missing"));
+        assert!(!home.path().join("missing").exists());
+        ensure_credentials_placeholder(home.path());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{mode:o}");
+        }
+        std::fs::write(&path, "version: 1\n\nrefs:\n  XAI_API_KEY: keep\n").unwrap();
+        ensure_credentials_placeholder(home.path());
+        assert!(std::fs::read_to_string(&path).unwrap().contains("keep"));
     }
 
     #[test]

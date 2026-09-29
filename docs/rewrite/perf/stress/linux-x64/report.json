@@ -1,0 +1,175 @@
+{
+  "platform": "linux-x64",
+  "environment": {
+    "platform": "linux",
+    "machine": "x86_64",
+    "release": "6.8.0-1064-azure",
+    "python": "3.12.14",
+    "cpus": 4,
+    "memoryKiB": 16372472,
+    "os": "Ubuntu 22.04.5 LTS"
+  },
+  "terminal": {
+    "rows": 32,
+    "cols": 100
+  },
+  "load": {
+    "children": 4,
+    "childLines": 150,
+    "childInterval": 0.1,
+    "taskLines": 400,
+    "taskInterval": 0.05,
+    "workflowChildren": 3,
+    "workflowChildLines": 200,
+    "turns": 30,
+    "turnLines": 8,
+    "loadSeconds": 10.0
+  },
+  "runs": 5,
+  "crashRuns": 2,
+  "reference": {
+    "version": "1.0.34 (3736acbc8658)",
+    "sha256": "be5905e107d2b8b5f3c142d21ecfe4c8fd32a913d2fd551b788707930c4dc80d",
+    "file": "grok-1.0.34-linux-x86_64"
+  },
+  "thresholdsSha256": "223acb1b7974337b66485609aea88c1c5f2dffacf969e138d3df04b25b723d0a",
+  "verdicts": {
+    "idle:input": {
+      "samples": 5,
+      "median": 0.5587000001687557,
+      "p95": 0.6522540000732988,
+      "verdict": "pass"
+    },
+    "load:input": {
+      "samples": 5,
+      "median": 1.5524729997850955,
+      "p95": 1.589141999837011,
+      "verdict": "pass"
+    },
+    "load:scroll": {
+      "samples": 5,
+      "median": 0.7906239998992532,
+      "p95": 0.8584114999976009,
+      "verdict": "pass"
+    },
+    "long:input": {
+      "samples": 5,
+      "median": 0.9084860000293702,
+      "p95": 1.0038570002652705,
+      "verdict": "pass"
+    },
+    "long:turn": {
+      "samples": 5,
+      "median": 40.4625109997578,
+      "p95": 41.678253000136465,
+      "verdict": "pass"
+    },
+    "quit:under-load": {
+      "samples": 5,
+      "median": 357.5482060001232,
+      "p95": 403.73227900010534,
+      "verdict": "fail"
+    },
+    "rss:client-long-growth": {
+      "samples": 5,
+      "median": 348,
+      "p95": 356,
+      "verdict": "pass"
+    },
+    "rss:load-growth": {
+      "samples": 5,
+      "median": 9488,
+      "p95": 10340,
+      "verdict": "pass"
+    },
+    "rss:long-growth": {
+      "samples": 5,
+      "median": 8224,
+      "p95": 8952,
+      "verdict": "pass"
+    },
+    "workflow:input": {
+      "samples": 5,
+      "median": 1.5810599999967963,
+      "p95": 3.4659949999768287,
+      "verdict": "pass"
+    },
+    "workflow:pause": {
+      "samples": 5,
+      "median": 171.56921199988574,
+      "p95": 185.19537499989383,
+      "verdict": "pass"
+    },
+    "workflow:resume": {
+      "samples": 5,
+      "median": 178.4949089998845,
+      "p95": 194.55457300017588,
+      "verdict": "fail"
+    }
+  },
+  "hard": {
+    "quit:no-leftover-process": true,
+    "quit:no-model-traffic-after-exit": true,
+    "crash:no-orphan-process": true,
+    "crash:no-model-traffic-after-crash": true,
+    "resume:does-not-claim-killed-work-runs": true,
+    "measured": true
+  },
+  "referenceHard": {
+    "quit:no-leftover-process": true,
+    "quit:no-model-traffic-after-exit": true,
+    "crash:no-orphan-process": true,
+    "crash:no-model-traffic-after-crash": true,
+    "resume:does-not-claim-killed-work-runs": true,
+    "measured": true
+  },
+  "failed": [
+    "quit:under-load",
+    "workflow:resume"
+  ],
+  "notJudged": [],
+  "referenceReported": {
+    "rss:tree-peak": {
+      "median": 154140,
+      "p95": 155688,
+      "samples": 5
+    },
+    "rss:client-peak": {
+      "median": 146444,
+      "p95": 147944,
+      "samples": 5
+    },
+    "processes:peak": {
+      "median": 4,
+      "p95": 4,
+      "samples": 5
+    },
+    "long:turn-first5": {
+      "median": 25.205189999891445,
+      "p95": 25.99083500006236,
+      "samples": 5
+    }
+  },
+  "candidateReported": {
+    "rss:tree-peak": {
+      "median": 290872,
+      "p95": 293092,
+      "samples": 5
+    },
+    "rss:client-peak": {
+      "median": 22108,
+      "p95": 22440,
+      "samples": 5
+    },
+    "processes:peak": {
+      "median": 5,
+      "p95": 5,
+      "samples": 5
+    },
+    "long:turn-first5": {
+      "median": 44.46291200001724,
+      "p95": 44.66873499983922,
+      "samples": 5
+    }
+  }
+}

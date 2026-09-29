@@ -129,3 +129,8 @@ or claim the gates pass.
 
 The fullscreen "→ expand" fold hint does not expand answers; Tab / Enter /
 End does. Left as a follow-up, not part of the performance gate.
+
+## Related
+
+- [stress.md](./stress.md) — concurrency and long-run resource stress (#209)
+  on Linux, macOS and Windows against the same pinned reference.

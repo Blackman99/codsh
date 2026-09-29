@@ -1,0 +1,98 @@
+{
+  "idle:input": {
+    "ceiling": 20.365713999886065,
+    "kind": "latency",
+    "median": 3.5804030001163483,
+    "p95": 3.6657139998860657,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "load:input": {
+    "ceiling": 21.300717999972402,
+    "kind": "latency",
+    "median": 4.150646999944001,
+    "p95": 4.600717999972403,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "load:scroll": {
+    "ceiling": 18.227337500010616,
+    "kind": "latency",
+    "median": 1.4664089999860153,
+    "p95": 1.527337500010617,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "long:input": {
+    "ceiling": 20.774467999860644,
+    "kind": "latency",
+    "median": 4.030570999952033,
+    "p95": 4.074467999860644,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "long:turn": {
+    "ceiling": 42.210455999989065,
+    "kind": "latency",
+    "median": 24.695521999849007,
+    "p95": 25.510455999989063,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "quit:under-load": {
+    "ceiling": 135.27193320002405,
+    "kind": "latency",
+    "median": 112.18697799998336,
+    "p95": 112.72661100002006,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "rss:client-long-growth": {
+    "ceiling": 33748,
+    "kind": "growth",
+    "median": 724,
+    "p95": 980,
+    "samples": 5,
+    "unit": "KiB"
+  },
+  "rss:load-growth": {
+    "ceiling": 57880,
+    "kind": "growth",
+    "median": 24772,
+    "p95": 25112,
+    "samples": 5,
+    "unit": "KiB"
+  },
+  "rss:long-growth": {
+    "ceiling": 33748,
+    "kind": "growth",
+    "median": 724,
+    "p95": 980,
+    "samples": 5,
+    "unit": "KiB"
+  },
+  "workflow:input": {
+    "ceiling": 21.03618599991314,
+    "kind": "latency",
+    "median": 4.0014220001176,
+    "p95": 4.336185999913141,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "workflow:pause": {
+    "ceiling": 251.9923428000882,
+    "kind": "latency",
+    "median": 209.89757599984296,
+    "p95": 209.99361900007352,
+    "samples": 5,
+    "unit": "ms"
+  },
+  "workflow:resume": {
+    "ceiling": 76.88209000001662,
+    "kind": "latency",
+    "median": 57.35536599997431,
+    "p95": 60.182090000016615,
+    "samples": 5,
+    "unit": "ms"
+  }
+}

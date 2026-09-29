@@ -402,6 +402,18 @@ runs it on `macos-15` for `ci/**` branches whose name contains `perf` (most of a
 hour); `docs/rewrite/perf/` keeps the frozen thresholds and the before/after
 reports with the method and the breakdown. The pinned reference is the macOS arm64 build; elsewhere, pass `--only candidate`
 (measurements only, no judging).
+Concurrency and long-run resource stress (#209) is measured by
+`scripts/rust-stress-bench.py` (Python 3 with `pyte`, and `pywinpty` on
+Windows) against the same pinned reference on Linux, macOS and Windows. One
+run freezes `thresholds.json` from this runner's reference samples (latency
+ceiling max(p95 × 1.2, p95 + 16.7 ms), memory-growth ceiling max(p95 × 1.2,
+p95 + 32 MiB)) and logs its SHA-256 before any candidate process starts, then
+measures the installed candidate under the same load and judges it against
+the frozen file only. Hard checks (no leftover process and no model traffic
+after quit or crash; resume honesty) are not derived from the reference. The
+`stress` job of `rust-platforms.yml` runs it for `ci/**` branches whose name
+contains `stress`; `docs/rewrite/perf/stress.md` keeps the method, load and
+per-platform notes.
 `rust-terminal-pty-test.py` also checks that a closed terminal ends the client,
 dsh and the launcher (with and without SIGHUP), and that Ctrl+Q while dsh is
 still starting quits at once without leaving dsh behind and that text typed

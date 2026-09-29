@@ -1275,6 +1275,18 @@ Node launcher + dsh) are recorded in that directory. Kara accepted those three
 gaps on 2026-09-28 (measured numbers and causes in `docs/rewrite/perf/`);
 thresholds were not loosened.
 
+Concurrency and long-run resource stress against the same pinned reference
+(`scripts/rust-stress-bench.py`, the `stress` job, `docs/rewrite/perf/stress.md`)
+measure typing and scrolling under concurrent background subagents and a
+background command, an inline workflow with pause/resume/stop, a 30-turn
+session, and quit and crash under load. Thresholds are frozen from this
+runner's reference samples before the candidate starts. Hard checks require
+no leftover process and no model traffic after quit or crash, and a resumed
+session that does not claim killed work is still running.
+Quit under load, Linux workflow resume, the Windows `/workflow` control
+channel and Windows late-session turn time still miss the frozen thresholds;
+Kara accepted closing #209 with those tracked in #221.
+
 The three-platform capability matrix (`scripts/rust-capability-matrix.py`, the
 `capability-matrix` job, `docs/rewrite/platform-capabilities.md`) records OS
 and terminal versions and the real effect of keys, mouse, shell, cancel,

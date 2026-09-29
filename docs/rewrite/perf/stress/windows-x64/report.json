@@ -1,0 +1,177 @@
+{
+  "platform": "win32-x64",
+  "environment": {
+    "platform": "win32",
+    "machine": "AMD64",
+    "release": "2022Server",
+    "python": "3.12.10",
+    "cpus": 4,
+    "memoryKiB": 16771836,
+    "os": "10.0.20348"
+  },
+  "terminal": {
+    "rows": 32,
+    "cols": 100
+  },
+  "load": {
+    "children": 4,
+    "childLines": 150,
+    "childInterval": 0.1,
+    "taskLines": 400,
+    "taskInterval": 0.05,
+    "workflowChildren": 3,
+    "workflowChildLines": 200,
+    "turns": 30,
+    "turnLines": 8,
+    "loadSeconds": 10.0
+  },
+  "runs": 5,
+  "crashRuns": 2,
+  "reference": {
+    "version": "1.0.34 (3736acbc8658)",
+    "sha256": "021d8f7f6bdf9db48b6c87e799cd99130a76c463e6e6a3161510839aed016d94",
+    "file": "grok-1.0.34-windows-x86_64.exe"
+  },
+  "thresholdsSha256": "1af530934277990c54d058be82a92a5f8bcd826d9a8fc65113d33eb7dcba2812",
+  "verdicts": {
+    "idle:input": {
+      "samples": 5,
+      "median": 98.13920000009239,
+      "p95": 103.08759999996983,
+      "verdict": "pass"
+    },
+    "load:input": {
+      "samples": 5,
+      "median": 117.16479999991134,
+      "p95": 117.57259999983944,
+      "verdict": "pass"
+    },
+    "load:scroll": {
+      "samples": 5,
+      "median": 2.5993499998003244,
+      "p95": 2.6761000000406057,
+      "verdict": "pass"
+    },
+    "long:input": {
+      "samples": 5,
+      "median": 108.22090000007302,
+      "p95": 119.72790000005625,
+      "verdict": "pass"
+    },
+    "long:turn": {
+      "samples": 5,
+      "median": 206.93310000002384,
+      "p95": 213.13910000002943,
+      "verdict": "fail"
+    },
+    "quit:under-load": {
+      "samples": 5,
+      "median": 559.937799999956,
+      "p95": 610.4380999999121,
+      "verdict": "fail"
+    },
+    "rss:client-long-growth": {
+      "samples": 5,
+      "median": 812,
+      "p95": 964,
+      "verdict": "pass"
+    },
+    "rss:load-growth": {
+      "samples": 5,
+      "median": 3216,
+      "p95": 3584,
+      "verdict": "pass"
+    },
+    "rss:long-growth": {
+      "samples": 5,
+      "median": 5936,
+      "p95": 6568,
+      "verdict": "pass"
+    },
+    "workflow:input": {
+      "samples": 5,
+      "median": 116.02630000002682,
+      "p95": 119.99950000015087,
+      "verdict": "pass"
+    },
+    "workflow:pause": {
+      "samples": 5,
+      "median": 15187.560000000056,
+      "p95": 15252.942400000058,
+      "verdict": "fail"
+    },
+    "workflow:resume": {
+      "verdict": "fail",
+      "samples": 0,
+      "validRuns": 5,
+      "reason": "the candidate did not produce this measurement in every valid run"
+    }
+  },
+  "hard": {
+    "quit:no-leftover-process": true,
+    "quit:no-model-traffic-after-exit": true,
+    "crash:no-orphan-process": true,
+    "crash:no-model-traffic-after-crash": true,
+    "resume:does-not-claim-killed-work-runs": true,
+    "measured": true
+  },
+  "referenceHard": {
+    "quit:no-leftover-process": true,
+    "quit:no-model-traffic-after-exit": true,
+    "crash:no-orphan-process": true,
+    "crash:no-model-traffic-after-crash": true,
+    "resume:does-not-claim-killed-work-runs": true,
+    "measured": true
+  },
+  "failed": [
+    "long:turn",
+    "quit:under-load",
+    "workflow:pause",
+    "workflow:resume"
+  ],
+  "notJudged": [],
+  "referenceReported": {
+    "rss:tree-peak": {
+      "median": 163880,
+      "p95": 164436,
+      "samples": 5
+    },
+    "rss:client-peak": {
+      "median": 80212,
+      "p95": 80408,
+      "samples": 5
+    },
+    "processes:peak": {
+      "median": 4,
+      "p95": 4,
+      "samples": 5
+    },
+    "long:turn-first5": {
+      "median": 103.61290000006557,
+      "p95": 103.6742999998387,
+      "samples": 5
+    }
+  },
+  "candidateReported": {
+    "rss:tree-peak": {
+      "median": 211876,
+      "p95": 212200,
+      "samples": 5
+    },
+    "rss:client-peak": {
+      "median": 16692,
+      "p95": 16916,
+      "samples": 5
+    },
+    "processes:peak": {
+      "median": 3,
+      "p95": 3,
+      "samples": 5
+    },
+    "long:turn-first5": {
+      "median": 108.16660000011325,
+      "p95": 193.97380000003614,
+      "samples": 5
+    }
+  }
+}
