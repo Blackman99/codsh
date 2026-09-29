@@ -9,7 +9,7 @@ import type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools'
 import { describe, expect, it } from 'vitest'
 import { createTheme, displayWidth } from '../src/theme.ts'
 import { gutter } from '../src/gutter.ts'
-import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, thinkingLineRule, thinkingOpenRows, type ToolPresenters } from '../src/transcript.ts'
+import { Transcript, blockRules, childSessionId, formatAskUserQuestionResult, formatToolCardLine, opensGap, presentAskUserQuestionResult, thinkingFold, thinkingFoldRules, thinkingLineRule, thinkingOpenRows, type ToolPresenters } from '../src/transcript.ts'
 import type { Density } from '../src/density.ts'
 
 const theme = createTheme(false, {})
@@ -1404,13 +1404,20 @@ describe('transcript density', () => {
   it('leaves no extra blank row between turns in compact (the default)', () => {
     const transcript = build()
     expect(transcript.render(user('one'))).toEqual(['one', ''])
+    expect(transcript.takePromptGap()).toBe(false)
     expect(transcript.render(user('two', 2))).toEqual(['two', ''])
+    expect(transcript.takePromptGap()).toBe(false)
   })
 
-  it('inserts one extra blank row before later user turns in comfortable', () => {
+  it('asks for one extra blank row before later user turns in comfortable', () => {
     const transcript = at('comfortable')
     expect(transcript.render(user('one'))).toEqual(['one', ''])
-    expect(transcript.render(user('two', 2))).toEqual(['', 'two', ''])
+    expect(transcript.takePromptGap()).toBe(false)
+    // Room between turns, not part of the prompt: the screen places it above
+    // the panel, so the lines stay what the person typed.
+    expect(transcript.render(user('two', 2))).toEqual(['two', ''])
+    expect(transcript.takePromptGap()).toBe(true)
+    expect(transcript.takePromptGap()).toBe(false)
   })
 
   it('does not unfold a folded ToolCard when density switches', () => {
@@ -1456,8 +1463,96 @@ describe('transcript density', () => {
   })
 })
 
+describe('an answer beside the rule', () => {
+  it('lays a table out narrower by the rule, so no row wraps its border', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript({ theme: colorTheme, columns: 40, cwd: CWD }, { call: () => undefined, result: () => undefined })
+    const text = ['| path | what |', '|---|---|', `| packages/cli/extensions/ship/ | ${'a standalone hook '.repeat(3)}|`].join('\n')
+    const lines = transcript.render({
+      type: 'assistant/message',
+      seq: 2,
+      time: 0,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text }] } },
+    } as unknown as SessionEvent)
+    const rows = lines.filter(line => line !== '')
+    expect(rows.length).toBeGreaterThan(4)
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(38)
+    // The frame closes on the row it opened on.
+    expect(rows[0]?.replaceAll(/\u001B\[[0-9;]*m/gu, '')).toMatch(/^╭.*╮$/u)
+  })
+
+  it('truncates a todo report to the row beside the rule', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const transcript = new Transcript({ theme: colorTheme, columns: 30, cwd: CWD }, { call: () => undefined, result: () => undefined })
+    const lines = transcript.render({
+      type: 'todo/write',
+      seq: 2,
+      time: 0,
+      data: { todos: [{ content: 'a todo whose text runs well past the row', status: 'pending' }] },
+    } as unknown as SessionEvent)
+    for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(28)
+  })
+})
+
+describe('the gap a block opens with', () => {
+  const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+  const rules = blockRules(colorTheme)
+  const under = (rule: string, blank = false) => ({ blank, rule })
+
+  it('keeps every block one row from the one above it', () => {
+    for (const opening of ['block', 'card', 'thought'] as const) {
+      expect(opensGap(opening, under(rules.answer, true), colorTheme)).toBe(false)
+      expect(opensGap(opening, under(rules.user), colorTheme)).toBe(true)
+    }
+    // An answer or a notice keeps its row under a clock or a card.
+    expect(opensGap('block', under(rules.agent), colorTheme)).toBe(true)
+    expect(opensGap('block', under(rules.tool), colorTheme)).toBe(true)
+  })
+
+  it('stacks thought clocks and tool cards flush, as one stretch of work', () => {
+    expect(opensGap('card', under(rules.agent), colorTheme)).toBe(false)
+    expect(opensGap('thought', under(rules.agent), colorTheme)).toBe(false)
+    expect(opensGap('thought', under(rules.tool), colorTheme)).toBe(false)
+    expect(opensGap('thought', under(rules.error), colorTheme)).toBe(false)
+    // A card still opens its own run's row under anything but a clock.
+    expect(opensGap('card', under(rules.tool), colorTheme)).toBe(true)
+  })
+
+  it('tells uncoloured output apart only by the blank', () => {
+    const plain = createTheme(false, {})
+    const plainRules = blockRules(plain)
+    expect(opensGap('thought', under(plainRules.agent), plain)).toBe(true)
+    expect(opensGap('thought', under(plainRules.agent, true), plain)).toBe(false)
+  })
+
+  it('names what is opening to the surface that decides', () => {
+    const asked: string[] = []
+    const transcript = new Transcript({
+      theme: colorTheme,
+      columns: 80,
+      cwd: CWD,
+      gapWanted: opening => {
+        asked.push(opening ?? 'block')
+        return true
+      },
+    }, { call: () => undefined, result: () => undefined })
+    // Room between blocks, drawn with the muted rule, not the thought's.
+    expect(transcript.thoughtLead()).toEqual({ lines: [''], rule: blockRules(colorTheme).answer })
+    expect(transcript.render(callEvent('c1', 'read', {}))[0]).toBe('')
+    transcript.endRun()
+    const answer = {
+      type: 'assistant/message',
+      seq: 3,
+      time: 0,
+      data: { message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } },
+    } as unknown as SessionEvent
+    expect(transcript.render(answer)[0]).toBe('')
+    expect(asked).toEqual(['thought', 'card', 'block'])
+  })
+})
+
 describe('the person\'s message under a theme that paints no bands', () => {
-  it('sets the prompt in bold with no pad rows, where the DeepSeek themes band it', () => {
+  it('sets the prompt in bold between pad rows, where the DeepSeek themes band it', () => {
     const userEvent = {
       type: 'user/message',
       seq: 1,
@@ -1469,7 +1564,11 @@ describe('the person\'s message under a theme that paints no bands', () => {
     const lines = plainRows.render(userEvent)
     expect(lines[0]).toBe('\u001B[1m  my prompt\u001B[0m')
     expect(lines[0]).not.toMatch(/\u001B\[48;/u)
-    expect(plainRows.takePromptPad()).toBeUndefined()
+    // A pad above and below, as a banded theme has, painted in bold: the
+    // person's rail frames the text evenly instead of running on into the
+    // separator, and the pad is not a blank a later block would stand on.
+    expect(lines).toEqual(['\u001B[1m  my prompt\u001B[0m'])
+    expect(plainRows.takePromptPad()).toBe('\u001B[1m  \u001B[0m')
 
     const banded = new Transcript({ theme: createTheme(true, { COLORTERM: 'truecolor' }), columns: 80, cwd: CWD }, { call: () => undefined, result: () => undefined })
     expect(banded.render(userEvent)[0]).toBe('\u001B[48;2;21;26;48m  my prompt\u001B[0m')
@@ -1478,7 +1577,7 @@ describe('the person\'s message under a theme that paints no bands', () => {
 })
 
 describe('grok background differentiation across functional blocks', () => {
-  it('styles user, thinking, and error blocks, and leaves tool cards unhighlighted', () => {
+  it('styles user, thinking, and error blocks, and greys tool cards without a fill', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
     const coloredTranscript = new Transcript({ theme: colorTheme, columns: 80, cwd: CWD }, {
       call: (name) => name === 'bash' ? { card: 'terminal', title: 'echo hi' } : undefined,
@@ -1498,11 +1597,12 @@ describe('grok background differentiation across functional blocks', () => {
     expect(coloredTranscript.takePromptPad()).toBe(colorTheme.bgUser('  '))
 
     const callLines = coloredTranscript.render(callEvent('c1', 'bash', {}))
-    expect(callLines).toEqual([`${colorTheme.pending('●')} echo hi`])
+    expect(callLines).toEqual([`${colorTheme.pending('●')} ${colorTheme.dim('echo hi')}`])
     expect(callLines[0]).not.toContain('\u001B[48;2;14;18;24m')
 
     const resultLines = coloredTranscript.render(resultEvent('c1', 'hi'))
-    expect(resultLines[0]).toContain('echo hi')
+    // The grey of a thought clock: a call recedes behind the prose it serves.
+    expect(resultLines[0]).toContain(colorTheme.dim('echo hi'))
     expect(resultLines[0]).toContain('1 line')
     expect(resultLines[0]).toContain(colorTheme.dim('●'))
     expect(resultLines[0]).toContain(colorTheme.ok('✔'))
@@ -1524,21 +1624,34 @@ describe('grok background differentiation across functional blocks', () => {
     expect(think.full[4]).toBe(colorTheme.bgThinking('  '))
   })
 
-  it('paints every pending card as one unhighlighted row', () => {
+  it('paints every pending card as one grey row', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
 
     const generic = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: () => undefined, result: () => undefined },
     ).render(callEvent('c1', 'bash', {}))
-    expect(generic).toEqual([`${colorTheme.pending('●')} bash`])
+    expect(generic).toEqual([`${colorTheme.pending('●')} ${colorTheme.dim('bash')}`])
 
     const located = new Transcript(
       { columns: 80, theme: colorTheme, cwd: CWD },
       { call: (): ToolCallView => ({ card: 'generic', title: 'Read README.md', locations: [{ path: '/repo/README.md' }] }), result: () => undefined },
     ).render(callEvent('c1', 'read', {}))
-    expect(located[0]).toContain('Read README.md')
+    expect(located[0]).toContain(colorTheme.dim('Read README.md'))
     expect(located).toHaveLength(1)
+  })
+
+  it('keeps a failed card\'s title in the terminal\'s own colour', () => {
+    const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })
+    const colored = new Transcript({ columns: 80, theme: colorTheme, cwd: CWD }, {
+      call: () => ({ card: 'terminal', title: 'pnpm test' }),
+      result: () => ({ card: 'terminal', title: 'pnpm test', output: 'boom', exitCode: 1 }),
+    })
+    colored.render(callEvent('c1', 'bash', {}))
+    const [head = ''] = colored.render(resultEvent('c1', 'boom'))
+    // The error band resumes after every reset, so the title follows it bare.
+    expect(head).toContain(`${colorTheme.err('●')}\u001B[48;2;45;15;25m pnpm test `)
+    expect(head).not.toContain(colorTheme.dim('pnpm test'))
   })
 
   it('leaves uncoloured output unpadded, since it paints no panel to inset', () => {
@@ -1558,7 +1671,7 @@ describe('grok background differentiation across functional blocks', () => {
     colored.render(resultEvent('c1', ''))
     expect(colored.endRun()).toEqual([])
     const next = colored.render(callEvent('c2', 'grep', {}))
-    expect(next).toEqual([`${colorTheme.pending('●')} grep`])
+    expect(next).toEqual([`${colorTheme.pending('●')} ${colorTheme.dim('grep')}`])
   })
 
   it('keeps piped consecutive cards on one row each with a blank closer', () => {

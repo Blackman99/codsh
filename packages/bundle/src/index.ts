@@ -114,7 +114,9 @@ import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
-import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, runnerNotice, thinkingFold, thinkingFoldRules, thinkingOpenRows } from './transcript.ts'
+import { FOLD_LABELS, Transcript, blockRules, opensGap, presentAskUserQuestionResult, promptPad, runnerNotice, thinkingFold, thinkingFoldRules, thinkingOpenRows } from './transcript.ts'
+import type { GapOpening } from './transcript.ts'
+import { RULE_WIDTH } from './gutter.ts'
 import type { Theme, ThemeSetting } from './theme.ts'
 import { HistoryRepaint, pickTheme } from './theme-picker.ts'
 import { THEME_CHOICES, choiceList, loadThemeSetting, parseThemeSetting, saveThemeSetting, startupThemeSetting, themeReport } from './theme-setting.ts'
@@ -358,7 +360,10 @@ function replayEvents(session: ShownSession, transcript: Transcript, io: CliIo, 
         const totalSeconds = timing.stepTotalSeconds(event.data.turn, event.data.step)
         const { summary, full } = thinkingFold(lines, theme, seconds, totalSeconds)
         const rules = thinkingFoldRules(theme, lines.length)
-        // The clock is a caption: no blank of its own above or below.
+        // Flush under a card or another clock, one row under anything else,
+        // exactly as the live turn placed it.
+        const lead = transcript.thoughtLead()
+        io.console.writeAll(lead.lines, lead.rule)
         io.console.appendFold(summary, full, rules.summary, FOLD_LABELS.thinking, undefined, undefined, [], rules.full)
       }
     }
@@ -376,7 +381,7 @@ function replayEvents(session: ShownSession, transcript: Transcript, io: CliIo, 
     const page = transcript.takePage()
     const replaces = transcript.takePendingCard()
     if (prompt !== undefined) {
-      io.console.appendPrompt(lines, rule, false, prompt, transcript.takePromptPad())
+      io.console.appendPrompt(lines, rule, false, prompt, transcript.takePromptPad(), transcript.takePromptGap())
       continue
     }
     if (enter !== undefined || full !== undefined) {
@@ -647,19 +652,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /** Reacts to a palette change: the chrome now, the history when it is safe. Assigned once both exist. */
   let onThemeChanged = (): void => { io.console.restyle() }
   /**
-   * Whether a block appended now wants a blank above it.
-   *
-   * No when the transcript is empty or already ends on a blank, and no
-   * under a thought clock: the clock is a caption that sits flush against
-   * the row before it and the block after it. Otherwise yes, so any two
-   * blocks are one row apart. A pipe is asked only about the blank; it
-   * draws no coloured rule a clock could be told by.
+   * Whether a block appended now wants a blank above it: {@link opensGap},
+   * asked of what the transcript ends on.
+   * @param opening - what is about to open under the tail.
    * @returns whether to open with a blank.
    */
-  const gapWanted = (): boolean => {
-    if (io.console.hasTrailingBlank()) return false
-    return !(theme.colored && io.console.tailRule() === blockRules(theme).agent)
-  }
+  const gapWanted = (opening: GapOpening = 'block'): boolean =>
+    opensGap(opening, { blank: io.console.hasTrailingBlank(), rule: io.console.tailRule() }, theme)
   /**
    * Open a block one blank under the one before it.
    *
@@ -1847,7 +1846,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }))
   }
 
-  const stream = new TextStream(theme, () => io.console.contentColumns)
+  const stream = new TextStream(theme, () => io.console.contentColumns - RULE_WIDTH)
   // A finished answer stays as transcript: it streams in the open and remains
   // whole. Thinking and long tool output still collapse; the pointer resting
   // on the answer names nothing and a click does not work it.
@@ -1862,7 +1861,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // deltas would mark the answer as already-shown and the visible text would
   // be swallowed. Tracking from step/start ensures deliberation time accurately
   // reflects the full thinking duration even when deltas arrive buffered.
-  const thinking = new ThinkingTracker(theme, () => io.console.contentColumns)
+  const thinking = new ThinkingTracker(theme, () => io.console.contentColumns - RULE_WIDTH)
   // Thinking is a Fold that opens folded: a `thinking…` head stands while it
   // runs, ticks the same Braille frames as the working line, the line still
   // being typed sits under the box, and when it ends the head becomes the
@@ -1933,6 +1932,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       prompt.setStreaming(undefined)
     }
     io.console.writeAll(transcript.endRun())
+    // A thought that painted a head opened its gap with it; one that never
+    // did opens it now, where the clock lands.
+    if (flushed.painted.length === 0) {
+      const lead = transcript.thoughtLead()
+      io.console.writeAll(lead.lines, lead.rule)
+    }
     const { summary, full } = thinkingFold(flushed.lines, theme, flushed.elapsedMs / 1000)
     // The step total is the parent's clock: a viewed child's thought must
     // not become the block the parent's step end updates.
@@ -2165,8 +2170,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       frame = {
         session,
         transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent)),
-        stream: new TextStream(theme, () => io.console.contentColumns),
-        thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
+        stream: new TextStream(theme, () => io.console.contentColumns - RULE_WIDTH),
+        thinking: new ThinkingTracker(theme, () => io.console.contentColumns - RULE_WIDTH),
       }
       nested.set(id, frame)
     } else {
@@ -2319,8 +2324,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const frame = {
           session,
           transcript: new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent)),
-          stream: new TextStream(theme, () => io.console.contentColumns),
-          thinking: new ThinkingTracker(theme, () => io.console.contentColumns),
+          stream: new TextStream(theme, () => io.console.contentColumns - RULE_WIDTH),
+          thinking: new ThinkingTracker(theme, () => io.console.contentColumns - RULE_WIDTH),
         }
         dropViews()
         nested.set(id, frame)
@@ -2495,7 +2500,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     ship.noteWritten(transcript.takeWritten())
     if (promptBlock !== undefined) {
       if (emitLive) prompt.setStreaming(undefined)
-      io.console.appendPrompt(lines, rule, true, promptBlock, transcript.takePromptPad())
+      io.console.appendPrompt(lines, rule, true, promptBlock, transcript.takePromptPad(), transcript.takePromptGap())
       return
     }
     if (enter === undefined && full === undefined) {
@@ -2533,6 +2538,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // TTY the head ticks, and the working line names the thought.
         io.console.writeAll(transcript.endRun())
         const { rows, rules } = thinkingOpenRows(theme)
+        // The gap is its own row: the clock takes the head's place, not this.
+        const lead = transcript.thoughtLead()
+        if (lead.lines.length > 0) emit(lead.lines, undefined, lead.rule)
         emit(rows, undefined, rules)
         tracker.markPainted(rows)
         if (emitLive) {
@@ -3276,7 +3284,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // Canned prompts share the user rail; chrome-only commands sit on the
         // tool rail because they are not a turn header.
         if (cannedPrompt) {
-          const pad = theme.bands ? theme.bgUser('  ') : undefined
+          const pad = promptPad(theme)
           const text = theme.colored ? theme.bgUser(`  ${trimmed}`) : trimmed
           io.console.appendPrompt(pad === undefined ? [text, ''] : [text], blockRules(theme).user, true, 1, pad)
         }

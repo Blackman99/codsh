@@ -260,7 +260,9 @@ describe('the view', () => {
       custom: '✎ Type your own answer',
     }
     const rows = new Selector(long).view(theme, 60)
-    const text = rows.join('')
+    // Rows break between words and the break takes the space, so the text
+    // reads back with one between rows.
+    const text = rows.map(row => row.trim()).join(' ')
     expect(text).toContain('write_file 到 src/')
     expect(text).toContain('remaining collaboration')
     expect(rows.join('\n')).not.toContain('…')

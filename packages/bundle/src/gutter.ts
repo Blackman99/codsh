@@ -16,6 +16,15 @@ export type GutterRole = 'user' | 'thinking' | 'tool' | 'error' | 'answer' | 'sy
 const RAIL = '│ '
 
 /**
+ * Display columns the rail takes from every transcript row.
+ *
+ * What is laid out to fill a row — a table, a truncated readout — is laid out
+ * this much narrower than the content width, or the row wraps its last
+ * columns onto one of their own.
+ */
+export const RULE_WIDTH = RAIL.length
+
+/**
  * Styled gutter for one block role: coloured `│` plus a trailing space.
  * @param role - which kind of block is being drawn.
  * @param theme - colour roles; under NO_COLOR the glyph remains unstyled.

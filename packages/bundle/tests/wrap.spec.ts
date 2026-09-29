@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { displayWidth } from '../src/theme.ts'
-import { wrapAll, wrapStyled } from '../src/wrap.ts'
+import { hangOf, wrapAll, wrapStyled } from '../src/wrap.ts'
 
 /** Strip styling, for content assertions. */
 const plain = (text: string): string => text.replaceAll(/\u001B\[[0-9;]*m/gu, '')
@@ -29,7 +29,7 @@ describe('wrapStyled', () => {
   it('never splits a wide character across the edge', () => {
     // Nine columns cannot hold the fifth wide character's second half.
     const rows = wrapStyled('终'.repeat(5), 9)
-    expect(rows.map(plain).join('')).toBe('终'.repeat(5))
+    expect(rows).toEqual(['终'.repeat(4), '终'])
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(9)
   })
 
@@ -45,9 +45,10 @@ describe('wrapStyled', () => {
 
   it('keeps a joined emoji on one row, whole', () => {
     // Summed by code point the family was six columns and broke between its
-    // joiners; it is one two-column cluster.
+    // joiners; it is one two-column cluster. The space is the break, and a
+    // word wider than the row is cut where the row ends.
     const rows = wrapStyled('👨‍👩‍👧 family', 4)
-    expect(rows).toEqual(['👨‍👩‍👧 f', 'amil', 'y'])
+    expect(rows).toEqual(['👨‍👩‍👧', 'fami', 'ly'])
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(4)
   })
 
@@ -77,6 +78,65 @@ describe('wrapStyled', () => {
   })
 })
 
+describe('breaking between words', () => {
+  it('breaks at a space, which neither row keeps', () => {
+    expect(wrapStyled('the ship logic lives here', 12)).toEqual(['the ship', 'logic lives', 'here'])
+  })
+
+  it('moves a word that would straddle the edge down whole', () => {
+    // A mid-word cut read `sh` / `ip` in a pasted answer.
+    expect(wrapStyled('files 只有 bin 和 README.md，ship 逻辑', 20)).toEqual(['files 只有 bin 和', 'README.md，ship 逻辑'])
+  })
+
+  it('breaks between CJK characters, but never before closing punctuation', () => {
+    expect(wrapStyled('一二三四五。六七', 10)).toEqual(['一二三四', '五。六七'])
+    expect(wrapStyled('一二三（四五）', 8)).toEqual(['一二三', '（四五）'])
+  })
+
+  it('breaks a path after a slash', () => {
+    expect(wrapStyled('packages/cli/extensions/ship/', 16)).toEqual(['packages/cli/', 'extensions/ship/'])
+  })
+
+  it('cuts a word wider than a whole row where the row ends', () => {
+    expect(wrapStyled('a abcdefghijkl', 6)).toEqual(['a', 'abcdef', 'ghijkl'])
+  })
+
+  it('takes a run of spaces at the edge as the break', () => {
+    expect(wrapStyled('abcde    fgh', 5)).toEqual(['abcde', 'fgh'])
+  })
+
+  it('keeps the styles open where it broke, as a cut anywhere does', () => {
+    const rows = wrapStyled('\u001B[1mbold words here\u001B[0m', 10)
+    expect(rows).toEqual(['\u001B[1mbold words\u001B[0m', '\u001B[1mhere\u001B[0m'])
+  })
+})
+
+describe('a hanging continuation', () => {
+  it('indents every row after the first by the hang', () => {
+    expect(wrapStyled('• one two three four', 10, 2)).toEqual(['• one two', '  three', '  four'])
+  })
+
+  it('opens the hang inside the carried styles, so a fill runs under it', () => {
+    const rows = wrapStyled('\u001B[48;5;235m  code that runs long\u001B[0m', 12, 2)
+    expect(rows[1]).toBe('\u001B[48;5;235m  runs long\u001B[0m')
+  })
+
+  it('drops a hang that would leave too little row beside it', () => {
+    // Two of four columns would be indent: no row after the first is.
+    expect(wrapStyled('• abcdef', 4, 2)).toEqual(['•', 'abcd', 'ef'])
+  })
+
+  it('reads a line\'s hang from its indent and its list marker', () => {
+    expect(hangOf('\u001B[2m•\u001B[0m text', 40)).toBe(2)
+    expect(hangOf('  • nested', 40)).toBe(4)
+    expect(hangOf('12. numbered', 40)).toBe(4)
+    expect(hangOf('  indented prose', 40)).toBe(2)
+    expect(hangOf('prose', 40)).toBe(0)
+    expect(hangOf('•no space', 40)).toBe(0)
+    expect(hangOf('      deep', 10)).toBe(0)
+  })
+})
+
 describe('a very long line', () => {
   it('wraps in time proportional to its length, losing nothing', () => {
     // One tool result held a 49,616-character HTML line; wrapping it took four
@@ -86,8 +146,9 @@ describe('a very long line', () => {
     const started = performance.now()
     const rows = wrapStyled(line, 100)
     const elapsed = performance.now() - started
-    expect(rows.map(plain).join('')).toBe(plain(line))
-    expect(rows.length).toBe(Math.ceil(displayWidth(plain(line)) / 100))
+    // Only the spaces the breaks took are gone.
+    expect(rows.map(plain).join('').replaceAll(' ', '')).toBe(plain(line).replaceAll(' ', ''))
+    expect(rows.length).toBeGreaterThanOrEqual(Math.ceil(displayWidth(plain(line)) / 100))
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(100)
     // Every row opens the dim style and closes it.
     for (const row of rows) {
@@ -105,7 +166,8 @@ describe('a very long line', () => {
     const unit = '中文\u001B[31mred\u001B[0m \u001B]8;;http://x\u0007l\u001B]8;;\u0007 a\nb '
     const rows = wrapStyled(unit.repeat(1500), 40)
     const text = plain(unit.repeat(1500)).replaceAll(/\u001B\][^\u0007]*\u0007/gu, '')
-    expect(rows.map(row => plain(row).replaceAll(/\u001B\][^\u0007]*\u0007/gu, '')).join('')).toBe(text.replaceAll('\n', ''))
+    const bare = (value: string): string => value.replaceAll(/[\n ]/gu, '')
+    expect(bare(rows.map(row => plain(row).replaceAll(/\u001B\][^\u0007]*\u0007/gu, '')).join(''))).toBe(bare(text))
     for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(40)
   })
 })

@@ -259,7 +259,14 @@ unchanged, so nothing paints over the spill and it outlives every later frame.
 Text becomes a row by being cut to fit (Chrome, menus, cards) or wrapped to fit
 (transcript); both flatten control characters first — the cut before it
 measures, the wrap by breaking a row where a newline asked for one — and the
-frame flattens again as it paints, for whatever composes a row next.
+frame flattens again as it paints, for whatever composes a row next. A wrap
+breaks between words: at a space, which the break takes, around CJK text
+(never before closing punctuation or after opening punctuation), or after a
+`/`; only a word wider than a whole row is cut where the row ends. A wrapped
+line's later rows hang under its text — its indent, and a list marker with
+the space after it — and that indent is chrome, as the Rule is: a copy leaves
+it behind. Whatever is laid out to fill a transcript row (a table, a todo
+readout) is laid out the Rule's two columns narrower than the content width.
 _Avoid_: line (a transcript line may occupy several rows)
 
 **Fold**:
@@ -276,9 +283,11 @@ expanded deliberation. Only the expanded form keeps the fill and its
 panel inset, behind a click or Ctrl+O. Every tool card is a Fold that opens
 folded: one row naming the call, how much it produced (`+n -m`, `N results`,
 `· N lines`), and whether it worked, with the body behind it and no panel
-fill. The success bullet is dim; the trailing `✔` stays green. A failed
-row also names its reason, and a non-zero terminal exit or a kill is a
-failure (`✗`), not a green pass. A finished answer is transcript:
+fill. The row is grey, as Grok CLI mutes a collapsed call: the call's name
+takes the thought clock's dim, the success bullet is dim, and only the
+trailing `✔` stays green, so the work recedes behind the answer it serves.
+A failed row keeps the name in the terminal's own colour, names its reason,
+and a non-zero terminal exit or a kill is a failure (`✗`), not a green pass. A finished answer is transcript:
 it stays whole, a click does not work it, and the pointer resting on it
 names nothing.
 _Avoid_: collapse block, expandable section
@@ -354,10 +363,13 @@ _Avoid_: card group, merged cards, runner Child view as a tool card
 The one blank row between any two blocks on a TTY. A block that does not
 follow a blank — the first card of a Card run, a runner notice, an answer,
 a compaction summary — opens with one under its own rule; an answer still
-closes with its own. A thought clock (and the `thinking…` head before it)
-is a caption, not a block: it takes no blank of its own, sits flush under
-the row before it, and the block after it opens none, so a step reads as
-its cards, its clock, and its answer. Rows that continue a block take none
+closes with its own. Thought clocks (and the `thinking…` head before one)
+and tool cards are one stretch of work, as in Grok CLI: a card opens no
+blank under a clock, and a clock none under a card or another clock, so
+the stretch stacks flush and keeps one Block gap from the person's prompt
+above it and from the answer below it. A step reads as its work, then its
+text. The gap above a thought takes the muted Rule, not the thought's: a
+coloured Rule marks only its own block's rows, evenly. Rows that continue a block take none
 either: the later cards of a run, a card's `click to enter` door, a
 workflow's round and stop lines under its head, an approval note under the
 pending card it explains. A pipe closes each block with a blank instead.
@@ -369,7 +381,10 @@ separators that belong to a block. Colour — not a different character —
 says what the row is: DeepSeek blue (the Theme's accent) for the person's
 own message, its lighter tint for thinking, dim for a tool card or runner
 notice, red for a failed one,
-muted for assistant prose and system chrome. Chrome, not content: it
+muted for assistant prose and system chrome. The person's blue frames their
+message evenly: one padding row above the text and one below, in every
+Theme, and comfortable density's extra blank between turns sits above that
+panel under the rule of the row before it. Chrome, not content: it
 repeats on wrapped rows and never reaches the clipboard.
 _Avoid_: border, gutter, sidebar
 
@@ -377,7 +392,8 @@ _Avoid_: border, gutter, sidebar
 The palette every role, fill, and the terminal cursor are painted in, chosen
 with `/theme` and modelled on Grok CLI's slot themes: `deepseek` (dark),
 `deepseek-light`, `terminal` (the terminal's own sixteen colours, no bands —
-the person's message is bold instead), and `auto`, the default, which follows
+the person's message is bold instead, between unfilled padding rows where
+the DeepSeek themes have filled ones), and `auto`, the default, which follows
 the OSC 11 background between the two DeepSeek themes. The brand is DeepSeek
 blue #4D6BFE (accent: frame, the person's rule, markers, the mark, the
 cursor via OSC 12) with its tint #7E96F5 (thinking, links, headings, paths);

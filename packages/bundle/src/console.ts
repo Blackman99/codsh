@@ -630,13 +630,15 @@ export class TerminalConsole {
    * @param rule - the user's styled left rule; pipes still prefix every row.
    * @param anchor - false while replaying retained session history.
    * @param explicitLines - logical text lines the person entered, excluding metadata.
+   * @param pad - the padding row a TTY places around the prompt.
+   * @param gap - whether a blank row between turns opens it.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string, gap = false): void {
     if (this.screen !== undefined) {
-      this.screen.appendPrompt(lines, rule, anchor, explicitLines, pad)
+      this.screen.appendPrompt(lines, rule, anchor, explicitLines, pad, gap)
       return
     }
-    for (const line of lines) {
+    for (const line of gap ? ['', ...lines] : lines) {
       const prefix = rule === '' ? '' : rule
       this.output.write(`${prefix}${line}\n`)
     }

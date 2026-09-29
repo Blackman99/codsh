@@ -29,7 +29,7 @@ import { formatElapsed } from './status.ts'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { FileDiff, ToolCallView, ToolResult, ToolResultView } from '@deepseek-ai/dsh-tools'
-import { blockRules } from './gutter.ts'
+import { RULE_WIDTH, blockRules } from './gutter.ts'
 import { renderMarkdown } from './markdown.ts'
 import { DEFAULT_DENSITY, DIFF_SOFT_CAP, type Density } from './density.ts'
 import { displayWidth, oneRow, truncate } from './theme.ts'
@@ -99,12 +99,44 @@ export interface TranscriptOptions {
    * Whether a block appended now wants a blank above it.
    *
    * The surface answers from its tail: no when the transcript is empty or
-   * already ends on a blank, and no under a thought clock, which is a
-   * caption that sits flush against what follows it; otherwise yes, so any
-   * two blocks are one row apart whichever kind either is. A renderer with
-   * no surface behind it opens no gaps.
+   * already ends on a blank, so any two blocks are one row apart whichever
+   * kind either is. Thought clocks and tool cards are the exception between
+   * themselves: they are one stretch of activity, so a card sits flush under
+   * a clock, and a clock under a card or another clock. A renderer with no
+   * surface behind it opens no gaps.
    */
-  gapWanted?: () => boolean
+  gapWanted?: (opening?: GapOpening) => boolean
+}
+
+/**
+ * What is about to open under the transcript's tail, for the gap it takes.
+ *
+ * `block` is anything that stands on its own — an answer, a notice, a
+ * summary. `card` is the first tool card of a run, and `thought` a thought
+ * clock or the `thinking…` head it replaces.
+ */
+export type GapOpening = 'block' | 'card' | 'thought'
+
+/**
+ * Whether a block opening under the transcript's tail takes a blank first.
+ *
+ * Any two blocks are one row apart, and a tail that is already a blank is
+ * that row. Thought clocks and tool cards are one stretch of activity and
+ * stack flush: a card opens none under a clock, and a clock none under a
+ * card or another clock. The stretch keeps its row from the prompt above it
+ * and the answer below it. Uncoloured output is told only by the blank; it
+ * draws no coloured rule a clock could be known by.
+ * @param opening - what is about to open.
+ * @param tail - whether the last row is a blank, and the rule it carries.
+ * @param theme - the rules the tail's is compared with.
+ * @returns whether to open with a blank.
+ */
+export function opensGap(opening: GapOpening, tail: { blank: boolean; rule: string }, theme: Theme): boolean {
+  if (tail.blank) return false
+  if (!theme.colored || opening === 'block') return true
+  const rules = blockRules(theme)
+  if (tail.rule === rules.agent) return false
+  return opening === 'card' || (tail.rule !== rules.tool && tail.rule !== rules.error)
 }
 
 /** One pending call, kept until its result pairs with it. */
@@ -386,23 +418,26 @@ function toolCardMarks(theme: Theme, failed: boolean): { bullet: string; done: s
  * One ToolCard headline: bullet, title, optional +n -m, trailing status.
  *
  * Title truncates first so `+n -m` and the status glyph survive an 80-col
- * terminal; omit the stats segment when both counts are zero.
- * @param _theme - kept so callers that already style the bullet, stats, and
- *   status can pass the theme they used; the title itself is unhighlighted.
+ * terminal; omit the stats segment when both counts are zero. The title is
+ * dim, the grey of a thought clock, so a call recedes behind the prose it
+ * serves; a failed one keeps the terminal's own colour so it does not.
+ * @param theme - styling for the title.
  * @param columns - display columns available for the line (rule excluded).
  * @param bullet - already-styled leading marker (`●` / pending).
  * @param title - plain card title.
  * @param stats - already-styled `+n -m`, or `''`.
  * @param status - already-styled trailing `✔` / `✗` / spinner.
+ * @param failed - whether the call failed, which leaves the title undimmed.
  * @returns the painted one-liner.
  */
 export function formatToolCardLine(
-  _theme: Theme,
+  theme: Theme,
   columns: number,
   bullet: string,
   title: string,
   stats: string,
   status: string,
+  failed = false,
 ): string {
   const statsPart = stats === '' ? '' : ` ${stats}`
   const statusPart = ` ${status}`
@@ -410,7 +445,8 @@ export function formatToolCardLine(
   const reserve = displayWidth(oneRow(`${prefix}${statsPart}${statusPart}`))
   const minBudget = columns <= 30 && title.length <= 16 ? title.length : 8
   const titleBudget = Math.max(minBudget, columns - reserve)
-  return `${prefix}${truncate(title, titleBudget)}${statsPart}${statusPart}`
+  const shown = truncate(title, titleBudget)
+  return `${prefix}${failed ? shown : theme.dim(shown)}${statsPart}${statusPart}`
 }
 
 /** Left inset that keeps a card's glyph clear of the block rule beside it. */
@@ -503,6 +539,21 @@ function blockPad(theme: Theme, bg: (text: string) => string): string[] {
 }
 
 /**
+ * The row the person's prompt panel opens and closes with.
+ *
+ * One above and one below, so the person's rule frames the text evenly. A
+ * theme that paints no bands pads all the same, with its bold rather than a
+ * fill: a pad is part of the panel, not a blank, so what follows opens its
+ * own gap under it exactly as it does under a band.
+ * @param theme - the active theme.
+ * @returns the padding row, or undefined when uncoloured output paints no
+ *   panel and the prompt closes with a separator instead.
+ */
+export function promptPad(theme: Theme): string | undefined {
+  return theme.colored ? theme.bgUser('  ') : undefined
+}
+
+/**
  * The row a block closes with.
  *
  * Tool cards have no panel to pad; piped output still wants a blank between
@@ -562,6 +613,8 @@ export class Transcript {
   private prompt: number | undefined
   /** The padding row that prompt's panel opens and closes with, if any. */
   private promptPad: string | undefined
+  /** Whether that prompt wants comfortable density's blank row above its panel. */
+  private promptGap = false
   /** Child session a click on this card should open, when the result names one. */
   private enter: string | undefined
   /** Raw text a click on this card should read, when its body was capped. */
@@ -627,6 +680,11 @@ export class Transcript {
     return typeof this.options.columns === 'function' ? this.options.columns() : this.options.columns
   }
 
+  /** Display columns a row's text has beside the rule the screen draws down it. */
+  private get textColumns(): number {
+    return Math.max(1, this.columns - RULE_WIDTH)
+  }
+
   /**
    * Switch density for later events. Already-painted cards keep their fold.
    * @param density - the live mode.
@@ -644,9 +702,23 @@ export class Transcript {
    * no surface behind it opens none.
    * @returns the gap, or nothing.
    */
-  private gapBefore(): string[] {
+  private gapBefore(opening: GapOpening = 'block'): string[] {
     if (!this.options.theme.colored) return []
-    return this.options.gapWanted?.() === true ? [''] : []
+    return this.options.gapWanted?.(opening) === true ? [''] : []
+  }
+
+  /**
+   * The blank a thought opens with, under what the transcript ends on.
+   *
+   * None under a tool card or another clock, which it stacks with; one under
+   * the person's prompt or anything else, so the stretch of work reads apart
+   * from the text around it. The blank is room between blocks, not the
+   * thought's: it takes the muted rule, and the thought's colour marks only
+   * its own rows, evenly, rather than running on into the row above it.
+   * @returns the gap and the rule to draw it with; no lines when none is due.
+   */
+  thoughtLead(): { lines: string[]; rule: string } {
+    return { lines: this.gapBefore('thought'), rule: blockRules(this.options.theme).answer }
   }
 
   /**
@@ -737,6 +809,7 @@ export class Transcript {
     this.rule = ''
     this.prompt = undefined
     this.promptPad = undefined
+    this.promptGap = false
     this.enter = undefined
     this.page = undefined
     this.written = []
@@ -757,23 +830,24 @@ export class Transcript {
         // The panel's padding is the screen's to place: it wraps the block
         // rather than joining it, so the navigation seam, the fold, and the
         // pinned copy all stay the text the person actually typed.
-        // A theme that paints no bands sets the message in bold, with no pad rows.
-        this.promptPad = theme.bands ? theme.bgUser('  ') : undefined
-        const lines = [
+        // A theme that paints no bands sets the message in bold, padded blank.
+        this.promptPad = promptPad(theme)
+        // Comfortable only: one extra blank row between turns, never before
+        // the first. The screen places it too, above the panel, for the same
+        // reason — it is room between turns, not something the person typed.
+        this.promptGap = this.options.density === 'comfortable' && this.sawUser
+        this.sawUser = true
+        return [
           theme.bgUser(`${cardIndent(theme)}${first}`),
           ...rest.map(line => theme.bgUser(`  ${line}`)),
           ...meta.map(m => theme.bgUser(m)),
           ...this.promptPad === undefined ? [''] : [],
         ]
-        // Comfortable only: one extra blank row between turns, never before the first.
-        const gap = this.options.density === 'comfortable' && this.sawUser
-        this.sawUser = true
-        return gap ? ['', ...lines] : lines
       }
       case 'assistant/message': {
         const text = visibleText(event.data.message.content)
         if (text === '') return []
-        const lines = trimOuterBlanks(renderMarkdown(text, theme, this.columns))
+        const lines = trimOuterBlanks(renderMarkdown(text, theme, this.textColumns))
         if (lines.length === 0) return []
         this.rule = rules.answer
         return [...lines, '']
@@ -790,7 +864,7 @@ export class Transcript {
         this.rule = rules.tool
         // The same renderer the pinned readout uses: the card is this write, the
         // readout is the list as it now stands, and they must not disagree.
-        const lines = todoReport(event.data.todos, theme, this.columns)
+        const lines = todoReport(event.data.todos, theme, this.textColumns)
         return lines.length === 0 ? [] : [...lines, '']
       }
       // Compaction — automatic under pressure, or `/compact` — used to leave no
@@ -802,7 +876,7 @@ export class Transcript {
         const items = event.data.shadowedSeqs.length
         const head = theme.bgMeta(theme.dim(`✂ compacted ${String(items)} history item${items === 1 ? '' : 's'} (~${String(event.data.shadowedTokenCount)} tokens) into a summary · ${event.data.model}`))
         const summary = visibleText(event.data.summary)
-        const body = summary === '' ? [theme.bgMeta(theme.dim('  (empty summary)'))] : renderMarkdown(summary, theme, this.columns).map(line => theme.bgMeta(`  ${line}`))
+        const body = summary === '' ? [theme.bgMeta(theme.dim('  (empty summary)'))] : renderMarkdown(summary, theme, Math.max(1, this.textColumns - 2)).map(line => theme.bgMeta(`  ${line}`))
         this.fold = [head, ...body, '']
         this.label = FOLD_LABELS.summary
         return [head, theme.bgMeta(theme.dim(`  … ${String(body.length)} lines of summary (click or Ctrl+O expands)`)), '']
@@ -826,7 +900,7 @@ export class Transcript {
       // run: a head, a line as each round settles, and what stopped it.
       case 'tool-workflow/run-start':
         this.rule = rules.tool
-        return [`${theme.pending('●')} ${event.data.name}`]
+        return [`${theme.pending('●')} ${theme.dim(event.data.name)}`]
       case 'tool-workflow/agent-start':
         // Nothing is appended for a start: the round that is running is named
         // in the working line, which is where a moving figure belongs. An
@@ -923,6 +997,7 @@ export class Transcript {
     this.rule = ''
     this.prompt = undefined
     this.promptPad = undefined
+    this.promptGap = false
     this.enter = undefined
     this.page = undefined
     this.written = []
@@ -975,6 +1050,7 @@ export class Transcript {
     this.rule = ''
     this.prompt = undefined
     this.promptPad = undefined
+    this.promptGap = false
     this.enter = undefined
     this.page = undefined
     this.written = []
@@ -1059,7 +1135,7 @@ export class Transcript {
       if (similar !== undefined && similar.shown.at(-1) === open.close) similar.shown = similar.shown.slice(0, -1)
     }
     this.run = { owner: callId, bodied, close: close[0] ?? '' }
-    return { lead: joined ? [] : this.gapBefore(), close, joined, supersedes }
+    return { lead: joined ? [] : this.gapBefore('card'), close, joined, supersedes }
   }
 
   private renderCall(callId: string, name: string, rawArguments: string): string[] {
@@ -1098,7 +1174,7 @@ export class Transcript {
     }
     if (view === undefined) {
       const { lead, close } = card(false)
-      return record(name, undefined, [...lead, `${theme.pending('●')} ${name}`, ...close])
+      return record(name, undefined, [...lead, `${theme.pending('●')} ${theme.dim(name)}`, ...close])
     }
     if (view.card === 'terminal') {
       const header = view.cwd === undefined ? '' : theme.dim(` (${this.relative(view.cwd)})`)
@@ -1115,7 +1191,7 @@ export class Transcript {
       const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(oneRow(header)))
       return record(command, summary, [
         ...lead,
-        `${theme.pending('●')} ${truncate(summary, titleBudget)}${header}`,
+        `${theme.pending('●')} ${theme.dim(truncate(summary, titleBudget))}${header}`,
         ...close,
       ], view.description)
     }
@@ -1135,7 +1211,7 @@ export class Transcript {
     const titleBudget = Math.max(8, columns - ruleWidth - 4 - displayWidth(extra))
     return record(`${title}${extra}`, locations.length === 0 ? title : locations.join(', '), [
       ...lead,
-      `${theme.pending('●')} ${truncate(title, titleBudget)}${theme.path(extra)}`,
+      `${theme.pending('●')} ${theme.dim(`${truncate(title, titleBudget)}${extra}`)}`,
       ...close,
     ])
   }
@@ -1176,7 +1252,7 @@ export class Transcript {
     // headline for what's left so `+n -m` cannot wrap onto the next row.
     const ruleWidth = displayWidth(oneRow(this.rule || blockRules(theme).tool))
     const stats = withStats(suffix, withheldCount(theme, withheld ?? 0))
-    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, stats, done))]
+    const head = [bg(formatToolCardLine(theme, this.columns - ruleWidth, bullet, title, stats, done, failed))]
     const fullLines = view?.card === 'diff' ? full : full?.map(line => bg(line))
     // The row is the card: whatever the call produced lives in the fold, and
     // only a door to a child session adds a row under it.
@@ -1245,7 +1321,7 @@ export class Transcript {
     const memberStats = withStats(suffix, withheldCount(theme, withheld ?? 0))
     const { bullet, done } = toolCardMarks(theme, failed)
     const member = [
-      bg(formatToolCardLine(theme, this.columns, bullet, view?.title === undefined ? pending.title : this.relativizeIn(view.title), memberStats, done)),
+      bg(formatToolCardLine(theme, this.textColumns, bullet, view?.title === undefined ? pending.title : this.relativizeIn(view.title), memberStats, done)),
       ...(full ?? []).map(line => view?.card === 'diff' ? line : bg(line)),
     ]
     const count = previous.count + 1
@@ -1441,6 +1517,17 @@ export class Transcript {
     const pad = this.promptPad
     this.promptPad = undefined
     return pad
+  }
+
+  /**
+   * Whether the prompt just rendered opens with a blank row between turns,
+   * and forgets it.
+   * @returns true under comfortable density for every real turn after the first.
+   */
+  takePromptGap(): boolean {
+    const gap = this.promptGap
+    this.promptGap = false
+    return gap
   }
 
   /**

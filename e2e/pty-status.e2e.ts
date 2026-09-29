@@ -10,7 +10,9 @@ describe.skipIf(process.platform === 'win32')('context in the status row (real P
       ['Welcome to codsh', `measure context${ENTER}`, 300],
       ['CONTEXT_REPLY_OK', `/status${ENTER}`, 400],
       ['next request', `/clear${ENTER}`, 400],
-      ['new session session-', `/resume${ENTER}`, 400],
+      // At 60 columns the session id is a word too long to share the row, so
+      // it wraps whole onto its own; the marker stops before it.
+      ['new session', `/resume${ENTER}`, 400],
       ['Resume session', ENTER, 400],
       ['resumed session-', `/model cli-mock/cli-mock-pro${ENTER}`, 400],
       ['model cli-mock/cli-mock-pro', `measure new model${ENTER}`, 400],

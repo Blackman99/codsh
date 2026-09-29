@@ -68,6 +68,53 @@ describe('the tail rule', () => {
   })
 })
 
+describe('the person\'s prompt panel', () => {
+  it('frames the prompt with one pad on each side, all on the person\'s rule', () => {
+    const sink = host(10, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['reply', ''], '│a')
+    screen.appendPrompt(['  asked'], '│u', false, 1, '')
+    const rows = painted(flush(sink))
+    expect([1, 2, 3, 4, 5].map(row => rows.get(row))).toEqual(['│areply', '│a', '│u', '│u  asked', '│u'])
+  })
+
+  it('opens a turn gap above the panel, under the rule of the row before it', () => {
+    const sink = host(10, 30)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['reply', ''], '│a')
+    screen.appendPrompt(['  asked'], '│u', false, 1, '', true)
+    const rows = painted(flush(sink))
+    expect([1, 2, 3, 4, 5, 6].map(row => rows.get(row))).toEqual(['│areply', '│a', '│a', '│u', '│u  asked', '│u'])
+    // The gap is not the prompt's: the turn is still what the person typed.
+    expect(screen.turnList).toEqual([{ index: 0, summary: 'asked' }])
+  })
+})
+
+describe('a wrapped list item', () => {
+  it('hangs its continuation under its text, between words', () => {
+    const sink = host(8, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.append(['• one two three four five'], '│ ')
+    const rows = painted(flush(sink))
+    expect([rows.get(1), rows.get(2)]).toEqual(['│ • one two three', '│   four five'])
+  })
+
+  it('leaves the hang behind in a copy, as it leaves the rule', () => {
+    const sink = host(8, 20)
+    const screen = new Screen(sink)
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.append(['• one two three four five'], '│ ')
+    flush(sink)
+    screen.mouseDown(1, 1)
+    screen.mouseDrag(2, 20)
+    expect(screen.mouseUp()).toBe('• one two three\nfour five')
+  })
+})
+
 describe('entering and leaving', () => {
   it('pushes the kitty keyboard flag on entry and pops it before leaving', () => {
     const sink = host()
@@ -1526,7 +1573,8 @@ describe('conversation timeline', () => {
     screen.mouseMove(2, 40)
     const hovered = flush(sink).replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
     expect(hovered).toContain('first prompt has enough')
-    expect(hovered).toContain('second preview l…')
+    // Two rows of the prompt, broken between words, the rest an ellipsis.
+    expect(hovered).toContain('second preview …')
     screen.setTimelineHidden(true)
     expect(painted(flush(sink)).get(2)).toContain('second prompt')
     screen.setTimelineHidden(false)
@@ -3043,7 +3091,8 @@ describe('transcript search', () => {
   })
 
   it('keeps the selected logical hit highlighted after resize reflows its row', () => {
-    const sink = host(7, 40)
+    // Tall enough that the hit's reflowed row is still in view at the tail.
+    const sink = host(8, 40)
     const screen = new Screen(sink)
     screen.enter()
     screen.setChrome(['box'], { row: 0, column: 0 }, false)

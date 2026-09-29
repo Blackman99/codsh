@@ -22,7 +22,7 @@ import { computeStickyLayout } from './sticky.ts'
 import type { TerminalGraphic } from './terminal-graphics.ts'
 import { computeTimeline } from './timeline.ts'
 import type { TimelineMark } from './timeline.ts'
-import { wrapStyled } from './wrap.ts'
+import { hangOf, wrapStyled } from './wrap.ts'
 
 /** Logical transcript lines kept before the oldest are dropped. */
 const MAX_SCROLLBACK = 5000
@@ -803,9 +803,10 @@ export class Screen {
       const own = Array.isArray(rule) ? (rule[index] ?? '') : rule
       this.logical.push(line)
       this.rules.push(own)
-      for (const row of this.wrapLine(line, own, columns)) {
+      const wrapped = this.wrapLine(line, own, columns)
+      for (const [index, row] of wrapped.rows.entries()) {
         this.physical.push(row)
-        this.ruleWidths.push(displayWidth(own))
+        this.ruleWidths.push(wrapped.chrome[index] ?? 0)
         this.physicalLogical.push(this.logical.length - 1)
       }
     }
@@ -866,13 +867,17 @@ export class Screen {
    * @param pad - the block's padding row, placed around the prompt rather than
    *   inside it: the descriptor, the fold and the pinned copy are the typed
    *   text, and the pinned copy pads itself.
+   * @param gap - whether a blank row between turns opens it. That row is room
+   *   between blocks, not the prompt's: it sits above the panel under the
+   *   rule of the row before it, so the person's rule frames only the panel.
    */
-  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string): void {
+  appendPrompt(lines: readonly string[], rule = '', anchor = true, explicitLines = 1, pad?: string, gap = false): void {
     if (lines.length === 0) return
     // The previous turn's gap goes first: a reader still inside it was
     // reading the tail, so the new prompt anchors for them too.
     this.clearTailAnchor()
     const shouldAnchor = anchor && this.active && this.offset === 0
+    if (gap) this.append([''], this.tailRule())
     const padded = pad !== undefined
     if (pad !== undefined) this.append([pad], rule)
     const full = [...lines]
@@ -957,7 +962,7 @@ export class Screen {
   private promptSummary(lines: readonly string[], rule: string): string[] | undefined {
     const content = lines.at(-1) === '' ? lines.slice(0, -1) : [...lines]
     const textColumns = Math.max(1, this.contentColumns() - displayWidth(rule))
-    const wrapped = content.flatMap(line => wrapStyled(line, textColumns))
+    const wrapped = content.flatMap(line => wrapStyled(line, textColumns, hangOf(line, textColumns)))
     if (wrapped.length <= 3) return undefined
     const third = wrapped[2] ?? ''
     return [
@@ -2446,16 +2451,24 @@ export class Screen {
    *
    * The rule costs columns, so the text wraps inside what is left of the width;
    * a continuation row without the rule would break the block's left edge
-   * exactly where a long line made it matter most.
+   * exactly where a long line made it matter most. A continuation hangs under
+   * the line's text (see {@link hangOf}), and that indent is chrome as the
+   * rule is: a copy leaves it behind.
    * @param line - the styled logical line.
    * @param rule - the styled left rule, `''` for none.
    * @param columns - display columns available for rule and text together.
-   * @returns the physical rows, rule included.
+   * @returns the physical rows, rule included, and the chrome columns each
+   *   opens with.
    */
-  private wrapLine(line: string, rule: string, columns: number): string[] {
-    if (rule === '') return wrapStyled(line, columns)
-    const rows = wrapStyled(line, Math.max(1, columns - displayWidth(rule)))
-    return rows.map(row => `${rule}${row}`)
+  private wrapLine(line: string, rule: string, columns: number): { rows: string[]; chrome: number[] } {
+    const ruled = displayWidth(rule)
+    const text = Math.max(1, columns - ruled)
+    const hang = hangOf(line, text)
+    const rows = wrapStyled(line, text, hang)
+    return {
+      rows: rule === '' ? rows : rows.map(row => `${rule}${row}`),
+      chrome: rows.map((_, index) => ruled + (index === 0 ? 0 : hang)),
+    }
   }
 
   /**
@@ -2565,11 +2578,10 @@ export class Screen {
     const widths: number[] = []
     const owners: number[] = []
     for (const [index, line] of shown.entries()) {
-      const own = rules[index] ?? ''
-      const width = displayWidth(own)
-      for (const row of this.wrapLine(line, own, columns)) {
+      const wrapped = this.wrapLine(line, rules[index] ?? '', columns)
+      for (const [within, row] of wrapped.rows.entries()) {
         rows.push(row)
-        widths.push(width)
+        widths.push(wrapped.chrome[within] ?? 0)
         owners.push(at + index)
       }
     }
@@ -2606,11 +2618,10 @@ export class Screen {
     this.ruleWidths = []
     this.physicalLogical = []
     for (const [at, line] of this.logical.entries()) {
-      const rule = this.rules[at] ?? ''
-      const width = displayWidth(rule)
-      for (const row of this.wrapLine(line, rule, columns)) {
+      const wrapped = this.wrapLine(line, this.rules[at] ?? '', columns)
+      for (const [index, row] of wrapped.rows.entries()) {
         this.physical.push(row)
-        this.ruleWidths.push(width)
+        this.ruleWidths.push(wrapped.chrome[index] ?? 0)
         this.physicalLogical.push(at)
       }
     }
@@ -2627,7 +2638,7 @@ export class Screen {
   private stickyFullRows(prompt: TurnPrompt): string[] {
     const content = prompt.full.at(-1) === '' ? prompt.full.slice(0, -1) : prompt.full
     const columns = this.contentColumns()
-    return content.flatMap(line => wrapStyled(line, columns))
+    return content.flatMap(line => wrapStyled(line, columns, hangOf(line, columns)))
   }
 
   /** User prompts measured in the same physical rows the viewport scrolls. */

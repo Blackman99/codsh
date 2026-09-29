@@ -3,7 +3,7 @@
 import { styleDiffLine } from './diff.ts'
 import { highlightCode, renderMarkdownRows } from './markdown.ts'
 import { truncate } from './theme.ts'
-import { wrapStyled } from './wrap.ts'
+import { hangOf, wrapStyled } from './wrap.ts'
 import type { Theme } from './theme.ts'
 
 export interface ViewerSpec {
@@ -53,7 +53,7 @@ export class FullscreenViewer {
       }))
     const logical = this.spec.kind === 'answer' ? renderMarkdownRows(this.spec.text, theme, width) : lines()
     const counts = new Map<number, number>()
-    return logical.flatMap((line) => wrapStyled(line.text, width).map((text) => {
+    return logical.flatMap((line) => wrapStyled(line.text, width, hangOf(line.text, width)).map((text) => {
       const within = counts.get(line.source) ?? 0
       counts.set(line.source, within + 1)
       return { text, source: line.source, within }
