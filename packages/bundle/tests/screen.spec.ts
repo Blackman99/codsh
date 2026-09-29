@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Screen } from '../src/screen.ts'
 import type { ScreenHost } from '../src/screen.ts'
 import type { TerminalGraphic } from '../src/terminal-graphics.ts'
-import { displayWidth } from '../src/theme.ts'
+import { createTheme, displayWidth } from '../src/theme.ts'
 
 /** A host that records what would be written, at a fixed size. */
 function host(rows = 10, columns = 20): ScreenHost & { out: string[]; size: { rows: number; columns: number } } {
@@ -1121,18 +1121,18 @@ describe('scrolling', () => {
 
   it('fills sticky header rows with the panel background and adds a divider line', () => {
     const sink = host(6, 40)
-    const screen = new Screen(sink)
+    const screen = new Screen(sink, { TERM: 'xterm-256color' })
     screen.enter()
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
     screen.appendPrompt(['› question', ''], '| ')
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;53m| › question')
+    expect(frame).toContain('\u001B[48;5;17m| › question')
     expect(frame).toContain('\u001B[90m─')
   })
 
-  it('uses truecolor deep plum fill for sticky header when COLORTERM is truecolor', () => {
+  it('uses the truecolor navy band for sticky header when COLORTERM is truecolor', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink, { COLORTERM: 'truecolor' })
     screen.enter()
@@ -1141,7 +1141,7 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;2;30;19;38m| › question')
+    expect(frame).toContain('\u001B[48;2;21;26;48m| › question')
     expect(frame).toContain('\u001B[90m─')
   })
 
@@ -1193,7 +1193,7 @@ describe('scrolling', () => {
 
   it('uses light panel fill for sticky header on a light background', () => {
     const sink = host(6, 40)
-    const screen = new Screen(sink)
+    const screen = new Screen(sink, { TERM: 'xterm-256color' })
     screen.enter()
     screen.setLight(true)
     screen.setChrome(['status'], { row: 0, column: 0 }, false)
@@ -1201,10 +1201,10 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;5;225m| › question')
+    expect(frame).toContain('\u001B[48;5;189m| › question')
   })
 
-  it('uses truecolor lavender fill for sticky header on a light background when COLORTERM is truecolor', () => {
+  it('uses the truecolor light band for sticky header on a light background when COLORTERM is truecolor', () => {
     const sink = host(6, 40)
     const screen = new Screen(sink, { COLORTERM: 'truecolor' })
     screen.enter()
@@ -1214,7 +1214,7 @@ describe('scrolling', () => {
     screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
     screen.scrollBy(-2)
     const frame = flush(sink)
-    expect(frame).toContain('\u001B[48;2;243;234;246m| › question')
+    expect(frame).toContain('\u001B[48;2;238;241;251m| › question')
   })
 
   it('returns to the latest when the notice row is clicked', () => {
@@ -3402,5 +3402,105 @@ describe('overlay graphics', () => {
     expect(frame).toContain('\u001B[48;5;236m│ thought for 2.0s')
     const hoverCount = frame.split('\u001B[48;5;236m').length - 1
     expect(hoverCount).toBeGreaterThanOrEqual(3)
+  })
+})
+
+describe('theme-driven fills', () => {
+  /** A screen scrolled far enough that its prompt is pinned as the sticky header. */
+  const pinnedSticky = (screen: Screen): void => {
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendPrompt(['› question', ''], '| ')
+    screen.append(Array.from({ length: 12 }, (_, index) => `answer ${index}`))
+    screen.scrollBy(-2)
+  }
+
+  it('paints no fill and no colour under NO_COLOR', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { NO_COLOR: '1', TERM: 'xterm-256color' })
+    pinnedSticky(screen)
+    const frame = flush(sink)
+    expect(frame).toContain('| › question')
+    expect(frame).not.toMatch(/\u001B\[48;/u)
+    expect(frame).not.toContain('\u001B[90m')
+    expect(frame).toContain('─'.repeat(10))
+  })
+
+  it('lifts no hovered block under NO_COLOR', () => {
+    const sink = host(10, 40)
+    const screen = new Screen(sink, { NO_COLOR: '1' })
+    screen.enter()
+    screen.setChrome(['status'], { row: 0, column: 0 }, false)
+    screen.appendFold(['summary', ''], ['full'], '', 'thinking')
+    flush(sink)
+    expect(screen.mouseMove(1, 3)).toEqual({ label: 'thinking', lines: 0, expanded: false })
+    expect(flush(sink)).not.toMatch(/\u001B\[48;/u)
+  })
+
+  it('pads the sticky header without a band under the terminal theme', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { TERM: 'xterm-256color' })
+    screen.useTheme(createTheme(true, { TERM: 'xterm-256color' }, 'terminal'))
+    pinnedSticky(screen)
+    const frame = flush(sink)
+    expect(frame).toContain('| › question')
+    expect(frame).not.toMatch(/\u001B\[48;/u)
+    expect(frame).toContain('\u001B[90m─')
+  })
+
+  it('repaints the sticky band in the new palette when the shared theme switches', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { TERM: 'xterm-256color' })
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    screen.useTheme(theme)
+    pinnedSticky(screen)
+    expect(flush(sink)).toContain('\u001B[48;5;17m| › question')
+    theme.setTheme('deepseek-light')
+    screen.restyle()
+    expect(flush(sink)).toContain('\u001B[48;5;189m| › question')
+  })
+
+  it('colours the cursor with the brand on entry and gives it back on leaving', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, { TERM: 'xterm-256color' })
+    screen.enter()
+    expect(flush(sink)).toContain('\u001B]12;#4d6bfe\u0007')
+    screen.leave()
+    const left = flush(sink)
+    expect(left).toContain('\u001B]112\u0007')
+    expect(left.indexOf('\u001B]112\u0007')).toBeLessThan(left.indexOf('\u001B[?1049l'))
+  })
+
+  it('leaves the cursor colour alone under NO_COLOR and the terminal theme', () => {
+    for (const setup of [
+      (sink: ReturnType<typeof host>) => new Screen(sink, { NO_COLOR: '1' }),
+      (sink: ReturnType<typeof host>) => {
+        const screen = new Screen(sink, {})
+        screen.useTheme(createTheme(true, {}, 'terminal'))
+        return screen
+      },
+    ]) {
+      const sink = host(6, 40)
+      const screen = setup(sink)
+      screen.enter()
+      screen.leave()
+      const out = flush(sink)
+      expect(out).not.toContain('\u001B]12;')
+      expect(out).not.toContain('\u001B]112')
+    }
+  })
+
+  it('gives the cursor colour back when a switch lands on a theme that sets none', () => {
+    const sink = host(6, 40)
+    const screen = new Screen(sink, {})
+    const theme = createTheme(true, {})
+    screen.useTheme(theme)
+    screen.enter()
+    flush(sink)
+    theme.setTheme('terminal')
+    screen.restyle()
+    expect(flush(sink)).toContain('\u001B]112\u0007')
+    screen.leave()
+    expect(flush(sink)).not.toContain('\u001B]112')
   })
 })

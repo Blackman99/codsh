@@ -1456,6 +1456,27 @@ describe('transcript density', () => {
   })
 })
 
+describe('the person\'s message under a theme that paints no bands', () => {
+  it('sets the prompt in bold with no pad rows, where the DeepSeek themes band it', () => {
+    const userEvent = {
+      type: 'user/message',
+      seq: 1,
+      time: 0,
+      data: { role: 'user', content: [{ type: 'text', text: 'my prompt' }], source: { kind: 'user' } },
+    } as unknown as SessionEvent
+    const terminal = createTheme(true, { COLORTERM: 'truecolor' }, 'terminal')
+    const plainRows = new Transcript({ theme: terminal, columns: 80, cwd: CWD }, { call: () => undefined, result: () => undefined })
+    const lines = plainRows.render(userEvent)
+    expect(lines[0]).toBe('\u001B[1m  my prompt\u001B[0m')
+    expect(lines[0]).not.toMatch(/\u001B\[48;/u)
+    expect(plainRows.takePromptPad()).toBeUndefined()
+
+    const banded = new Transcript({ theme: createTheme(true, { COLORTERM: 'truecolor' }), columns: 80, cwd: CWD }, { call: () => undefined, result: () => undefined })
+    expect(banded.render(userEvent)[0]).toBe('\u001B[48;2;21;26;48m  my prompt\u001B[0m')
+    expect(banded.takePromptPad()).toBe('\u001B[48;2;21;26;48m  \u001B[0m')
+  })
+})
+
 describe('grok background differentiation across functional blocks', () => {
   it('styles user, thinking, and error blocks, and leaves tool cards unhighlighted', () => {
     const colorTheme = createTheme(true, { COLORTERM: 'truecolor' })

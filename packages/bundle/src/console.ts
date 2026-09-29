@@ -24,6 +24,7 @@ import type { HoverBlock, TurnReference, ViewportBookmark } from './screen.ts'
 import { GUTTER, Screen } from './screen.ts'
 import type { TerminalGraphic } from './terminal-graphics.ts'
 import type { Key } from './keys.ts'
+import type { Theme } from './theme.ts'
 
 /** Columns assumed when the output stream reports none (a pipe). */
 const FALLBACK_COLUMNS = 80
@@ -858,6 +859,19 @@ export class TerminalConsole {
    */
   setLight(light: boolean): void {
     this.screen?.setLight(light)
+  }
+
+  /**
+   * Paint the screen's own fills with the renderer's theme.
+   * @param theme - the theme the rest of the surface paints with.
+   */
+  useTheme(theme: Theme): void {
+    this.screen?.useTheme(theme)
+  }
+
+  /** Repaint the whole frame after the theme changed. */
+  restyle(): void {
+    this.screen?.restyle()
   }
 
   /**

@@ -55,6 +55,7 @@ import { SubagentRoster, outcomeStatus, subagentTitle, subagentsReport } from '.
 import type { ToolWorkflowAgentStartData } from '@deepseek-ai/dsh-tool-workflow/types'
 import type { QueueItem } from './queue.ts'
 import { bannerLines, resolveWelcomeKind } from './banner.ts'
+import type { BannerFacts } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
 import { styleDiffLine } from './diff.ts'
@@ -114,7 +115,9 @@ import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
 import { backgroundIsLight, createTheme, truncate } from './theme.ts'
 import { FOLD_LABELS, Transcript, blockRules, presentAskUserQuestionResult, runnerNotice, thinkingFold, thinkingFoldRules, thinkingOpenRows } from './transcript.ts'
-import type { Theme } from './theme.ts'
+import type { Theme, ThemeSetting } from './theme.ts'
+import { HistoryRepaint, pickTheme } from './theme-picker.ts'
+import { THEME_CHOICES, choiceList, loadThemeSetting, parseThemeSetting, saveThemeSetting, startupThemeSetting, themeReport } from './theme-setting.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'coding-cli-runner'
@@ -628,7 +631,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   const sessions = ctx.get('sessions')
   if (sessions === undefined) return
   const cwd = process.cwd()
-  const theme = createTheme(io.console.isTty, process.env)
+  const uiPrefsPath = dshHomePath(UI_PREFS_FILE)
+  const startTheme = startupThemeSetting(process.env, await loadThemeSetting(uiPrefsPath))
+  const theme = createTheme(io.console.isTty, process.env, startTheme.setting)
+  // The screen's own fills — hover, the sticky header, the divider — and the
+  // cursor colour paint with this same theme, so a switch reaches them all.
+  io.console.useTheme(theme)
+  /**
+   * The palette the transcript above the prompt was painted in. Painted lines
+   * keep their colours, so a theme change leaves it stale until repainted.
+   */
+  let paintedPalette = theme.resolved
+  /** What the opening banner showed, so a repaint can show it again; none after a resume or a switch. */
+  let bannerFacts: BannerFacts | undefined
+  /** Reacts to a palette change: the chrome now, the history when it is safe. Assigned once both exist. */
+  let onThemeChanged = (): void => { io.console.restyle() }
   /**
    * Whether a block appended now wants a blank above it.
    *
@@ -665,20 +682,18 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     gapBefore(notice.rule)
     prompt.write(notice.line, notice.rule)
   }
-  // The viewport asks OSC 11 on entry; a light answer swaps in the readable
-  // secondary-text shade for everything rendered from then on.
+  // The viewport asks OSC 11 on entry; under `auto`, a light answer swaps in
+  // the light palette — chrome at once, the history repainted to match.
   io.console.onBackground((payload) => {
     const light = backgroundIsLight(payload)
-    if (light !== undefined) {
-      theme.setLight(light)
-      io.console.setLight(light)
-    }
+    if (light !== undefined && theme.setLight(light)) onThemeChanged()
   })
 
   // Before the roster resolves anything: discovery re-reads its roots on every
   // call, so a preset placed here is visible to the resolve below.
   const preset = await installPackagedPreset()
   if (preset.installed) io.console.write(theme.dim(`installed preset into ${preset.path}`), blockRules(theme).meta)
+  if (startTheme.warning !== undefined) io.console.write(theme.dim(`  ${startTheme.warning}`), blockRules(theme).meta)
 
   const composed = await compose(ctx, config, cwd)
   if (composed === undefined) {
@@ -690,7 +705,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/clear` and `/resume` swap the session under a running surface, so the
   // agent, its handle, and its presenter-bound transcript live in one mutable
   // ref that every closure reads through.
-  const uiPrefsPath = dshHomePath(UI_PREFS_FILE)
   let density: Density = await loadDensity(uiPrefsPath) ?? DEFAULT_DENSITY
   const live = {
     handle: composed.handle,
@@ -783,14 +797,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     // Replay owns the screen; skip the welcome entirely.
     replay(live.agent.session, live.transcript, io, theme)
   } else {
-    const welcomeKind = resolveWelcomeKind(false)
-    for (const line of bannerLines({
+    bannerFacts = {
       model,
       preset: presetId,
       session: live.agent.session.id,
       readsKeys: io.console.readsKeys,
-      welcomeKind,
-    }, theme, io.console.contentColumns)) io.console.write(line, blockRules(theme).meta)
+      welcomeKind: resolveWelcomeKind(false),
+    }
+    for (const line of bannerLines(bannerFacts, theme, io.console.contentColumns)) io.console.write(line, blockRules(theme).meta)
   }
 
   // The version this build carries, and — off the boot's critical path — one
@@ -890,7 +904,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // `/init` and `/ship` built in, plus whatever command files the person defined.
   const custom = await loadCustomCommands(
     [dshHomePath('commands'), join(cwd, '.dsh', 'commands')],
-    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'thinking', 'effort', 'clear', 'resume', 'diff', 'jump', 'copy', 'view']),
+    new Set([...(commands?.list(live.agent) ?? []).map(entry => entry.name), 'exit', 'quit', 'help', 'init', 'ship', 'status', 'model', 'thinking', 'effort', 'clear', 'resume', 'diff', 'jump', 'copy', 'view', 'ui', 'theme']),
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`), blockRules(theme).meta)
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
@@ -933,6 +947,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       if (presets === undefined) return []
       const current = presets.current(live.agent.session)
       return offer(presets.names.map(name => ({ value: name, detail: name === current ? 'current' : '' })))
+    }
+    if (command === 'theme') {
+      return offer(THEME_CHOICES.map(choice => ({ value: choice.name, detail: choice.name === theme.setting ? 'current' : choice.detail })))
     }
     if (command === 'ui') {
       return offer([
@@ -1274,6 +1291,49 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       },
     }))
     disposers.push(commands.register({
+      name: 'theme',
+      description: 'colour theme: auto (default), deepseek, deepseek-light, terminal',
+      input: { hint: '[auto|deepseek|deepseek-light|terminal]' },
+      handler: async ({ rawInput, signal }) => {
+        const typed = rawInput.trim()
+        // Kept for the next boot; a failed save still switches this session.
+        const keep = async (setting: ThemeSetting): Promise<void> => {
+          try {
+            await saveThemeSetting(uiPrefsPath, setting)
+          } catch {
+            // The next boot falls back to the last readable file.
+          }
+        }
+        // On a terminal the answer is a flash: the command writes nothing a
+        // repaint of the history would wipe.
+        const report = (): { kind: 'success'; text?: string } => {
+          if (!io.console.readsKeys) return { kind: 'success', text: themeReport(theme) }
+          prompt.setFlash(theme.dim(`  ${themeReport(theme)}`))
+          return { kind: 'success' }
+        }
+        if (typed !== '') {
+          const next = parseThemeSetting(typed)
+          if (next === undefined) return { kind: 'error', text: `unknown theme "${typed}" — ${choiceList()}` }
+          applyTheme(next)
+          historyRepaint.request()
+          await keep(next)
+          return report()
+        }
+        if (!io.console.readsKeys) {
+          const catalog = THEME_CHOICES.map(choice => `  ${choice.name.padEnd(15)}${choice.detail}`)
+          return { kind: 'success', text: [themeReport(theme), ...catalog].join('\n') }
+        }
+        const chosen = await pickTheme({
+          select: (spec, abort, preview, settled) => prompt.select(spec, abort, preview, settled),
+          current: () => theme.setting,
+          apply: applyTheme,
+          history: historyRepaint,
+        }, signal)
+        if (chosen !== undefined) await keep(chosen)
+        return report()
+      },
+    }))
+    disposers.push(commands.register({
       name: 'update',
       description: 'check for a newer codsh and install it',
       handler: async ({ signal }) => {
@@ -1529,13 +1589,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const next = await composed.createAnother()
         await switchTo(next, false)
         // /clear resets the screen with the full ASCII logo banner.
-        for (const line of bannerLines({
+        bannerFacts = {
           model,
           preset: presetId,
           session: live.agent.session.id,
           readsKeys: io.console.readsKeys,
           welcomeKind: 'first',
-        }, theme, io.console.contentColumns)) prompt.write(line, blockRules(theme).meta)
+        }
+        for (const line of bannerLines(bannerFacts, theme, io.console.contentColumns)) prompt.write(line, blockRules(theme).meta)
         paintRunnerFolds(live.transcript)
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
@@ -1983,20 +2044,57 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (replace) io.console.clearScreen()
     io.console.suspendPainting()
     try {
-      replayEvents(session, transcript, io, theme, childOwnedEvents(session.snapshotEvents(), session.inheritedEventCount))
-      // A child still waiting for its result is bound to the card its own
-      // log names, the way the start edge binds it: store order is not
-      // call order when two started in one step.
-      for (const child of sessions.list()) {
-        if (child.header.parentSession !== session.id) continue
-        const lines = transcript.promotePendingView(child.id, descriptorLabel(childOwnedEvents(child.snapshotEvents(), child.inheritedEventCount)))
-        if (lines.length === 0) continue
-        io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
-      }
-      paintRunnerFolds(transcript)
+      pourSession(session, transcript, childOwnedEvents(session.snapshotEvents(), session.inheritedEventCount))
     } finally {
       io.console.resumePainting()
     }
+  }
+  /**
+   * Render a Session's events into a transcript, with the cards its pending
+   * children and runners need. The caller holds painting.
+   * @param session - the Session being shown.
+   * @param transcript - the renderer that will own later events for it.
+   * @param events - which of its events to render.
+   */
+  const pourSession = (session: ShownSession, transcript: Transcript, events: readonly SessionEvent[]): void => {
+    replayEvents(session, transcript, io, theme, events)
+    // A child still waiting for its result is bound to the card its own
+    // log names, the way the start edge binds it: store order is not
+    // call order when two started in one step.
+    for (const child of sessions.list()) {
+      if (child.header.parentSession !== session.id) continue
+      const lines = transcript.promotePendingView(child.id, descriptorLabel(childOwnedEvents(child.snapshotEvents(), child.inheritedEventCount)))
+      if (lines.length === 0) continue
+      io.console.appendFold(lines, lines, transcript.takeRule(), transcript.takeLabel(), transcript.takeEnter(), undefined, transcript.takePendingCard())
+    }
+    paintRunnerFolds(transcript)
+  }
+  /**
+   * Repaint the conversation above the prompt in the live palette.
+   *
+   * Painted lines keep the colours they were painted in, so a theme change
+   * replays the session into a fresh transcript — the way `--resume` paints
+   * one — keeping the reading position. Only the rendering is rebuilt: the
+   * session, its approvals, roster, queue, and clocks are untouched. What
+   * never reached the session log (command reports, `!` output, notices)
+   * is not repainted, exactly as a resume does not show it.
+   * @returns how long it took, in milliseconds.
+   */
+  const runRepaint = (): number => {
+    const started = performance.now()
+    const bookmark = io.console.captureViewportBookmark()
+    io.console.suspendPainting()
+    try {
+      io.console.clearScreen()
+      live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, live.agent))
+      if (bannerFacts !== undefined) for (const line of bannerLines(bannerFacts, theme, io.console.contentColumns)) io.console.write(line, blockRules(theme).meta)
+      pourSession(live.agent.session, live.transcript, live.agent.session.snapshotEvents())
+      io.console.restoreViewportBookmark(bookmark)
+    } finally {
+      io.console.resumePainting()
+    }
+    paintedPalette = theme.resolved
+    return performance.now() - started
   }
   /**
    * Reconstruct runner Child view Folds from live Sessions that name a graph
@@ -2020,6 +2118,33 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     }
   }
   if (config.resume !== '') paintRunnerFolds(live.transcript)
+  // A theme change repaints the history only when nothing is in flight: a
+  // running turn streams into the live transcript, and a Child view covers it.
+  const historyRepaint = new HistoryRepaint({
+    stale: () => io.console.readsKeys && paintedPalette !== theme.resolved,
+    busy: () => live.agent.status === 'running' || childViews.current !== undefined,
+    run: runRepaint,
+  })
+  /** Repaint everything composed per frame — the chrome, modals, the status row — in the live palette. */
+  const applyChrome = (): void => {
+    io.console.restyle()
+    prompt.restyle()
+    refreshStatus()
+  }
+  /**
+   * Put a theme choice in force for everything painted from now on.
+   * @param next - the choice.
+   * @returns whether the palette changed.
+   */
+  const applyTheme = (next: ThemeSetting): boolean => {
+    if (!theme.setTheme(next)) return false
+    applyChrome()
+    return true
+  }
+  onThemeChanged = (): void => {
+    applyChrome()
+    historyRepaint.request()
+  }
   /**
    * Open a child subagent's transcript on top of whatever is showing.
    * @param id - the child session the card named.
@@ -2091,6 +2216,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       spinner.start()
     }
     startThinkingPulse()
+    // Back on the parent, a history repaint the view held off can run.
+    if (childViews.current === undefined) historyRepaint.flush()
   }
   /**
    * One event of a child's own log, folded into its roster row: a tool call
@@ -2653,6 +2780,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     live.agent = next.agent
     prompt.setTodos(todoList(ctx, live.agent), true)
     live.transcript = new Transcript({ theme, columns: () => io.console.contentColumns, cwd, density, gapWanted }, presentersFor(ctx, next.agent))
+    bannerFacts = undefined
+    paintedPalette = theme.resolved
+    historyRepaint.cancel()
     // The viewport buffer is the RETIRED session's transcript; left in place,
     // /clear would clear nothing visible and /resume would replay under it.
     io.console.clearScreen()
@@ -3105,12 +3235,17 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         shownStatus = status
       }
     }
+    // A theme change during the last turn repainted only the chrome; the
+    // history catches up now that nothing streams into it.
+    historyRepaint.flush()
     const line = await prompt.read()
     if (line === undefined) break
     // The line's pasted images, drained exactly once beside it.
     const images = prompt.takeAttachments()
     const trimmed = line.trim()
-    const surfaceOnlyView = /^\/view(?:\s|$)/u.test(trimmed)
+    // Chrome-only commands answer with a flash and echo nothing: /theme's
+    // repaint would wipe an echo anyway.
+    const surfaceOnlyView = /^\/(?:view|theme)(?:\s|$)/u.test(trimmed)
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
     if (childViews.current !== undefined) {
@@ -3141,7 +3276,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         // Canned prompts share the user rail; chrome-only commands sit on the
         // tool rail because they are not a turn header.
         if (cannedPrompt) {
-          const pad = theme.colored ? theme.bgUser('  ') : undefined
+          const pad = theme.bands ? theme.bgUser('  ') : undefined
           const text = theme.colored ? theme.bgUser(`  ${trimmed}`) : trimmed
           io.console.appendPrompt(pad === undefined ? [text, ''] : [text], blockRules(theme).user, true, 1, pad)
         }

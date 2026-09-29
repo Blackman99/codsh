@@ -243,7 +243,7 @@ export function childSessionId(text: string): string | undefined {
  * behind it.
  *
  * Pages of reasoning would bury the conversation, so the transcript keeps a
- * one-line summary — the magenta `│` lives in the agent gutter via
+ * one-line summary — the tint-blue `│` lives in the agent gutter via
  * {@link blockRules}, with no panel fill — and hands the filled body to the
  * fold (click or Ctrl+O).
  * @param lines - the rendered thinking lines, already styled.
@@ -757,7 +757,8 @@ export class Transcript {
         // The panel's padding is the screen's to place: it wraps the block
         // rather than joining it, so the navigation seam, the fold, and the
         // pinned copy all stay the text the person actually typed.
-        this.promptPad = theme.colored ? theme.bgUser('  ') : undefined
+        // A theme that paints no bands sets the message in bold, with no pad rows.
+        this.promptPad = theme.bands ? theme.bgUser('  ') : undefined
         const lines = [
           theme.bgUser(`${cardIndent(theme)}${first}`),
           ...rest.map(line => theme.bgUser(`  ${line}`)),

@@ -344,6 +344,22 @@ describe('selection', () => {
     expect(highlighted).toEqual([0, 1])
   })
 
+  it('tells the caller the outcome before the frame that closes the selection', async () => {
+    const { prompt, console } = build()
+    let drawsAtSettle = -1
+    const deciding = prompt.select({ title: 'Theme', options: [{ label: 'auto' }, { label: 'terminal' }] }, undefined, undefined, (outcome) => {
+      expect(outcome).toEqual({ kind: 'cancelled' })
+      drawsAtSettle = console.draws.length
+    })
+    console.press({ kind: 'escape' })
+    expect(await deciding).toEqual({ kind: 'cancelled' })
+    // Heard while the selector was still the last thing drawn; the box came back after.
+    expect(drawsAtSettle).toBeGreaterThan(0)
+    expect(console.draws.length).toBeGreaterThan(drawsAtSettle)
+    expect(console.draws[drawsAtSettle - 1]?.rows[0]).toBe('Theme')
+    expect(console.draws.at(-1)?.rows[0]).not.toBe('Theme')
+  })
+
   it('settles on a row pressed and released in the same place', async () => {
     const { prompt, console } = build()
     const deciding = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })

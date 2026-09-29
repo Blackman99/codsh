@@ -89,7 +89,9 @@ describe('todoRow', () => {
     const row = todoRow(list('in_progress:write the fix'), coloured, 80) ?? ''
     expect(row).toContain('\u001B[1m▶')
     expect(row).not.toContain('\u001B[93m▶')
-    expect(row).not.toContain('\u001B[36m▶')
+    const [accentOpen = ''] = coloured.accent('x').split('x')
+    expect(accentOpen).not.toBe('')
+    expect(row).not.toContain(`${accentOpen}▶`)
   })
 })
 

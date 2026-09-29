@@ -9,16 +9,15 @@
  * @module codsh-bundle/src/density
  */
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { mergePrefs, readPrefs } from './prefs.ts'
+
+export { UI_PREFS_FILE } from './prefs.ts'
 
 /** The two densities `/ui` switches. */
 export type Density = 'compact' | 'comfortable'
 
 /** Returning-user default: tight chrome, one-row cards. */
 export const DEFAULT_DENSITY: Density = 'compact'
-
-/** Filename under the dsh home, beside `code-cli-history.json`. */
-export const UI_PREFS_FILE = 'code-cli-ui.json'
 
 /**
  * Diff lines before a click opens the pager rather than expanding in place.
@@ -54,24 +53,19 @@ export function densityReport(density: Density): string {
 
 /**
  * Read a persisted density from a prefs file.
- * @param path - JSON file `{ "density": "compact" | "comfortable" }`.
+ * @param path - JSON file carrying `"density": "compact" | "comfortable"`.
  * @returns the saved mode, or undefined when missing or unreadable.
  */
 export async function loadDensity(path: string): Promise<Density | undefined> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
-    if (parsed === null || typeof parsed !== 'object' || !('density' in parsed)) return undefined
-    return parseDensity(String((parsed as { density: unknown }).density))
-  } catch {
-    return undefined
-  }
+  const { density } = await readPrefs(path)
+  return density === undefined ? undefined : parseDensity(String(density))
 }
 
 /**
- * Persist the live density for the next session.
- * @param path - JSON file to overwrite.
+ * Persist the live density for the next session, keeping the file's other keys.
+ * @param path - the prefs file.
  * @param density - the mode to keep.
  */
 export async function saveDensity(path: string, density: Density): Promise<void> {
-  await writeFile(path, `${JSON.stringify({ density })}\n`)
+  await mergePrefs(path, { density })
 }

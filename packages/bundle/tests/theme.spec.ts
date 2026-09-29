@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { nearest256, nearestAnsi, params } from '../src/palette.ts'
 import { backgroundIsLight, columnIndex, createTheme, displayWidth, graphemeAt, markSpan, oneRow, parseColor, truncate } from '../src/theme.ts'
 
 describe('createTheme', () => {
@@ -26,12 +27,27 @@ describe('createTheme', () => {
   it('maps the locked semantic palette to the agreed SGR codes', () => {
     const theme = createTheme(true, {})
     expect(theme.muted('x')).toBe('\u001B[90mx\u001B[0m')
-    expect(theme.accent('x')).toBe('\u001B[36mx\u001B[0m')
-    expect(theme.agent('x')).toBe('\u001B[35mx\u001B[0m')
+    expect(theme.accent('x')).toBe('\u001B[94mx\u001B[0m')
+    expect(theme.agent('x')).toBe('\u001B[94mx\u001B[0m')
     expect(theme.tool('x')).toBe('\u001B[33mx\u001B[0m')
     expect(theme.ok('x')).toBe('\u001B[32mx\u001B[0m')
     expect(theme.warn('x')).toBe('\u001B[93mx\u001B[0m')
     expect(theme.err('x')).toBe('\u001B[31mx\u001B[0m')
+  })
+
+  it('paints the DeepSeek brand blue and its tint by the depth the terminal has', () => {
+    const palette = createTheme(true, { TERM: 'xterm-256color' })
+    expect(palette.accent('x')).toBe('\u001B[38;5;63mx\u001B[0m')
+    expect(palette.user('x')).toBe('\u001B[38;5;63mx\u001B[0m')
+    expect(palette.agent('x')).toBe('\u001B[38;5;105mx\u001B[0m')
+    expect(palette.path('x')).toBe('\u001B[38;5;105mx\u001B[0m')
+    expect(palette.heading('x')).toBe('\u001B[38;5;105mx\u001B[0m')
+    expect(palette.link('x')).toBe('\u001B[38;5;105mx\u001B[0m')
+    expect(palette.muted('x')).toBe('\u001B[90mx\u001B[0m')
+    const truecolor = createTheme(true, { COLORTERM: 'truecolor' })
+    expect(truecolor.accent('x')).toBe('\u001B[38;2;77;107;254mx\u001B[0m')
+    expect(truecolor.agent('x')).toBe('\u001B[38;2;126;150;245mx\u001B[0m')
+    expect(truecolor.dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
   })
 
   it('strips accent under NO_COLOR', () => {
@@ -52,9 +68,9 @@ describe('createTheme', () => {
 
   it('renders grok background colors for different functional sections under truecolor', () => {
     const theme = createTheme(true, { COLORTERM: 'truecolor' })
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;30;19;38mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;21;26;48mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;14;18;24mexec\u001B[0m')
-    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;32;28;44mthought\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;26;29;46mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;45;15;25mfailure\u001B[0m')
     expect(theme.bgCode('const x = 1')).toBe('\u001B[48;2;15;18;24mconst x = 1\u001B[0m')
     expect(theme.bgMeta('plan')).toBe('\u001B[48;2;18;20;26mplan\u001B[0m')
@@ -64,7 +80,7 @@ describe('createTheme', () => {
 
   it('renders grok background colors under 256-color palette', () => {
     const theme = createTheme(true, { TERM: 'xterm-256color' })
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;5;53mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;5;17mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;5;235mexec\u001B[0m')
     expect(theme.bgThinking('thought')).toBe('\u001B[48;5;237mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;5;52mfailure\u001B[0m')
@@ -75,14 +91,14 @@ describe('createTheme', () => {
   it('swaps grok background colors for light palette and back', () => {
     const theme = createTheme(true, { COLORTERM: 'truecolor' })
     theme.setLight(true)
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;243;234;246mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;238;241;251mprompt\u001B[0m')
     expect(theme.bgTool('exec')).toBe('\u001B[48;2;243;245;248mexec\u001B[0m')
-    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;246;243;252mthought\u001B[0m')
+    expect(theme.bgThinking('thought')).toBe('\u001B[48;2;243;245;253mthought\u001B[0m')
     expect(theme.bgError('failure')).toBe('\u001B[48;2;254;226;226mfailure\u001B[0m')
     expect(theme.diffAdd('+ line')).toBe('\u001B[48;2;236;253;245;38;2;22;101;52m+ line\u001B[0m')
     expect(theme.diffDel('- line')).toBe('\u001B[48;2;254;242;242;38;2;153;27;27m- line\u001B[0m')
     theme.setLight(false)
-    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;30;19;38mprompt\u001B[0m')
+    expect(theme.bgUser('prompt')).toBe('\u001B[48;2;21;26;48mprompt\u001B[0m')
   })
 
   it('leaves grok backgrounds unstyled off-TTY or under NO_COLOR', () => {
@@ -93,6 +109,101 @@ describe('createTheme', () => {
     const noColor = createTheme(true, { NO_COLOR: '1' })
     expect(noColor.bgUser('prompt')).toBe('prompt')
     expect(noColor.diffDel('- line')).toBe('- line')
+  })
+})
+
+describe('the theme catalog', () => {
+  const env256 = { TERM: 'xterm-256color' }
+
+  it('keeps the navy band and the thinking fill by override, not by the nearest index', () => {
+    // The gray ramp is nearer to the navy than any cube colour, and would lose its hue.
+    expect(nearest256(21, 26, 48)).toBe(234)
+    expect(createTheme(true, env256).sgr('bg_light')).toBe('\u001B[48;5;17m')
+    // The nearest to the thinking fill is 235, the tool fill's index.
+    expect(nearest256(26, 29, 46)).toBe(235)
+    expect(createTheme(true, env256).sgr('bg_thinking')).toBe('\u001B[48;5;237m')
+  })
+
+  it('quantizes the brand to the palette index and the ANSI colour closest to it', () => {
+    expect(nearest256(77, 107, 254)).toBe(63)
+    expect(nearestAnsi(77, 107, 254)).toBe('94')
+    expect(params({ rgb: [77, 107, 254] }, 'fg', '256')).toBe('38;5;63')
+    expect(params({ rgb: [77, 107, 254] }, 'bg', '16')).toBe('104')
+    expect(params({ x256: 236 }, 'bg', '16')).toBe('48;5;236')
+    expect(params(undefined, 'fg', 'truecolor')).toBe('')
+  })
+
+  it('follows the background under auto and ignores it for a theme chosen by name', () => {
+    const auto = createTheme(true, env256)
+    expect(auto.setting).toBe('auto')
+    expect(auto.resolved).toBe('deepseek')
+    expect(auto.setLight(true)).toBe(true)
+    expect(auto.resolved).toBe('deepseek-light')
+    expect(auto.setLight(true)).toBe(false)
+    expect(auto.agent('x')).toBe('\u001B[38;5;62mx\u001B[0m')
+    expect(auto.accent('x')).toBe('\u001B[38;5;63mx\u001B[0m')
+
+    const dark = createTheme(true, env256, 'deepseek')
+    expect(dark.setLight(true)).toBe(false)
+    expect(dark.resolved).toBe('deepseek')
+    expect(dark.dim('x')).toBe('\u001B[38;5;245mx\u001B[0m')
+  })
+
+  it('switches in place, so roles already handed out paint the new palette', () => {
+    const theme = createTheme(true, env256)
+    const { accent, bgUser } = theme
+    const { keyword } = theme.syntax
+    expect(theme.setTheme('deepseek-light')).toBe(true)
+    expect(theme.setting).toBe('deepseek-light')
+    expect(bgUser('x')).toBe('\u001B[48;5;189mx\u001B[0m')
+    expect(theme.setTheme('terminal')).toBe(true)
+    expect(accent('x')).toBe('\u001B[34mx\u001B[0m')
+    expect(keyword('x')).toBe('\u001B[35mx\u001B[0m')
+    // Naming the palette already painting changes nothing that needs repainting.
+    expect(createTheme(true, env256).setTheme('deepseek')).toBe(false)
+  })
+
+  it('paints the terminal theme in the sixteen ANSI colours at every depth, with no surfaces', () => {
+    for (const env of [{}, env256, { COLORTERM: 'truecolor' }]) {
+      const theme = createTheme(true, env, 'terminal')
+      expect(theme.bands).toBe(false)
+      expect(theme.cursor).toBeUndefined()
+      expect(theme.accent('x')).toBe('\u001B[34mx\u001B[0m')
+      expect(theme.agent('x')).toBe('\u001B[36mx\u001B[0m')
+      expect(theme.dim('x')).toBe('\u001B[90mx\u001B[0m')
+      expect(theme.muted('x')).toBe('\u001B[90mx\u001B[0m')
+      expect(theme.bgUser('x')).toBe('\u001B[1mx\u001B[0m')
+      expect(theme.bgTool('x')).toBe('x')
+      expect(theme.bgThinking('x')).toBe('x')
+      expect(theme.bgError('x')).toBe('x')
+      expect(theme.bgCode('x')).toBe('x')
+      expect(theme.diffAdd('+ x')).toBe('\u001B[32m+ x\u001B[0m')
+      expect(theme.diffDel('- x')).toBe('\u001B[31m- x\u001B[0m')
+      expect(theme.sgr('bg_hover')).toBe('')
+      expect(theme.color('#ff8800')?.('x')).toBe('\u001B[33mx\u001B[0m')
+    }
+  })
+
+  it('colours the cursor with the brand in both DeepSeek themes, at every depth', () => {
+    for (const env of [{}, env256, { COLORTERM: 'truecolor' }]) {
+      expect(createTheme(true, env).cursor).toBe('#4d6bfe')
+      expect(createTheme(true, env, 'deepseek-light').cursor).toBe('#4d6bfe')
+    }
+    expect(createTheme(true, {}).bands).toBe(true)
+  })
+
+  it('paints nothing and switches nothing under NO_COLOR or off a TTY', () => {
+    for (const theme of [createTheme(true, { NO_COLOR: '1' }, 'deepseek'), createTheme(false, {})]) {
+      expect(theme.setTheme('terminal')).toBe(false)
+      expect(theme.setLight(true)).toBe(false)
+      expect(theme.resolved).toBeUndefined()
+      expect(theme.cursor).toBeUndefined()
+      expect(theme.bands).toBe(false)
+      expect(theme.sgr('accent')).toBe('')
+      expect(theme.sgr('bg_hover')).toBe('')
+      expect(theme.heading('x')).toBe('x')
+      expect(theme.link('x')).toBe('x')
+    }
   })
 })
 

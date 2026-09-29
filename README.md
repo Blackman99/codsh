@@ -72,6 +72,7 @@ Common flags:
 Designed for high-efficiency, keyboard-driven terminal development:
 
 - **Clean Terminal UI**: Full-screen alternate buffer; input stays pinned at the bottom; restores your shell cleanly on exit.
+- **DeepSeek Blue Themes**: `/theme` opens a picker that previews each theme live (arrows preview, `Enter` saves, `Esc` reverts); `/theme <name>` switches directly. `auto` (default) follows the terminal's light or dark background with `deepseek` / `deepseek-light`; `terminal` paints only your terminal's own sixteen colours, with no backgrounds. The choice is saved in `$DSH_HOME/code-cli-ui.json`; `CODSH_THEME=<name>` overrides it for one launch.
 - **Foldable Reasoning**: Streaming thoughts collapse into a single line (`Ctrl+O` or click to expand/collapse).
 - **Subagent Matrix**: Background and parallel subagents run in isolated views (`Ctrl+H` to list, click/enter to inspect, `Esc` to return).
 - **Timeline Navigation**: Jump between dialogue turns (`Shift+←/→`, `/jump`) or branch off from an earlier turn (`/rewind`).
@@ -129,7 +130,7 @@ dsh --profile code
 | Second-class | Ghostty, kitty, Alacritty, Warp | Fully supported; regressions handled as bugs |
 | Best-effort | Native Windows (pwsh) | Basic TTY support; persistent PTY unavailable |
 
-Supports Kitty keyboard protocol, focus reporting, OSC 11 color detection, and terminal image rendering where available.
+Supports Kitty keyboard protocol, focus reporting, OSC 11 color detection (picks the light or dark theme), OSC 12 cursor color (the theme's accent, restored on exit), and terminal image rendering where available.
 
 ## Development
 

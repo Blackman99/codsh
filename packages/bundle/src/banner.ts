@@ -4,7 +4,7 @@
  */
 
 import { displayWidth, truncate } from './theme.ts'
-import type { Theme } from './theme.ts'
+import type { Slot, Theme } from './theme.ts'
 
 /**
  * Half-block sprite of `assets/logo.svg`: a › chevron, a hull, a wave, and a
@@ -35,19 +35,25 @@ const LOGO_WIDTH = SPRITE[0]!.length + 1
 /** One sprite pixel. */
 type Pixel = '.' | 'c' | 'h' | 'w'
 
-/** Truecolor fills matching `assets/logo.svg`, used only on a coloured TTY. */
-const FILL: Record<Exclude<Pixel, '.'>, string> = {
-  c: '\u001B[38;2;126;150;245m',
-  h: '\u001B[38;2;238;241;251m',
-  w: '\u001B[38;2;61;86;214m',
+/**
+ * The theme slot each pixel is inked with, matching `assets/logo.svg` in the
+ * DeepSeek themes: tint chevron, brand-blue water, a hull that stays visible
+ * on either background — and falling back by depth like every other colour.
+ */
+const INK: Record<Exclude<Pixel, '.'>, Slot> = {
+  c: 'logo_chevron',
+  h: 'logo_hull',
+  w: 'logo_water',
 }
 
 /**
  * Paint one half-block cell from a pair of pixels.
  */
 function paintCell(upper: Pixel, lower: Pixel, theme: Theme): string {
-  const ink = (role: Exclude<Pixel, '.'>, ch: string): string =>
-    theme.colored ? `${FILL[role]}${ch}\u001B[0m` : ch
+  const ink = (role: Exclude<Pixel, '.'>, ch: string): string => {
+    const seq = theme.sgr(INK[role])
+    return seq === '' ? ch : `${seq}${ch}\u001B[0m`
+  }
   if (upper === '.') return lower === '.' ? ' ' : ink(lower, '▄')
   if (lower === '.') return ink(upper, '▀')
   if (upper === lower) return ink(upper, '█')
@@ -133,7 +139,7 @@ function fitSessionId(session: string, columns: number): string {
  */
 function returningLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
   const line1 = truncate(
-    `${theme.agent('✻')}${theme.muted(` codsh · ${facts.model} · /help`)}`,
+    `${theme.accent('✻')}${theme.muted(` codsh · ${facts.model} · /help`)}`,
     columns,
   )
   const id = fitSessionId(facts.session, columns)
@@ -147,7 +153,7 @@ function returningLines(facts: BannerFacts, theme: Theme, columns: number): stri
 function firstLines(facts: BannerFacts, theme: Theme, columns: number): string[] {
   const composition = compositionOf(facts)
   const welcome = truncate(
-    `${theme.agent('✻')}${theme.muted(` Welcome to codsh · ${composition}`)}`,
+    `${theme.accent('✻')}${theme.muted(` Welcome to codsh · ${composition}`)}`,
     columns,
   )
   const tips = truncate(
@@ -165,7 +171,7 @@ function firstLines(facts: BannerFacts, theme: Theme, columns: number): string[]
 /**
  * Render the opening banner.
  * @param facts - what to report.
- * @param theme - styling; `✻` via `agent`, everything else `muted`.
+ * @param theme - styling; `✻` in the brand accent, everything else `muted`.
  * @param columns - display columns available; no line may exceed them.
  * @returns the lines to print (empty when `welcomeKind` is `none`).
  */

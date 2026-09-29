@@ -16,15 +16,8 @@
  * @module codsh-bundle/src/screen
  */
 
-import {
-  displayWidth,
-  oneRow,
-  truncate,
-  BG_USER_DARK_TRUECOLOR,
-  BG_USER_DARK_256,
-  BG_USER_LIGHT_TRUECOLOR,
-  BG_USER_LIGHT_256,
-} from './theme.ts'
+import { createTheme, displayWidth, oneRow, truncate } from './theme.ts'
+import type { Theme } from './theme.ts'
 import { computeStickyLayout } from './sticky.ts'
 import type { TerminalGraphic } from './terminal-graphics.ts'
 import { computeTimeline } from './timeline.ts'
@@ -106,20 +99,23 @@ const INVERSE = '\u001B[7m'
 /** End reverse video only, leaving any other attributes alone. */
 const INVERSE_OFF = '\u001B[27m'
 
-/** Dark-background hover fill, a slight lift off the default black. */
-const FILL_DARK = '\u001B[48;5;236m'
-
-/** Light-background hover fill, a slight drop off the default white. */
-const FILL_LIGHT = '\u001B[48;5;253m'
-
 /** Restore the terminal's default background, leaving other attributes. */
 const FILL_OFF = '\u001B[49m'
 
 /** Dim the transcript around a centered preview so the picture is what reads. */
 const MASK_DIM = '\u001B[2m'
 
-/** Muted color for dividers and borders. */
-const MUTED = '\u001B[90m'
+/** End bold and dim only, for a mask with no fill of its own to switch off. */
+const INTENSITY_OFF = '\u001B[22m'
+
+/**
+ * Colour the terminal cursor (OSC 12), which marks the session the way Grok
+ * CLI does; BEL-terminated like every other OSC this surface sends.
+ */
+const cursorColor = (color: string): string => `\u001B]12;${color}\u0007`
+
+/** Give the cursor its own colour back (OSC 112). */
+const CURSOR_COLOR_RESET = '\u001B]112\u0007'
 
 /** A full SGR reset, which every styled span this surface prints ends with. */
 const RESET = '\u001B[0m'
@@ -133,7 +129,7 @@ const RESET = '\u001B[0m'
  * the block reads as a panel, the way opencode fills `backgroundElement`.
  * @param row - the styled row.
  * @param columns - display columns the panel should occupy.
- * @param light - whether the terminal background is light.
+ * @param bg - the fill's escape, or `''` for a theme that paints none.
  * @returns the row, filled end to end.
  */
 /**
@@ -143,26 +139,26 @@ const RESET = '\u001B[0m'
  * steps back — dimmed text on the hover-panel fill — so the card is what
  * the eye lands on. Chrome under the overlay stays as it is.
  */
-function mask(row: string, columns: number, light: boolean): string {
-  const bg = light ? FILL_LIGHT : FILL_DARK
+function mask(row: string, columns: number, bg: string): string {
   const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
   const pad = Math.max(0, columns - displayWidth(noBg))
   const padded = `${noBg}${' '.repeat(pad)}`
-  return `${bg}${MASK_DIM}${padded.replaceAll(RESET, `${RESET}${bg}${MASK_DIM}`)}${FILL_OFF}`
+  return `${bg}${MASK_DIM}${padded.replaceAll(RESET, `${RESET}${bg}${MASK_DIM}`)}${bg === '' ? INTENSITY_OFF : FILL_OFF}`
 }
 
 /**
  * Dim the empty columns beside a centered card, leaving the card itself clear.
  */
-function maskSides(row: string, columns: number, light: boolean): string {
+function maskSides(row: string, columns: number, bg: string): string {
   const clipped = truncate(row, columns)
+  // Blank columns dimmed on no fill are still blank.
+  if (bg === '') return clipped
   const plain = clipped.replaceAll(STYLES, '')
   let leading = 0
   while (leading < plain.length && plain[leading] === ' ') leading += 1
   let trailing = 0
   while (trailing < plain.length - leading && plain[plain.length - 1 - trailing] === ' ') trailing += 1
   if (leading === 0 && trailing === 0) return clipped
-  const bg = light ? FILL_LIGHT : FILL_DARK
   const left = leading > 0 ? `${bg}${MASK_DIM}${' '.repeat(leading)}${FILL_OFF}` : ''
   const rightPad = Math.max(0, columns - displayWidth(clipped) + trailing)
   const right = rightPad > 0 ? `${bg}${MASK_DIM}${' '.repeat(rightPad)}${FILL_OFF}` : ''
@@ -170,8 +166,9 @@ function maskSides(row: string, columns: number, light: boolean): string {
   return `${left}${body}${right}`
 }
 
-function fill(row: string, columns: number, light: boolean): string {
-  const bg = light ? FILL_LIGHT : FILL_DARK
+function fill(row: string, columns: number, bg: string): string {
+  // A theme that paints no surfaces leaves the row as it is.
+  if (bg === '') return row
   // Strip any existing background escape sequences so the hover fill is completely
   // uniform across both text and trailing padding, rather than creating two-tone cutouts.
   const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
@@ -448,8 +445,14 @@ export class Screen {
   private hovered: Fold | undefined
   /** Prompt whose truncated sticky copy is expanded in the floating header. */
   private stickyOpen: TurnPrompt | undefined
-  /** Whether OSC 11 named a light background; the hover fill picks a shade. */
-  private light = false
+  /**
+   * The palette this surface paints its own fills with — hover, mask, the
+   * sticky header, the divider — shared with the renderer once adopted, so a
+   * theme switch reaches them without a restart.
+   */
+  private theme: Theme
+  /** The cursor colour OSC 12 last set, so leaving restores only what was changed. */
+  private cursorShown: string | undefined
   /**
    * Physical row ranges the blocks occupy, or undefined when they need
    * measuring again.
@@ -490,10 +493,10 @@ export class Screen {
   /** Opens long text in the reader when its block is clicked. */
   private pagerHandler: ((text: string) => void) | undefined
 
-  private readonly truecolor: boolean
-
   constructor(private readonly host: ScreenHost, env: Record<string, string | undefined> = {}) {
-    this.truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit'
+    // Its own until the renderer's is adopted; NO_COLOR yields a theme that
+    // paints nothing, so no fill reaches a person who asked for none.
+    this.theme = createTheme(true, env)
   }
 
   /**
@@ -559,13 +562,41 @@ export class Screen {
   }
 
   /**
-   * Adopt the light- or dark-background hover fill.
+   * Adopt the light- or dark-background palette for the fills this surface
+   * paints itself.
    * @param light - true when OSC 11 named a light color.
    */
   setLight(light: boolean): void {
-    if (this.light === light) return
-    this.light = light
-    if (this.hovered !== undefined || this.frameLayout().sticky !== undefined) this.render()
+    if (this.theme.setLight(light)) this.restyle()
+  }
+
+  /**
+   * Paint with the renderer's theme from now on.
+   * @param theme - the theme every other part of the surface paints with.
+   */
+  useTheme(theme: Theme): void {
+    this.theme = theme
+    this.restyle()
+  }
+
+  /**
+   * Repaint the whole frame after the theme changed: the fills are composed
+   * per frame, so nothing stored needs rewriting, and the cursor takes the
+   * new accent.
+   */
+  restyle(): void {
+    if (this.active) this.syncCursorColor()
+    this.painted = []
+    this.paintedTimeline = []
+    this.render()
+  }
+
+  /** Point the cursor colour at the theme's, or give it back when the theme sets none. */
+  private syncCursorColor(): void {
+    const wanted = this.theme.cursor
+    if (wanted === this.cursorShown) return
+    this.host.write(wanted === undefined ? CURSOR_COLOR_RESET : cursorColor(wanted))
+    this.cursorShown = wanted
   }
 
   /** Physical rows scrolled up out of view; zero means the tail is showing. */
@@ -689,7 +720,9 @@ export class Screen {
   enter(): void {
     if (this.active) return
     this.active = true
-    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${ENABLE_FOCUS}${QUERY_BACKGROUND}${HIDE_CURSOR}`)
+    const cursor = this.theme.cursor === undefined ? '' : cursorColor(this.theme.cursor)
+    this.cursorShown = this.theme.cursor
+    this.host.write(`${ENTER_ALT}${ENABLE_MOUSE}${ENABLE_KITTY_KEYS}${ENABLE_FOCUS}${QUERY_BACKGROUND}${cursor}${HIDE_CURSOR}`)
     this.painted = []
     this.paintedTimeline = []
     this.render()
@@ -708,7 +741,9 @@ export class Screen {
     // leaving the alternate screen with a placement still live can drop the
     // picture onto the shell the session hands the terminal back to.
     const graphic = this.paintedGraphic?.clear ?? ''
-    this.host.write(`${graphic}${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${SHOW_CURSOR}${LEAVE_ALT}`)
+    const cursor = this.cursorShown === undefined ? '' : CURSOR_COLOR_RESET
+    this.cursorShown = undefined
+    this.host.write(`${graphic}${DISABLE_FOCUS}${DISABLE_KITTY_KEYS}${DISABLE_MOUSE}${cursor}${SHOW_CURSOR}${LEAVE_ALT}`)
     this.painted = []
     this.paintedTimeline = []
     this.paintedGraphic = undefined
@@ -2683,15 +2718,15 @@ export class Screen {
    * completely uniform across both text and trailing padding.
    * @param row - the styled row.
    * @param columns - display columns the panel should occupy.
-   * @returns the row, filled end to end with the deep plum / lavender background.
+   * @returns the row, filled end to end with the person's band; only padded
+   *   under a theme that paints no bands.
    */
   private fillSticky(row: string, columns: number): string {
-    const bg = this.light
-      ? (this.truecolor ? BG_USER_LIGHT_TRUECOLOR : BG_USER_LIGHT_256)
-      : (this.truecolor ? BG_USER_DARK_TRUECOLOR : BG_USER_DARK_256)
+    const bg = this.theme.bands ? this.theme.sgr('bg_light') : ''
     const noBg = row.replaceAll(/\u001B\[(?:48;[0-9;]*|49)m/gu, '')
     const pad = Math.max(0, columns - displayWidth(noBg))
     const padded = `${noBg}${' '.repeat(pad)}`
+    if (bg === '') return padded
     return `${bg}${padded.replaceAll(RESET, `${RESET}${bg}`)}${FILL_OFF}`
   }
 
@@ -2784,7 +2819,8 @@ export class Screen {
       const header = source.slice(from, from + sticky.renderHeight)
       const width = this.contentColumns()
       const filledHeader = header.map(row => this.fillSticky(truncate(row, width), width))
-      const divider = `${MUTED}${'─'.repeat(width)}${RESET}`
+      const rule = this.theme.sgr('border')
+      const divider = `${rule}${'─'.repeat(width)}${rule === '' ? '' : RESET}`
       // Pinned, the header is a floating panel: a padding row of its own fill
       // above and below the prompt, then the divider that hands the screen
       // back to the transcript. A viewport too short for all three gives them
@@ -2816,7 +2852,7 @@ export class Screen {
             if (rawRow.replaceAll(STYLES, '').trim() === '' && !/\u001B\[48;[0-9;]*m/.test(rawRow)) continue
             const vpIndex = (sticky !== undefined ? (sticky.state === 'pinned' ? sticky.reservedRows : sticky.renderHeight) : 0) + index
             if (vpIndex < viewport.length) {
-              viewport[vpIndex] = fill(rawRow, contentWidth, this.light)
+              viewport[vpIndex] = fill(rawRow, contentWidth, this.theme.sgr('bg_hover'))
             }
           }
         }
@@ -2840,7 +2876,7 @@ export class Screen {
       if (this.overlayCentered) {
         for (let at = 0; at < viewport.length; at += 1) {
           if (at < start || at >= start + this.overlay.length) {
-            viewport[at] = mask(viewport[at] ?? '', width, this.light)
+            viewport[at] = mask(viewport[at] ?? '', width, this.theme.sgr('bg_hover'))
           }
         }
       }
@@ -2848,8 +2884,8 @@ export class Screen {
         const at = start + index
         if (at < viewport.length) {
           viewport[at] = this.overlayCentered
-            ? maskSides(row, width, this.light)
-            : fill(truncate(row, width), width, this.light)
+            ? maskSides(row, width, this.theme.sgr('bg_hover'))
+            : fill(truncate(row, width), width, this.theme.sgr('bg_hover'))
         }
       })
     }
@@ -2882,7 +2918,7 @@ export class Screen {
     if (preview !== undefined) {
       const width = this.host.columns() - preview.column
       preview.rows.forEach((row, index) => {
-        out += `\u001B[${preview.row + index + 1};${preview.column}H${fill(truncate(row, width), width, this.light)}`
+        out += `\u001B[${preview.row + index + 1};${preview.column}H${fill(truncate(row, width), width, this.theme.sgr('bg_hover'))}`
       })
     }
     const rail = Array.from({ length: height }, () => ' ')

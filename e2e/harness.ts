@@ -266,11 +266,14 @@ export function resolveLaunch(options: {
   if (!existsSync(join(bundleRoot, 'lib', 'index.js'))) {
     throw new Error('codsh e2e needs the built lib/ — run `pnpm run build` first (or use `pnpm run test:e2e`)')
   }
+  // Dropped: the palette forks on COLORTERM (truecolor paints the brand as
+  // RGB), and a runner's own theme choice must not reach a suite.
+  const { COLORTERM: _colorterm, CODSH_THEME: _theme, ...inherited } = process.env
   return {
     command: process.execPath,
     args: [dshBin(), '--profile', 'code', '--patch', options.overlay, ...options.args ?? []],
     env: {
-      ...process.env,
+      ...inherited,
       // Pinned: rendering assertions must not depend on the runner's TERM —
       // CI machines report no 256-color support and the palette forks on it.
       TERM: 'xterm-256color',

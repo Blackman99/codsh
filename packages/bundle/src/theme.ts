@@ -5,14 +5,10 @@
  */
 
 import stringWidth from 'string-width'
+import { DEEPSEEK, DEEPSEEK_LIGHT, PALETTES, isBackground, nearest256, nearestAnsi, params } from './palette.ts'
+import type { Depth, PaletteSpec, Slot, ThemeName, ThemeSetting } from './palette.ts'
 
-/** Background color for user messages and sticky headers (deep plum / eggplant in dark mode). */
-export const BG_USER_DARK_TRUECOLOR = '\u001B[48;2;30;19;38m'
-export const BG_USER_DARK_256 = '\u001B[48;5;53m'
-
-/** Background color for user messages and sticky headers (soft lavender in light mode). */
-export const BG_USER_LIGHT_TRUECOLOR = '\u001B[48;2;243;234;246m'
-export const BG_USER_LIGHT_256 = '\u001B[48;5;225m'
+export type { Slot, ThemeName, ThemeSetting } from './palette.ts'
 
 /** SGR codes applied by {@link Theme}, by role. */
 const SGR = {
@@ -22,20 +18,20 @@ const SGR = {
   italic: '\u001B[3m',
   underline: '\u001B[4m',
   strike: '\u001B[9m',
-  red: '\u001B[31m',
-  green: '\u001B[32m',
-  yellow: '\u001B[33m',
-  blue: '\u001B[34m',
-  magenta: '\u001B[35m',
-  cyan: '\u001B[36m',
-  brightBlack: '\u001B[90m',
-  brightYellow: '\u001B[93m',
 } as const
 
 /** Style roles the renderer asks for, resolved to SGR codes by {@link createTheme}. */
 export interface Theme {
   /** Whether this theme emits SGR sequences at all. */
   readonly colored: boolean
+  /** The theme choice in force: a name, or `auto`. */
+  readonly setting: ThemeSetting
+  /** The palette painting now, or undefined when nothing is painted. */
+  readonly resolved: ThemeName | undefined
+  /** Whether surfaces get bands (the person's message fill); otherwise it is bold. */
+  readonly bands: boolean
+  /** The cursor colour this theme sets with OSC 12, as `#rrggbb`, if any. */
+  readonly cursor: string | undefined
   dim(text: string): string
   bold(text: string): string
   /** Strikethrough text. */
@@ -52,9 +48,9 @@ export interface Theme {
   color(spec: string): ((text: string) => string) | undefined
   /** Secondary chrome text (status model/cwd, legend, separators). */
   muted(text: string): string
-  /** Focus and selection only: input frame default, marked selector rows. */
+  /** Brand and focus: input frame, the person's rail, marked selector rows. */
   accent(text: string): string
-  /** Agent / user identity colour. */
+  /** Agent identity: thinking, skills, the model's side of the conversation. */
   agent(text: string): string
   /** Failures and alarms. */
   err(text: string): string
@@ -66,16 +62,36 @@ export interface Theme {
   tool(text: string): string
   /** File paths and locations. */
   path(text: string): string
+  /** A heading in an answer. */
+  heading(text: string): string
+  /** A link's label in an answer. */
+  link(text: string): string
   /** Alias for {@link Theme.err}. */
   error(text: string): string
   /** Alias for {@link Theme.ok}. */
   success(text: string): string
   /** Alias for {@link Theme.warn}. */
   pending(text: string): string
-  /** Alias for {@link Theme.agent}. */
+  /** The person's side of the conversation: the brand, like {@link Theme.accent}. */
   user(text: string): string
-  /** Adopt the light- or dark-background palette. */
-  setLight(light: boolean): void
+  /**
+   * Adopt the light- or dark-background palette. Only `auto` follows it; a
+   * theme chosen by name keeps its own polarity.
+   * @returns whether the painting palette changed.
+   */
+  setLight(light: boolean): boolean
+  /**
+   * Switch theme in place: every role already handed out paints the new
+   * palette from its next call.
+   * @returns whether the painting palette changed.
+   */
+  setTheme(setting: ThemeSetting): boolean
+  /**
+   * The raw escape one slot paints, for a renderer that composes its own
+   * rows (a hover fill, the sticky header, the mark).
+   * @returns the SGR sequence, or `''` when the slot is not painted.
+   */
+  sgr(slot: Slot): string
   /** Roles used inside a fenced code block. */
   readonly syntax: SyntaxTheme
   /** Background for user messages / prompts (Grok bg_light). */
@@ -110,7 +126,13 @@ export interface SyntaxTheme {
 /** A theme that emits no sequences, used off a TTY and under `NO_COLOR`. */
 const PLAIN: Theme = {
   colored: false,
-  setLight: () => {},
+  setting: 'auto',
+  resolved: undefined,
+  bands: false,
+  cursor: undefined,
+  setLight: () => false,
+  setTheme: () => false,
+  sgr: () => '',
   dim: text => text,
   bold: text => text,
   strike: text => text,
@@ -125,6 +147,8 @@ const PLAIN: Theme = {
   warn: text => text,
   tool: text => text,
   path: text => text,
+  heading: text => text,
+  link: text => text,
   error: text => text,
   success: text => text,
   pending: text => text,
@@ -148,6 +172,47 @@ const PLAIN: Theme = {
   diffDel: text => text,
 }
 
+/** One palette resolved for one terminal: the escape each slot paints. */
+interface Resolved {
+  readonly spec: PaletteSpec
+  readonly seq: Readonly<Record<Slot, string>>
+  readonly diffAdd: string
+  readonly diffDel: string
+}
+
+/** Every slot, for resolving a palette whole. */
+const SLOTS: readonly Slot[] = [
+  'accent', 'accent_soft', 'fg_dim', 'fg_muted', 'border', 'success', 'error', 'warning', 'tool',
+  'diff_insert_fg', 'diff_delete_fg',
+  'syntax_keyword', 'syntax_type', 'syntax_fn', 'syntax_string', 'syntax_number', 'syntax_comment', 'syntax_property',
+  'logo_chevron', 'logo_hull', 'logo_water',
+  'bg_light', 'bg_dark', 'bg_thinking', 'bg_error', 'md_code_bg', 'bg_meta', 'bg_hover',
+  'diff_insert_bg', 'diff_delete_bg',
+]
+
+/**
+ * The escapes a palette paints at a depth. A 16-colour-only palette paints its
+ * sixteen colours whatever the terminal could do.
+ */
+function resolvePalette(spec: PaletteSpec, depth: Depth): Resolved {
+  const at: Depth = spec.ansiOnly ? '16' : depth
+  const raw = (slot: Slot): string => params(spec.slots[slot], isBackground(slot) ? 'bg' : 'fg', at)
+  const escape = (codes: string): string => codes === '' ? '' : `\u001B[${codes}m`
+  const seq = Object.fromEntries(SLOTS.map(slot => [slot, escape(raw(slot))])) as Record<Slot, string>
+  const pair = (bg: Slot, fg: Slot): string => escape([raw(bg), raw(fg)].filter(codes => codes !== '').join(';'))
+  return { spec, seq, diffAdd: pair('diff_insert_bg', 'diff_insert_fg'), diffDel: pair('diff_delete_bg', 'diff_delete_fg') }
+}
+
+/**
+ * The depth a terminal advertises: truecolor when `COLORTERM` says so, the
+ * 256-colour palette when `TERM` or any `COLORTERM` does, sixteen otherwise.
+ */
+function depthOf(env: Record<string, string | undefined>): Depth {
+  if (env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit') return 'truecolor'
+  if (env.TERM?.includes('256color') === true || env.COLORTERM !== undefined) return '256'
+  return '16'
+}
+
 /**
  * Build the theme for one surface.
  *
@@ -159,26 +224,35 @@ const PLAIN: Theme = {
  * `dim` attribute: several terminals render `dim` at full brightness, and a
  * hierarchy nobody can see is no hierarchy — the placeholder, the menu details,
  * and the status row must sit visibly behind what the person typed.
+ *
+ * The record is built once and never replaced: renderers keep references to
+ * its roles (`theme.bold`, `theme.syntax`), so a theme switch changes what
+ * those same functions paint rather than handing out new ones.
  * @param isTty - whether the output stream is a terminal.
  * @param env - the environment to read `NO_COLOR` and the color depth from.
+ * @param initial - the theme choice to start with.
  * @returns the styling functions for this surface.
  */
-export function createTheme(isTty: boolean, env: Record<string, string | undefined>): Theme {
+export function createTheme(isTty: boolean, env: Record<string, string | undefined>, initial: ThemeSetting = 'auto'): Theme {
   if (!isTty || env.NO_COLOR !== undefined) return PLAIN
-  const palette = env.TERM?.includes('256color') === true || env.COLORTERM !== undefined
-  const truecolor = env.COLORTERM === 'truecolor' || env.COLORTERM === '24bit'
-  const wrap = (code: string) => (text: string): string => `${code}${text}${SGR.reset}`
+  const depth = depthOf(env)
   // Mutable on purpose: the background answer arrives moments after the first
-  // frame, and everything rendered from then on picks the readable shade.
-  let isLight = false
-  let gray = '\u001B[38;5;245m'
-  let amber = '\u001B[38;5;172m'
-  const err = wrap(SGR.red)
-  const ok = wrap(SGR.green)
-  const warn = (text: string): string => `${palette ? amber : SGR.brightYellow}${text}${SGR.reset}`
-  const tool = (text: string): string => `${palette ? amber : SGR.yellow}${text}${SGR.reset}`
-  const agent = wrap(SGR.magenta)
+  // frame, and a person can switch theme mid-session; everything rendered
+  // from then on picks the new palette.
+  let setting: ThemeSetting = initial
+  let light = false
+  const pick = (): PaletteSpec => setting === 'auto' ? (light ? DEEPSEEK_LIGHT : DEEPSEEK) : PALETTES[setting]
+  let active = resolvePalette(pick(), depth)
+  const refresh = (): boolean => {
+    const next = pick()
+    if (next === active.spec) return false
+    active = resolvePalette(next, depth)
+    return true
+  }
 
+  const paint = (seq: string, text: string): string => seq === '' ? text : `${seq}${text}${SGR.reset}`
+  const role = (slot: Slot) => (text: string): string => paint(active.seq[slot], text)
+  const wrap = (code: string) => (text: string): string => `${code}${text}${SGR.reset}`
   const wrapBg = (getSeq: () => string) => (text: string): string => {
     if (text === '') return ''
     const seq = getSeq()
@@ -186,71 +260,30 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
     const inner = text.endsWith(SGR.reset) ? text.slice(0, -SGR.reset.length) : text
     return `${seq}${inner.replaceAll(SGR.reset, `${SGR.reset}${seq}`)}${SGR.reset}`
   }
+  const background = (slot: Slot) => wrapBg(() => active.seq[slot])
 
-  const getBgUser = (): string => isLight
-    ? (truecolor ? BG_USER_LIGHT_TRUECOLOR : palette ? BG_USER_LIGHT_256 : '\u001B[47m')
-    : (truecolor ? BG_USER_DARK_TRUECOLOR : palette ? BG_USER_DARK_256 : '\u001B[40m')
-
-  const getBgTool = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;243;245;248m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;14;18;24m' : palette ? '\u001B[48;5;235m' : '\u001B[40m')
-
-  const getBgThinking = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;246;243;252m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;32;28;44m' : palette ? '\u001B[48;5;237m' : '\u001B[40m')
-
-  const getBgError = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;254;226;226m' : palette ? '\u001B[48;5;224m' : '\u001B[41m')
-    : (truecolor ? '\u001B[48;2;45;15;25m' : palette ? '\u001B[48;5;52m' : '\u001B[41m')
-
-  const getBgCode = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;240;242;246m' : palette ? '\u001B[48;5;254m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;15;18;24m' : palette ? '\u001B[48;5;235m' : '\u001B[40m')
-
-  const getBgMeta = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;244;244;246m' : palette ? '\u001B[48;5;255m' : '\u001B[47m')
-    : (truecolor ? '\u001B[48;2;18;20;26m' : palette ? '\u001B[48;5;236m' : '\u001B[40m')
-
-  const getDiffAdd = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;236;253;245;38;2;22;101;52m' : palette ? '\u001B[48;5;194;38;5;28m' : '\u001B[42;30m')
-    : (truecolor ? '\u001B[48;2;10;38;30;38;2;80;200;140m' : palette ? '\u001B[48;5;22;38;5;120m' : '\u001B[42;30m')
-
-  const getDiffDel = (): string => isLight
-    ? (truecolor ? '\u001B[48;2;254;242;242;38;2;153;27;27m' : palette ? '\u001B[48;5;224;38;5;160m' : '\u001B[41;37m')
-    : (truecolor ? '\u001B[48;2;45;15;25;38;2;240;100;110m' : palette ? '\u001B[48;5;52;38;5;203m' : '\u001B[41;37m')
-
-  const getKeywordColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;175;0;219m' : '\u001B[38;2;197;134;192m')
-    : palette ? '\u001B[38;5;176m' : SGR.magenta
-
-  const getTypeColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;38;127;153m' : '\u001B[38;2;78;201;176m')
-    : palette ? '\u001B[38;5;73m' : SGR.cyan
-
-  const getFnColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;121;94;38m' : '\u001B[38;2;220;220;170m')
-    : palette ? '\u001B[38;5;186m' : SGR.yellow
-
-  const getStringColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;163;21;21m' : '\u001B[38;2;206;145;120m')
-    : palette ? '\u001B[38;5;173m' : SGR.green
-
-  const getNumberColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;9;134;88m' : '\u001B[38;2;181;206;168m')
-    : palette ? '\u001B[38;5;151m' : SGR.cyan
-
-  const getPropertyColor = (): string => truecolor
-    ? (isLight ? '\u001B[38;2;0;16;128m' : '\u001B[38;2;156;220;254m')
-    : palette ? '\u001B[38;5;117m' : SGR.blue
+  const accent = role('accent')
+  const agent = role('accent_soft')
+  const err = role('error')
+  const ok = role('success')
+  const warn = role('warning')
 
   return {
     colored: true,
-    setLight(light: boolean) {
-      isLight = light
-      gray = light ? '\u001B[38;5;242m' : '\u001B[38;5;245m'
-      amber = light ? '\u001B[38;5;130m' : '\u001B[38;5;172m'
+    get setting() { return setting },
+    get resolved() { return active.spec.name },
+    get bands() { return active.spec.bands },
+    get cursor() { return active.spec.cursor },
+    setLight(next: boolean) {
+      light = next
+      return refresh()
     },
-    dim: text => `${palette ? gray : SGR.dim}${text}${SGR.reset}`,
+    setTheme(next: ThemeSetting) {
+      setting = next
+      return refresh()
+    },
+    sgr: slot => active.seq[slot],
+    dim: role('fg_dim'),
     bold: wrap(SGR.bold),
     strike: wrap(SGR.strike),
     italic: wrap(SGR.italic),
@@ -262,38 +295,41 @@ export function createTheme(isTty: boolean, env: Record<string, string | undefin
       // theme paints success in, on this person's palette, light or dark.
       if ('ansi' in parsed) return wrap(`\u001B[${parsed.ansi}m`)
       const [red, green, blue] = parsed.rgb
-      if (truecolor) return wrap(`\u001B[38;2;${red};${green};${blue}m`)
-      if (palette) return wrap(`\u001B[38;5;${nearest256(red, green, blue)}m`)
+      const at: Depth = active.spec.ansiOnly ? '16' : depth
+      if (at === 'truecolor') return wrap(`\u001B[38;2;${red};${green};${blue}m`)
+      if (at === '256') return wrap(`\u001B[38;5;${nearest256(red, green, blue)}m`)
       return wrap(`\u001B[${nearestAnsi(red, green, blue)}m`)
     },
-    muted: wrap(SGR.brightBlack),
-    accent: wrap(SGR.cyan),
+    muted: role('fg_muted'),
+    accent,
     agent,
     err,
     ok,
     warn,
-    tool,
-    path: wrap(SGR.blue),
+    tool: role('tool'),
+    path: agent,
+    heading: agent,
+    link: agent,
     error: err,
     success: ok,
     pending: warn,
-    user: agent,
-    bgUser: wrapBg(getBgUser),
-    bgTool: wrapBg(getBgTool),
-    bgThinking: wrapBg(getBgThinking),
-    bgError: wrapBg(getBgError),
-    bgCode: wrapBg(getBgCode),
-    bgMeta: wrapBg(getBgMeta),
-    diffAdd: wrapBg(getDiffAdd),
-    diffDel: wrapBg(getDiffDel),
+    user: accent,
+    bgUser: background('bg_light'),
+    bgTool: background('bg_dark'),
+    bgThinking: background('bg_thinking'),
+    bgError: background('bg_error'),
+    bgCode: background('md_code_bg'),
+    bgMeta: background('bg_meta'),
+    diffAdd: wrapBg(() => active.diffAdd),
+    diffDel: wrapBg(() => active.diffDel),
     syntax: {
-      keyword: text => `${getKeywordColor()}${text}${SGR.reset}`,
-      type: text => `${getTypeColor()}${text}${SGR.reset}`,
-      fn: text => `${getFnColor()}${text}${SGR.reset}`,
-      string: text => `${getStringColor()}${text}${SGR.reset}`,
-      number: text => `${getNumberColor()}${text}${SGR.reset}`,
-      comment: wrap(SGR.dim),
-      property: text => `${getPropertyColor()}${text}${SGR.reset}`,
+      keyword: role('syntax_keyword'),
+      type: role('syntax_type'),
+      fn: role('syntax_fn'),
+      string: role('syntax_string'),
+      number: role('syntax_number'),
+      comment: role('syntax_comment'),
+      property: role('syntax_property'),
     },
   }
 }
@@ -350,42 +386,6 @@ export function parseColor(spec: string): ColorSpec | undefined {
     return { rgb: [channel(fn[1]), channel(fn[2]), channel(fn[3])] }
   }
   return undefined
-}
-
-/** The sixteen ANSI colours as xterm paints them, with their SGR foreground codes. */
-const ANSI_PALETTE: readonly [number, number, number, string][] = [
-  [0, 0, 0, '30'], [205, 0, 0, '31'], [0, 205, 0, '32'], [205, 205, 0, '33'],
-  [0, 0, 238, '34'], [205, 0, 205, '35'], [0, 205, 205, '36'], [229, 229, 229, '37'],
-  [127, 127, 127, '90'], [255, 0, 0, '91'], [0, 255, 0, '92'], [255, 255, 0, '93'],
-  [92, 92, 255, '94'], [255, 0, 255, '95'], [0, 255, 255, '96'], [255, 255, 255, '97'],
-]
-
-/** Squared distance between two sRGB points; ordering is all that is needed. */
-const apart = (r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number =>
-  (r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2
-
-/** The SGR code of the ANSI colour closest to an sRGB point. */
-function nearestAnsi(red: number, green: number, blue: number): string {
-  let best = ANSI_PALETTE[0] ?? [0, 0, 0, '37']
-  for (const candidate of ANSI_PALETTE) {
-    if (apart(red, green, blue, candidate[0], candidate[1], candidate[2]) < apart(red, green, blue, best[0], best[1], best[2])) best = candidate
-  }
-  return best[3]
-}
-
-/** Levels of the 256-colour palette's 6×6×6 cube. */
-const CUBE = [0, 95, 135, 175, 215, 255]
-
-/** The 256-colour index closest to an sRGB point: the cube, or the gray ramp when that is nearer. */
-function nearest256(red: number, green: number, blue: number): number {
-  const level = (value: number): number =>
-    CUBE.reduce((best, candidate, index) => Math.abs(candidate - value) < Math.abs((CUBE[best] ?? 0) - value) ? index : best, 0)
-  const [ri, gi, bi] = [level(red), level(green), level(blue)]
-  const cubeApart = apart(red, green, blue, CUBE[ri] ?? 0, CUBE[gi] ?? 0, CUBE[bi] ?? 0)
-  // The ramp runs 232..255 at 8, 18, … 238.
-  const step = Math.min(23, Math.max(0, Math.round((Math.round((red + green + blue) / 3) - 8) / 10)))
-  const gray = 8 + 10 * step
-  return apart(red, green, blue, gray, gray, gray) < cubeApart ? 232 + step : 16 + 36 * ri + 6 * gi + bi
 }
 
 /**

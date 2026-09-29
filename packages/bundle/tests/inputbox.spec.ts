@@ -176,7 +176,7 @@ describe('visual hierarchy', () => {
       column: 17,
       hits: [{ row: 0, start: 4, end: 13, kind: 'skill' }],
     }), colour, 60)
-    expect(skill.rows[1]).toContain('\u001B[35m$grill-me\u001B[0m')
+    expect(skill.rows[1]).toContain('\u001B[38;5;105m$grill-me\u001B[0m')
     expect(skill.rows[1]).toContain('use ')
     expect(skill.rows[1]).toContain(' now')
   })
@@ -190,10 +190,11 @@ describe('visual hierarchy', () => {
       selected: 0,
     }), colour, 60)
     const [chosen = '', other = ''] = overlay
-    expect(chosen).toContain('❯')
+    expect(chosen).toContain('\u001B[38;5;63m❯')
     expect(chosen).toContain('\u001B[4m/p\u001B[24m')
     expect(chosen).toContain('lan')
-    expect(chosen).not.toContain('\u001B[36m')
+    // The marker carries the accent; the candidate's own text does not.
+    expect(chosen.replace('\u001B[38;5;63m❯', '')).not.toContain('\u001B[38;5;63m')
     expect(chosen).toContain(`${gray}  enter plan mode`)
     expect(other).not.toContain('❯')
     expect(other).toContain('\u001B[4m/p\u001B[24m')

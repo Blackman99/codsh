@@ -145,6 +145,8 @@ describe.skipIf(process.env.CAPTURE_SCREENS === undefined)('showcase frames', ()
         cwd: WORKSPACE,
         rows: CAPTURE_ROWS,
         columns: CAPTURE_COLUMNS,
+        // The site shows the palette as designed: DeepSeek blue in full RGB.
+        env: { COLORTERM: 'truecolor' },
       })
       // The suites' screen helpers are fixed to their own window, so the frame
       // is cut here instead: at the end of the synchronized update the marker

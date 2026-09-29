@@ -106,8 +106,8 @@ describe('inline HTML in an answer', () => {
     // The styles open at the break — the heading's and the tag's — carry onto the next row.
     const heading = renderMarkdown('# <font color="red">a<br>b</font>', colour)
     expect(heading).toHaveLength(2)
-    expect(heading[0]).toContain('\u001B[93m\u001B[31ma\u001B[0m')
-    expect(heading[1]?.startsWith('\u001B[93m\u001B[31mb\u001B[0m')).toBe(true)
+    expect(heading[0]).toContain('\u001B[94m\u001B[31ma\u001B[0m')
+    expect(heading[1]?.startsWith('\u001B[94m\u001B[31mb\u001B[0m')).toBe(true)
   })
 
   it('lets a <br> inside a table cell make a second row of the cell', () => {

@@ -450,7 +450,7 @@ describe('status styling', () => {
 
   it('styles the landing chip agent, and ok while a ticket flash is on', () => {
     const land = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3 } }, colour, 200)
-    expect(land).toContain('\u001B[35mship · land 2/3\u001B[0m')
+    expect(land).toContain('\u001B[94mship · land 2/3\u001B[0m')
     const flash = statusLine({ ...base, shipChip: { kind: 'land', k: 2, n: 3, flashOk: true } }, colour, 200)
     expect(flash).toContain('\u001B[32mship · land 2/3\u001B[0m')
   })
@@ -476,10 +476,12 @@ describe('status styling', () => {
     expect(paintShipChip({ kind: 'land', k: 1, n: 4 }, plain)).toBe('ship · land 1/4')
   })
 
-  it('styles the model muted, never cyan/accent', () => {
+  it('styles the model muted, never accent', () => {
     const line = statusLine({ ...base, preset: 'code-cli', usage }, colour, 200)
     expect(line).toContain('\u001B[90mm\u001B[0m')
-    expect(line).not.toContain('\u001B[36m')
+    const [accentOpen = ''] = colour.accent('x').split('x')
+    expect(accentOpen).not.toBe('')
+    expect(line).not.toContain(accentOpen)
   })
 
   it('styles the model with reasoning effort muted', () => {

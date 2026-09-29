@@ -37,7 +37,9 @@ The real user prompt that owns the response currently crossing the top of the
 Viewport. Its display-only copy stays pinned until the next real prompt pushes
 it away, shrinking from at most three rows to one. Pinned, it is a panel: one
 padding row of its fill above the prompt and one below, then the divider that
-hands the screen back to the transcript. A prompt longer than three visual rows is a Fold by
+hands the screen back to the transcript. The fill is the person's band in
+the active Theme; a Theme that paints no bands (`terminal`), and `NO_COLOR`,
+leave the panel unfilled. A prompt longer than three visual rows is a Fold by
 default. Clicking the pinned copy expands that floating panel in place;
 the inline prompt and the reading position stay where they were. Ctrl+O
 on the original still expands the transcript fold, which then does not pin.
@@ -269,7 +271,7 @@ runs — ticking the same Braille frames as the working line, which names
 the thought `thinking` — and becomes its clock (`│ thought for 3.2s`)
 when it ends. Both heads occupy one row without vertical padding and without
 a panel fill — a full-width thinking background on the clock is a black bar
-between tool rows. The magenta `│` runs down the clock, the pads, and the
+between tool rows. The light-blue `│` runs down the clock, the pads, and the
 expanded deliberation. Only the expanded form keeps the fill and its
 panel inset, behind a click or Ctrl+O. Every tool card is a Fold that opens
 folded: one row naming the call, how much it produced (`+n -m`, `N results`,
@@ -364,11 +366,36 @@ _Avoid_: margin, padding, spacer
 **Rule**:
 The connecting `│` drawn down every transcript row, including blank
 separators that belong to a block. Colour — not a different character —
-says what the row is: cyan for the person's own message, magenta for
-thinking, dim for a tool card or runner notice, red for a failed one,
+says what the row is: DeepSeek blue (the Theme's accent) for the person's
+own message, its lighter tint for thinking, dim for a tool card or runner
+notice, red for a failed one,
 muted for assistant prose and system chrome. Chrome, not content: it
 repeats on wrapped rows and never reaches the clipboard.
 _Avoid_: border, gutter, sidebar
+
+**Theme**:
+The palette every role, fill, and the terminal cursor are painted in, chosen
+with `/theme` and modelled on Grok CLI's slot themes: `deepseek` (dark),
+`deepseek-light`, `terminal` (the terminal's own sixteen colours, no bands —
+the person's message is bold instead), and `auto`, the default, which follows
+the OSC 11 background between the two DeepSeek themes. The brand is DeepSeek
+blue #4D6BFE (accent: frame, the person's rule, markers, the mark, the
+cursor via OSC 12) with its tint #7E96F5 (thinking, links, headings, paths);
+every slot is RGB with explicit 256- and 16-colour overrides. The choice is
+kept under `theme` in `$DSH_HOME/code-cli-ui.json`; `CODSH_THEME` overrides it
+for one launch. Switching mutates the one theme record in place, so every
+renderer holding a role paints the new palette from its next call.
+_Avoid_: skin, colour scheme
+
+**Repaint**:
+Replaying the live session into a fresh transcript so rows already painted
+take a new Theme — the chrome restyles at once, the history once nothing is
+in flight: a running turn or an open Child view defers it to the turn's end or
+the return to the parent. It rebuilds rendering only; approvals, the roster,
+the queue, and clocks are untouched. Like a resume, it cannot show what never
+reached the session log (command reports, `!` output, notices), and expanded
+folds come back folded.
+_Avoid_: refresh, redraw
 
 **Scrollback notice**:
 The row that says how far back the reader has gone and takes the click that
@@ -886,8 +913,10 @@ _Avoid_: armed continuation, canned /goal, second scheduler
 ### Alignment pipeline
 
 **Reference Agent**:
-One of the four agent CLIs codsh aligns against: Claude Code, opencode,
-Codex CLI, gemini-cli. Claude Code wins ties (ADR-0001).
+One of the agent CLIs codsh aligns against. For the interactive TUI, Grok CLI
+is primary and wins ties; Claude Code decides where Grok has no equivalent,
+then opencode, with Codex CLI and gemini-cli as corroboration (ADR-0002).
+Outside the TUI, Claude Code still wins ties (ADR-0001).
 
 **Alignment Matrix**:
 The in-repo table (`docs/alignment.md`) of every interaction/feature gap and

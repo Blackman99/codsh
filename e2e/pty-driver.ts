@@ -68,6 +68,10 @@ def resolve(payload, output):
 
 node, launch_args_json, launch_env_json, cwd, timeout_seconds, script_json, win_rows, win_cols = sys.argv[1:]
 env = os.environ.copy()
+# The runner's colour depth and theme are not the suite's; a test that wants
+# one passes it explicitly, and the update below then wins.
+env.pop("COLORTERM", None)
+env.pop("CODSH_THEME", None)
 env.update(json.loads(launch_env_json))
 env.pop("NO_COLOR", None)
 script = [(m.encode(), p.encode(), int(d)) for m, p, d in json.loads(script_json)]

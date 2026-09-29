@@ -1,16 +1,28 @@
 # Alignment Matrix
 
 The memory of the alignment pipeline: every interaction/feature gap between
-codsh and the reference agents (ADR-0001: Claude Code > opencode > Codex
-CLI/gemini-cli as corroboration), and its state. **Done** means every row is
-in a terminal state.
+codsh and the reference agents, and its state. For the interactive TUI the
+order is Grok CLI > Claude Code > opencode > Codex CLI/gemini-cli as
+corroboration (ADR-0002); everywhere else Claude Code > opencode > Codex
+CLI/gemini-cli (ADR-0001). **Done** means every row is in a terminal state.
 
 ## Operating rules
 
 - **Discovery**: native Claude Code knowledge seeds the inventory; reading
   the open-source references (opencode, Codex CLI, gemini-cli) extends it;
   behavioral probing (driving the real tool in the e2e PTY/VT harness) is
-  reserved for disputes.
+  reserved for disputes. For the interactive TUI, Grok CLI's user guide
+  (`~/.grok/docs/user-guide/*.md`, Grok 1.0.41 installed locally) seeds the
+  inventory first (ADR-0002).
+- **Grok alignment (2026-09-29)**: owner decision, recorded in ADR-0002. Grok
+  CLI wins TUI ties; keys that collide (Shift+Tab, Ctrl+O, Ctrl+R, Ctrl+G,
+  Ctrl+Q, Ctrl+C at an idle prompt, Esc Esc) are rebound to Grok's in their
+  own batch, and the feature a key displaces moves to a new one. The visual
+  identity is a deliberate divergence: Grok's slot themes, painted in
+  DeepSeek blue #4D6BFE. Batches, in order: DeepSeek themes and `/theme`
+  (landed); keymap and permission-mode cycling; composer Esc/Ctrl+C/stash;
+  visual language; scrollback focus and entry selection; commands; terminal
+  features. Rows live in "Grok CLI alignment" below.
 - **Autonomy**: within a batch, implementing, testing, syncing the dev
   install, changesets, and pushing are autonomous. Work stops for a question
   only when (a) references conflict beyond the ADR-0001 rule, (b) alignment
@@ -77,9 +89,9 @@ in a terminal state.
 | modifyOtherKeys | probed: claude sets `CSI >4;2m`; codex resets `>4;0m`; opencode sets it | `open` | xterm-proper coverage; kitty path already shipped |
 | Grapheme clustering (mode 2027) | probed: only opencode sets 2027 | `open` | the terminal-side mode only. The surface's own scans step by grapheme cluster since 2026-09-08 (see Known problems, "Table rule drifts one column"), so what remains is asking the terminal to cluster the same way |
 | Focus events (mode 1004) | probed: claude, codex, gemini all enable 1004 | `aligned` | keys.spec "reports focus in and out"; console.spec "the bell and focus" suite; pty e2e "focus and background reports". Use: the bell rings only while unfocused; terminals that never report keep always-ring |
-| Theme detection (OSC 11) | probed: opencode, codex, gemini query OSC 10/11; claude does not (opencode decides per ADR-0001) | `aligned` | theme.spec setLight/backgroundIsLight; screen.spec entry query; pty e2e light-palette adoption. Scope: the absolute 256-color secondary gray adapts (245→242); base ANSI colors stay the terminal theme's job |
+| Theme detection (OSC 11) | probed: opencode, codex, gemini query OSC 10/11; claude does not (opencode decides per ADR-0001); Grok CLI follows the background under `theme = "auto"` | `aligned` | theme.spec setLight/backgroundIsLight, "follows the background under auto and ignores it for a theme chosen by name"; screen.spec entry query; pty e2e light-palette adoption. Scope: under `auto` a light answer swaps the whole palette to `deepseek-light` and repaints the history; a theme chosen by name keeps its own polarity |
 | OSC 8 hyperlinks | probed: claude emits OSC 8 at startup; gemini/opencode link paths | `open` | markdown links + file:line |
-| Segment framing in the transcript | probed 2026-08-20: opencode (1.18.x) draws each message block with `border: ["left"]` plus a `backgroundPanel` fill that becomes `backgroundElement` when focused; claude 2.1.236 carries `borderLeft` with `dashed`/`subtle` variants and `borderLeftDimColor` (e.g. userMessage) and reserves `borderStyle:"round"` boxes for panels. Grok Build styles functional blocks with distinct theme backgrounds (`bg_light` for user prompt bands, `bg_dark` for tool execution surfaces, `bg_thinking` for reasoning deliberation, `diff_insert_bg`/`diff_delete_bg` for diff additions/deletions, `md_code_bg` for code blocks, and `bg_error` for failures) | `aligned` | screen.spec "the rule down a block's edge" suite; transcript.spec "which block a line belongs to" and "grok background differentiation across functional blocks" suites; theme.spec grok background suites; pty e2e "rules each block down its left edge, by what the block is". Functional blocks apply Grok's background palette to differentiate roles while keeping clean block separation, selection highlights, and TTY/NO_COLOR graceful degradation |
+| Segment framing in the transcript | probed 2026-08-20: opencode (1.18.x) draws each message block with `border: ["left"]` plus a `backgroundPanel` fill that becomes `backgroundElement` when focused; claude 2.1.236 carries `borderLeft` with `dashed`/`subtle` variants and `borderLeftDimColor` (e.g. userMessage) and reserves `borderStyle:"round"` boxes for panels. Grok Build styles functional blocks with distinct theme backgrounds (`bg_light` for user prompt bands, `bg_dark` for tool execution surfaces, `bg_thinking` for reasoning deliberation, `diff_insert_bg`/`diff_delete_bg` for diff additions/deletions, `md_code_bg` for code blocks, and `bg_error` for failures) | `aligned` | screen.spec "the rule down a block's edge" suite; transcript.spec "which block a line belongs to" and "grok background differentiation across functional blocks" suites; theme.spec grok background suites; pty e2e "rules each block down its left edge, by what the block is". Functional blocks use Grok's background slots, filled from the DeepSeek palette (the person's band is navy #151A30, light #EEF1FB), while keeping clean block separation, selection highlights, and TTY/NO_COLOR graceful degradation |
 | Sticky turn headers | Grok Build pins the user prompt owning the visible response, shrinks a multi-row header while it crosses the top, and lets the next prompt push it away ([source at owner-selected commit](https://github.com/xai-org/grok-build/blob/bc7f02eddd3d84085849dc19ed216f11c23b0571/crates/codegen/xai-grok-pager/src/scrollback/sticky.rs)). Recorded as an owner-confirmed Surface addition beyond the four Reference Agents | `aligned` | sticky.spec pure layout suite; screen.spec prompt grouping/fold/resize/trim/search/click suites; transcript.spec real-user boundary cases; experience e2e "keeps the owning prompt above each turn while scrolling across the boundary". codsh keeps its `›`, user colour, heavy Rule, floating panel background fill (one padding row of that fill above and below the prompt, so the pinned copy reads as a panel rather than text pressed against the top of the screen), bottom divider line, and existing scroll notice — which sits at the foot of the viewport and clicks back to the tail (screen.spec "puts the scrollback notice under what is being read", "returns to the latest when the notice row is clicked"; experience e2e "says how far back it is, at the foot of the screen, and clicks home"). Prompts cap at three visual rows; an expanded long prompt remains a turn boundary but is temporarily non-sticky. The header copy is display-only and never enters search, selection, transcript, or pipe output |
 | Semantic turn navigation | Grok Build exposes turn jumps and a reversible `/jump` preview over real user prompts | `aligned` | keys.spec legacy/Kitty Shift+Left/Right; screen.spec retained turn index and viewport restore; prompt.spec selector preview; experience e2e shifted-arrow turn crossing. Plugin context never becomes a turn and pipe mode owns no viewport |
 | Prompt-top anchoring | Grok Build's page-flip behavior places a submitted prompt at the viewport top while reply rows consume the space beneath it | `aligned` | screen.spec anchor lifecycle/streaming/resize/replay cases plus the return cases (step off row by row, wheel and PgDn back onto the anchored frame, streaming into the gap under a scrolled reader, next prompt taking the gap over); experience e2e paced streaming capture and "gives the anchored prompt back when the reader wheels home again". codsh models the gap as display-only tail rows that scroll with the transcript: search, selection, folds, scrollback trimming, replay, and pipes never observe them, and the gap ends only when the reply fills the viewport or the next prompt takes it over |
@@ -118,7 +130,7 @@ in a terminal state.
 | Forward kill-word (Alt+d) | emacs in the reference composers | `open` | rest surface; only backward kill-word is bound |
 | Double-click / keyboard selection | typical in the reference TUIs | `open` | rest surface; selection is press-drag-release only |
 | Idle keybinding footer | claude, opencode, Codex always-on key chrome | `aligned` | prompt.spec "the key legend" suite (on the hint row empty or typing, replaced by a hint or a flash and given back at the same chrome height, absent under a selector); experience e2e "keeps the key legend under the box while typing" (legend row at the same index in the empty and typing frames, placeholder gone). Shape: `? shortcuts · ⇧Tab plan · Ctrl+T todos · Ctrl+O folds` is the hint row's fallback, so the row is always present while the box is up and everything that borrows it — flash, find, hover, hint — replaces rather than adds; the box never jumps, and a hint appearing no longer changes the chrome height as it did before. Batch item 4, 2026-09-04 |
-| /theme picker | opencode, Codex | `open` | rest surface; OSC 11 only remaps secondary gray, no catalog |
+| /theme picker | Grok CLI `/theme`: arrows preview live, Enter applies and saves, Esc reverts, `/theme <name>` sets directly, `auto` follows the background, a `terminal` theme paints only ANSI colours with no backgrounds, OSC 12 recolours the cursor (OSC 112 on exit), `GROK_THEME` overrides; opencode, Codex corroborate | `aligned` | theme.spec "the theme catalog"; theme-setting.spec; prefs.spec; theme-picker.spec; prompt.spec "tells the caller the outcome before the frame that closes the selection"; screen.spec "theme-driven fills"; banner.spec "the mark, by theme and depth"; transcript.spec "the person's message under a theme that paints no bands"; pty e2e "switches to deepseek-light with /theme, repaints the history, and keeps it across a restart", "previews a theme in the picker and puts the original back on Esc". Scope: catalog `auto`/`deepseek`/`deepseek-light`/`terminal` (DeepSeek blue replaces Grok's own themes, ADR-0002); `CODSH_THEME` for one launch; kept in `code-cli-ui.json`; history repainted by replay, deferred under a running turn or a Child view |
 | Desktop notifications | claude, Codex (osascript / notify-send / OSC 9) | `aligned` | notify.spec (one-line text with control characters dropped and a cap, the plan per terminal — OSC 9 alone for iTerm2/WezTerm/Ghostty/kitty/Windows Terminal, `osascript` instead for Terminal.app with AppleScript quoting, `notify-send` beside on an unknown Linux terminal, the sequence alone elsewhere — and a command whose failure is ignored); console.spec "notifications through the terminal" (OSC 9 only while away, nothing off a TTY); pty e2e "notifies through the terminal while the window is unfocused, naming what waits" and the focused test asserting no OSC 9. Triggers are the bell's: a decision waiting (approval, named by `nameCall`; a question) and a turn over 10 s ending, gated by `console.away` (focus reported out or never reported, as the bell reads it) and the `notify` config beside `bell`. The e2e harness pins `TERM_PROGRAM=codsh-e2e` so a suite never reaches the runner's desktop. Batch item 5, 2026-09-04 |
 | Session rename | claude, opencode session lists | `open` | codsh-side: `SessionTitleService.rename` exists; `/rename <title>` over the current session. Not batched |
 | Session delete | claude, opencode session lists | `upstream` | dsh-session-persistence exposes create/append/load/inspect/readFrom/list/locate/repair and no delete; JSONL truncation exists only as crash repair. `/resume` lists but cannot delete |
@@ -149,6 +161,28 @@ in a terminal state.
 | Third-party endpoint docs | all four document provider setup | `open` | README and site had no provider section. The shape is `$DSH_HOME/settings.yaml` → `llm-pi-ai.providers.<name>` (`baseURL`, `apiKeyEnv`, `api: openai-completions`, `models`) then `agent-default-model`. README "Third-party endpoints" written 2026-09-04; closes when a pipe e2e boots against a pi-ai route |
 | Headless JSON output | claude `--output-format json`; Codex `--json`; gemini | `open` | low. `-p` prints text and exits after one turn. Not a target-user scenario; recorded, not batched |
 | Headless streaming | claude `stream-json`; Codex exec | `open` | low. Same |
+
+## Grok CLI alignment
+
+Rows opened by the 2026-09-29 decision (ADR-0002). Reference: Grok CLI 1.0.41,
+`~/.grok/docs/user-guide` (03 keyboard shortcuts, 04 slash commands, 06
+theming, 19 plan mode, 25 status line). Batch order as in "Grok alignment"
+above; a row closes with test anchors like any other.
+
+| Item | Reference behavior | State | Tests / Notes |
+|---|---|---|---|
+| DeepSeek themes and `/theme` | Grok slot themes, picker with live preview, `auto`, `terminal`, OSC 12 cursor | `aligned` | See the "/theme picker" row above. Batch 1 |
+| Permission-mode cycling | Shift+Tab cycles Normal → Plan → (Auto) → Always-approve; Ctrl+O toggles always-approve; a mode flag shows on the status row (03:255, 22:31-61) | `open` | Batch 2. Today Shift+Tab only toggles plan and presets change through `/permission`. Displaces Ctrl+O (all folds) |
+| Keymap rebinds | Ctrl+R session picker; Ctrl+G tasks/subagents pane; Ctrl+; queue pane; Ctrl+Q / Ctrl+D quit on a double press; Ctrl+T todos (03:245-277, 03:339-351) | `open` | Batch 2. Moves codsh's Ctrl+R history search (→ `/history`, ↑ on an empty prompt), Ctrl+H subagents, Ctrl+Q queue, Ctrl+G panorama |
+| Composer Esc / Ctrl+C semantics | Esc never cancels a turn ("Press Ctrl+c to cancel the turn"); Ctrl+C clears a draft, then cancels; idle Esc Esc clears and stashes the draft, or opens rewind on an empty prompt; Ctrl+S stash / pop (03:223-237, 03:262) | `open` | Batch 3. Today Ctrl+C at an idle prompt quits and Esc Esc recalls the last prompt |
+| Composer footer | `Enter:send` / `Enter:queue` plus the newline chord once the draft is non-empty (03:467-471) | `open` | Batch 3 |
+| Tool and thinking blocks | `◆` tool bullets, a `Thinking…` head with an animated accent, shell blocks labelled `Run` showing the first 2 / last 3 output lines, `+N/-M` on collapsed edits, `›` on expandable entries (06:238-294) | `open` | Batch 4 |
+| Still-running line and turn marker | `◎ 1 command · 1 subagent still running`; "Worked for Xs" after a turn (20:185-201) | `open` | Batch 4 |
+| Status line items | `cwd │ model │ N% ctx`, context turns amber at the compact threshold, optional cost and turn timer (25:9-24) | `open` | Batch 4 |
+| Scrollback focus and entry selection | Tab moves focus between prompt and scrollback; ↑/↓ select an entry, ←/→ fold, Enter / Ctrl+F open the viewer, `y`/`Y` copy, `r` raw markdown, Ctrl+U/D half page (03:31-100) | `open` | Batch 5. Depends on batches 2–4 |
+| Session and context commands | `/context`, `/session-info` (alias of `/status`), `/rename`, `/export`, `/fork`, `/history`, `/edit-prompt`, `/compact-mode`, `/timestamps`, `/release-notes`, `/doctor` (04) | `open` | Batch 6; several duplicate rows above (rename, export, /context) and close them together |
+| Command palette | Ctrl+P or `?` lists every command with its key or slash form (03:396-400) | `open` | Batch 6 |
+| Terminal features | OSC 8 links, OSC 9;4 tab progress, tab-title items (05:458-503, 25:55) | `open` | Batch 7; OSC 8 also closes the row above |
 
 ## Known problems
 

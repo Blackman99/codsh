@@ -83,3 +83,29 @@ describe('bannerLines', () => {
     expect(lines.some(line => line.includes('Welcome to codsh'))).toBe(true)
   })
 })
+
+describe('the mark, by theme and depth', () => {
+  const logo = (theme: ReturnType<typeof createTheme>): string =>
+    bannerLines(facts, theme, 100).filter(line => /[█▀▄]/u.test(line)).join('\n')
+
+  it('inks the whale in the brand and its tint on a 256-colour terminal, with ✻ in the brand', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' })
+    expect(logo(theme)).toContain('\u001B[38;5;105m')
+    expect(logo(theme)).toContain('\u001B[38;5;63m')
+    expect(logo(theme)).not.toContain('\u001B[38;2;')
+    expect(bannerLines(facts, theme, 100).join('\n')).toContain('\u001B[38;5;63m✻')
+  })
+
+  it('keeps the hull visible on a light background', () => {
+    const theme = createTheme(true, { TERM: 'xterm-256color' }, 'deepseek-light')
+    expect(logo(theme)).toContain('\u001B[38;5;17m')
+    expect(logo(theme)).not.toContain('\u001B[38;5;255m')
+  })
+
+  it('paints the terminal theme in ANSI colours only, and truecolor as the logo file does', () => {
+    const terminal = createTheme(true, { COLORTERM: 'truecolor' }, 'terminal')
+    expect(logo(terminal)).not.toContain('38;2;')
+    expect(logo(terminal)).toContain('\u001B[36m')
+    expect(logo(createTheme(true, { COLORTERM: 'truecolor' }))).toContain('\u001B[38;2;77;107;254m')
+  })
+})

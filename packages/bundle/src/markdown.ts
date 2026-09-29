@@ -406,7 +406,7 @@ function renderMarkdownInline(text: string, theme: Theme): string {
       if (parts === null) return match
       const [, label, target] = parts
       // The target is kept: a terminal cannot hide it behind a click.
-      return `${theme.bold(label ?? '')} ${theme.dim(`(${target ?? ''})`)}`
+      return `${theme.link(theme.bold(label ?? ''))} ${theme.dim(`(${target ?? ''})`)}`
     }
     if (starEm !== undefined) return emphasized(starEm.slice(1, -1))
     if (underEm !== undefined) return emphasized(underEm.slice(1, -1))
@@ -632,7 +632,7 @@ function renderLine(line: string, theme: Theme, fence: FenceState): string[] {
     }
     const heading = HEADING.exec(line)
     if (heading !== null) {
-      out.push(...rows(theme.warn(renderInline(heading[2] ?? '', theme)), '', ''))
+      out.push(...rows(theme.heading(renderInline(heading[2] ?? '', theme)), '', ''))
       return out
     }
     if (RULE.test(line)) {

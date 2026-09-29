@@ -431,6 +431,15 @@ export class Prompt {
     this.render()
   }
 
+  /**
+   * Repaint the chrome after the theme changed. Everything here — the box,
+   * a selector, a modal, the status row — is composed per render from the
+   * live theme, so a render is all it takes.
+   */
+  restyle(): void {
+    this.render()
+  }
+
   setHint(text: string | undefined): void {
     if (text === this.hint) return
     this.hint = text
@@ -637,15 +646,25 @@ export class Prompt {
    * fallback for pipes, where the selection keys cannot arrive.
    * @param spec - the question and its options.
    * @param signal - cancels the selection, which an aborted tool call does.
+   * @param preview - hears every row the marker lands on.
+   * @param settled - hears the outcome before the frame that closes the
+   *   selection is painted, so a caller whose preview changed the chrome can
+   *   put it right without a frame of the preview showing after the choice.
    * @returns how the person decided.
    */
-  select(spec: SelectSpec, signal?: AbortSignal, preview?: (index: number) => void): Promise<SelectOutcome> {
+  select(
+    spec: SelectSpec,
+    signal?: AbortSignal,
+    preview?: (index: number) => void,
+    settled?: (outcome: SelectOutcome) => void,
+  ): Promise<SelectOutcome> {
     if (this.console.finished || signal?.aborted === true) {
       return Promise.resolve({ kind: 'cancelled' })
     }
     return new Promise<SelectOutcome>((resolve) => {
       const settle = (outcome: SelectOutcome): void => {
         this.select_ = undefined
+        settled?.(outcome)
         resolve(outcome)
         this.render()
       }

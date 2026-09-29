@@ -288,10 +288,10 @@ describe('FrontierCard', () => {
     const card = new FrontierCard(spec)
     const text = card.frame(painted, 56).rows.join('\n')
     expect(text).toContain('\u001B[32m')
-    expect(text).toContain('\u001B[36m')
-    // Footer: y is ok (green), arrows are accent (cyan); no abort red.
+    expect(text).toContain('\u001B[94m')
+    // Footer: y is ok (green), arrows are accent (DeepSeek blue); no abort red.
     expect(text).toContain('\u001B[32m[y]')
-    expect(text).toContain('\u001B[36m[↑↓]')
+    expect(text).toContain('\u001B[94m[↑↓]')
     expect(text).not.toContain('\u001B[31m')
   })
 
