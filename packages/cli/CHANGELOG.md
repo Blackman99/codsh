@@ -1,5 +1,33 @@
 # codsh
 
+## 0.25.0
+
+### Minor Changes
+
+- 11d95ee: The terminal UI is painted in DeepSeek blue (#4D6BFE), and `/theme` switches themes the way Grok CLI does. Arrows preview each theme live, `Enter` saves it and `Esc` reverts. `/theme <name>` sets a theme directly.
+  
+  Themes:
+  - `auto` (the default) follows the terminal's light or dark background.
+  - `deepseek` and `deepseek-light` are the two DeepSeek themes.
+  - `terminal` paints only your terminal's own sixteen colours, with no backgrounds.
+  
+  The choice is saved in `$DSH_HOME/code-cli-ui.json` without touching `/ui`'s setting. `CODSH_THEME=<name>` overrides it for one launch.
+  
+  The cursor takes the theme's accent (OSC 12) and gets its colour back on exit. History already on screen is repainted in the new theme. The accent, the thinking rail, headings, links and the person's message band all change colour. Semantic colours stay red, green and amber.
+
+### Patch Changes
+
+- 252f5d4: `pnpm run sync:dsh` stays on the newest `@deepseek-ai/dsh` release whose dependency closure is fully published, so a harness release that names a missing package no longer fails the nightly sync.
+- 1147eca: Thought clocks and tool cards now read as one stretch of work, the way Grok CLI lays out a turn. They stack flush together, with one blank row between the stretch and your prompt above it, and one blank row before the answer below it. Before this, the first thought sat directly under your prompt and the answer directly under the last thought.
+  
+  Tool calls are also greyed out, so the work recedes behind the answer. A card's name is now dim, the same grey as the thought clock, on the running row and the finished one. The green `✔` stays. A failed call keeps its name in your terminal's own colour, so errors still stand out.
+- 1147eca: The blue rule beside your own message now frames it evenly, with one padding row above the text and one below. Before this, the `terminal` theme ran the rule into the blank row under the text only. Under `/ui comfortable`, the extra blank row between turns now sits above your message's panel instead of inside it. `/jump` and the timeline previews also show those later turns in full again. Before, a one-line turn showed up blank and a longer one lost its last line.
+- 1147eca: Tables in answers no longer fall apart. They were laid out two columns too wide for the space beside the transcript's rule, so every border and cell row wrapped its last characters onto a row of its own. Tables and todo readouts in the transcript now fit.
+  
+  Long lines now wrap between words, and a word is only cut when it is wider than a whole row. A break can fall at a space (the space is dropped), inside Chinese text but never just before punctuation such as `，` or `）`, or after the `/` in a path. A wrapped list item or indented line continues under its text instead of at the left edge, and copying the text leaves that indent out.
+  
+  The blank row above a thought now uses the neutral grey rule. The thought's colour marks only the thought's own row, instead of also running up into the blank above it.
+
 ## 0.24.1
 
 ### Patch Changes
