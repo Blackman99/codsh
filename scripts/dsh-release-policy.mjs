@@ -11,6 +11,12 @@ export const compareVersions = compare
  */
 
 /**
+ * A newer harness release the policy passed over, and the `name@range`
+ * requirements npm cannot satisfy for it.
+ * @typedef {{ version: string, unresolved: string[] }} SkippedRelease
+ */
+
+/**
  * Pick the harness target from registry metadata.
  *
  * The promoted `latest` tag is an explicit opt-in to a new release line. An
@@ -21,16 +27,24 @@ export const compareVersions = compare
  * A newer candidate is installable only when every required `@deepseek-ai/*`
  * range in its dependency closure has a published version. The harness has
  * shipped a meta-package whose dependency was never published; selecting that
- * version makes the sync install fail before CI can open a PR. A broken newer
- * release leaves the manifest's current version in place: ranges such as
- * `^0.1.5-rc.2` can float onto that broken release, while the committed
- * lockfile still installs.
+ * version makes the sync install fail before CI can open a PR.
+ *
+ * `required` names the harness packages codsh itself depends on. The sync
+ * bumps each of them to `^<target>`, so a candidate is installable only when
+ * every one is published there too. A release line that renames or drops one
+ * (0.1.7 replaced `dsh-agent-presets` with `dsh-agent-preset`) is a manual
+ * migration, not a range bump.
+ *
+ * Candidates are tried newest first: the promoted `latest`, then the highest
+ * version the current range resolves, then the manifest's own pin, which the
+ * committed lockfile still installs.
  * @param {RegistryMetadata} metadata - npm registry metadata for `@deepseek-ai/dsh`.
  * @param {string} currentRange - current @deepseek-ai/dsh manifest range.
  * @param {(name: string) => Promise<RegistryMetadata>} [loadMetadata] - registry lookup used while walking the closure. Required when a candidate might pull in packages other than `@deepseek-ai/dsh`.
- * @returns {Promise<string>} selected harness version.
+ * @param {Iterable<string>} [required] - harness package names codsh's manifests depend on.
+ * @returns {Promise<{ version: string, skipped: SkippedRelease[] }>} selected harness version, and the newer releases passed over.
  */
-export async function selectDshTarget(metadata, currentRange, loadMetadata) {
+export async function selectDshTarget(metadata, currentRange, loadMetadata, required = []) {
   const range = validRange(currentRange)
   if (range === null) throw new Error(`invalid @deepseek-ai/dsh range: ${currentRange}`)
 
@@ -42,26 +56,51 @@ export async function selectDshTarget(metadata, currentRange, loadMetadata) {
   }
 
   const installable = maxSatisfying(versions, range)
-  const candidate = installable !== null && compare(latest, installable) < 0 ? installable : latest
-  if (await closureResolves(metadata, candidate, loadMetadata)) return candidate
-
   const pinned = minVersion(range)?.version
-  if (pinned && versions.includes(pinned) && compare(pinned, candidate) < 0) return pinned
-  throw new Error(`no installable @deepseek-ai/dsh release at or below ${candidate}`)
+  const fallback = pinned !== undefined && versions.includes(pinned) ? pinned : undefined
+  const newer = [latest, installable]
+    .filter((version) => version !== null)
+    .sort((a, b) => compare(b, a))
+    .filter((version, index, sorted) => sorted.indexOf(version) === index)
+    .filter((version) => fallback === undefined || compare(fallback, version) < 0)
+  // With nothing newer, the pin itself is the candidate and must still resolve.
+  const candidates = newer.length > 0 ? newer : [fallback]
+
+  /** @type {Map<string, RegistryMetadata>} */
+  const cache = new Map([['@deepseek-ai/dsh', metadata]])
+  /** @type {SkippedRelease[]} */
+  const skipped = []
+  for (const candidate of candidates) {
+    const unresolved = await unresolvedClosure(cache, candidate, [...required], loadMetadata)
+    if (unresolved.length === 0) return { version: candidate, skipped }
+    skipped.push({ version: candidate, unresolved })
+  }
+
+  if (fallback !== undefined && !candidates.includes(fallback)) return { version: fallback, skipped }
+  throw new Error(`no installable @deepseek-ai/dsh release at or below ${candidates[0]}`)
 }
 
 /**
- * @param {RegistryMetadata} rootMetadata
+ * Walk `@deepseek-ai/dsh@version`, plus `^version` of every required package,
+ * through their `@deepseek-ai/*` dependencies.
+ * @param {Map<string, RegistryMetadata>} cache - metadata shared across candidates.
  * @param {string} version
+ * @param {string[]} required
  * @param {(name: string) => Promise<RegistryMetadata>} [loadMetadata]
+ * @returns {Promise<string[]>} the `name@range` requirements no published version satisfies.
  */
-async function closureResolves(rootMetadata, version, loadMetadata) {
-  /** @type {Map<string, RegistryMetadata>} */
-  const cache = new Map([['@deepseek-ai/dsh', rootMetadata]])
+async function unresolvedClosure(cache, version, required, loadMetadata) {
   /** @type {Set<string>} */
   const seen = new Set()
+  /** @type {string[]} */
+  const unresolved = []
   /** @type {Array<[string, string]>} */
-  const pending = [['@deepseek-ai/dsh', version]]
+  const pending = [
+    ['@deepseek-ai/dsh', version],
+    ...required
+      .filter((name) => name !== '@deepseek-ai/dsh')
+      .map((name) => /** @type {[string, string]} */ ([name, `^${version}`])),
+  ]
 
   while (pending.length > 0) {
     const [name, wanted] = pending.pop()
@@ -72,17 +111,19 @@ async function closureResolves(rootMetadata, version, loadMetadata) {
     const metadata = cache.get(name) ?? await load(name, loadMetadata)
     cache.set(name, metadata)
     const published = Object.keys(metadata.versions)
-    const resolved = maxSatisfying(published, wanted)
-    if (resolved === null) return false
+    const resolved = validRange(wanted) === null ? null : maxSatisfying(published, wanted)
+    if (resolved === null) {
+      unresolved.push(key)
+      continue
+    }
 
     const manifest = metadata.versions[resolved]
     for (const [dependency, dependencyRange] of Object.entries(manifest.dependencies ?? {})) {
       if (!dependency.startsWith('@deepseek-ai/')) continue
-      if (validRange(dependencyRange) === null) return false
       pending.push([dependency, dependencyRange])
     }
   }
-  return true
+  return unresolved.sort()
 }
 
 /**

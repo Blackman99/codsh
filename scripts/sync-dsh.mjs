@@ -23,6 +23,7 @@ import { execSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { maxSatisfying } from 'semver'
 import { compareVersions, selectDshTarget } from './dsh-release-policy.mjs'
 import { parsePatchIds, patchDriftProblems } from './dsh-patch-drift.mjs'
 
@@ -92,13 +93,31 @@ const dshRange = manifests
     ?? pkg.devDependencies?.['@deepseek-ai/dsh'])
   .find((range) => range !== undefined)
 if (dshRange === undefined) throw new Error('no @deepseek-ai/dsh range found in workspace manifests')
+const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies']
+/** Every harness package codsh depends on; the bump below moves each of them to the target. */
+const requiredDsh = new Set(
+  manifests.flatMap(({ pkg }) => SECTIONS.flatMap((section) => Object.keys(pkg[section] ?? {})))
+    .filter((name) => name.startsWith('@deepseek-ai/dsh')),
+)
 // A promoted `latest` opts into a new release line. Within the current range,
 // also track the highest version a lockfile-free install would resolve: the
 // harness has published same-core RCs without moving its tags. An unrelated
 // alpha tag is neither signal and must not silently move codsh onto that line.
-const dshLatest = await selectDshTarget(dshMeta, dshRange, registry)
-if (dshLatest !== dshMeta['dist-tags'].latest) {
+const { version: dshLatest, skipped } = await selectDshTarget(dshMeta, dshRange, registry, requiredDsh)
+if (compareVersions(dshLatest, dshMeta['dist-tags'].latest) > 0) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
+}
+// A skipped release is either waiting on upstream to publish a package, or it
+// renamed or dropped one codsh depends on; the latter is a manual migration
+// that no range bump will ever reach, so it must not pass silently.
+for (const { version, unresolved } of skipped) {
+  const message = `@deepseek-ai/dsh ${version} skipped: nothing published satisfies ${unresolved.join(', ')}. ` +
+    'If the harness renamed or dropped a package codsh depends on, migrate codsh to that release by hand.'
+  console.log(`note: ${message}\n`)
+  // The nightly workflow always runs --check first; the apply step would repeat the annotation.
+  if (checkOnly && process.env.GITHUB_ACTIONS === 'true') {
+    console.log(`::warning title=dsh ${version} not synced::${message}`)
+  }
 }
 
 /** The launcher reads this floor at boot so an older host dsh is refused, not crashed. */
@@ -114,11 +133,18 @@ function writeCliRequiresDsh(latest) {
   console.log(`↑ packages/cli/package.json codsh.requiresDsh → ${latest}`)
   return true
 }
+// Co-released packages move to what the target harness itself resolves, not to
+// their own latest tag: dsh 0.1.5-rc.3 pins cordis 4.0.2 exactly, so a bump to
+// a newer cordis beside it would split the tree. One the target does not name
+// stays where it is.
 const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-group', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
+const dshTargetDeps = dshMeta.versions[dshLatest].dependencies ?? {}
 const extraLatest = Object.fromEntries(
-  await Promise.all(
-    extra.map(async (n) => [n, (await registry(n))['dist-tags'].latest]),
-  ),
+  (await Promise.all(
+    extra
+      .filter((n) => dshTargetDeps[n] !== undefined)
+      .map(async (n) => [n, maxSatisfying(Object.keys((await registry(n)).versions), dshTargetDeps[n])]),
+  )).filter(([, version]) => version !== null),
 )
 
 // The current installed tree must always match codsh's patch; guard this
@@ -126,7 +152,6 @@ const extraLatest = Object.fromEntries(
 verifyPatchDrift()
 
 // ── 2. Which ranges would change? ──────────────────────────────────────────
-const SECTIONS = ['dependencies', 'peerDependencies', 'devDependencies']
 /** Every stale range, carrying the manifest and section it lives in. */
 const stale = []
 for (const { path, pkg } of manifests) {
