@@ -1,5 +1,15 @@
 # codsh-bundle
 
+## 0.27.0
+
+### Minor Changes
+
+- facf975: Keep the todo readout in step with the work. The readout showed the list exactly as the model last wrote it, and the model often stopped writing: one session pinned an item it had finished 213 tool calls and two compactions earlier. When an agent makes 20 tool calls with an open todo list unchanged, or a compaction drops the list from its context, codsh now shows the model its list again after a tool result and asks it to bring the list up to date. The reminder is context for the model, never a transcript row, and holds while plan mode is on. `CODSH_TODO_REMINDER=<calls>` changes the count for one launch; `off` turns it off.
+
+### Patch Changes
+
+- 5d1ae74: Settings and view commands take effect at once while the agent works instead of waiting in the queue: `/theme`, `/ui`, `/model`, `/thinking`, `/effort`, `/permission`, bare `/plan` and `/plan off`, `/status`, `/todos`, `/subagents`, `/jump`, `/copy`, `/view`, `/diff`, and `/help`. A model or thinking switch made mid-turn applies from the running turn's next step. Commands that start a turn or swap the session (`/init`, `/ship`, custom commands, `/compact`, `/goal`, `/plan <message>`, `/clear`, `/resume`, `/rewind`, `/update`, `/exit`) still queue. Ctrl-C while such a command's picker is open closes the picker and leaves the turn running. A command of a kind already queued waits behind it so the order typed holds, a queued `/` line says it will run when the turn ends, and `/plan off` is accepted in any case.
+
 ## 0.26.0
 
 ### Minor Changes
