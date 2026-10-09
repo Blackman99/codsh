@@ -39,7 +39,7 @@ describe('patchDriftProblems', () => {
 
     expect(patchDriftProblems({
       root,
-      patchPath: join(root, 'packages/bundle/cordis.patch.yml'),
+      bundleDir: join(root, 'packages/bundle'),
     })).toEqual([])
   })
 
@@ -52,9 +52,57 @@ describe('patchDriftProblems', () => {
 
     expect(patchDriftProblems({
       root,
-      patchPath: join(root, 'packages/bundle/cordis.patch.yml'),
+      bundleDir: join(root, 'packages/bundle'),
     })).toEqual([
       'cordis.patch.yml references plugin id "tool-str-replace-editor", but no installed @deepseek-ai bundle declares it — the row is dead or the id was renamed upstream.',
+    ])
+  })
+
+  it('reports an inserted package that is not installed', () => {
+    const root = fixture({
+      'packages/bundle/cordis.patch.yml':
+        "- insert:\n    - id: agent-presets\n      name: '@deepseek-ai/dsh-agent-presets'\n" +
+        "    - id: tools\n      name: cordis:group\n",
+      'node_modules/@deepseek-ai/dsh-agent-preset/package.json': '{}',
+    })
+
+    expect(patchDriftProblems({ root, bundleDir: join(root, 'packages/bundle') })).toEqual([
+      'cordis.patch.yml inserts package "@deepseek-ai/dsh-agent-presets", but it is not installed.',
+    ])
+  })
+
+  it('checks every patch the bundle lists, including a preset\'s child rows by package', () => {
+    const root = fixture({
+      'packages/bundle/package.json': JSON.stringify({
+        dsh: { bundle: { patch: ['./cordis.patch.yml', './presets/code-cli.patch.yml'] } },
+      }),
+      'packages/bundle/cordis.patch.yml': '- id: tool-fs\n  disabled: true\n',
+      'packages/bundle/presets/code-cli.patch.yml':
+        "- insert:\n    - id: preset-code-cli\n      name: '@deepseek-ai/dsh-agent-preset'\n" +
+        "      config:\n        plugins:\n          - id: list-agents\n" +
+        "            name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'\n",
+      'node_modules/@deepseek-ai/dsh-base/cordis.patch.yml':
+        "- insert:\n    - id: tool-fs\n      name: '@deepseek-ai/dsh-tool-fs'\n",
+      'node_modules/@deepseek-ai/dsh-agent-preset/package.json': '{}',
+    })
+
+    expect(patchDriftProblems({ root, bundleDir: join(root, 'packages/bundle') })).toEqual([
+      'presets/code-cli.patch.yml inserts package "@deepseek-ai/dsh-tool-subagent-control/list-agents", but it is not installed.',
+    ])
+  })
+
+  it('ignores a store entry the lockfile no longer pins', () => {
+    const root = fixture({
+      'pnpm-lock.yaml': "packages:\n\n  '@deepseek-ai/dsh-base@0.2.0-rc.2':\n    resolution: {}\n",
+      'packages/bundle/cordis.patch.yml': '- id: workflow-worker-thread\n  disabled: true\n',
+      'node_modules/.pnpm/@deepseek-ai+dsh-base@0.1.5-rc.2/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml':
+        "- insert:\n    - id: workflow-worker-thread\n      name: '@deepseek-ai/dsh-workflow-worker-thread'\n",
+      'node_modules/.pnpm/@deepseek-ai+dsh-base@0.2.0-rc.2/node_modules/@deepseek-ai/dsh-base/cordis.patch.yml':
+        "- insert:\n    - id: workflow-ptc\n      name: '@deepseek-ai/dsh-workflow-ptc'\n",
+    })
+
+    expect(patchDriftProblems({ root, bundleDir: join(root, 'packages/bundle') })).toEqual([
+      'cordis.patch.yml references plugin id "workflow-worker-thread", but no installed @deepseek-ai bundle declares it — the row is dead or the id was renamed upstream.',
     ])
   })
 })

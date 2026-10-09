@@ -4,10 +4,11 @@
  * drift that fails the job.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join, relative } from 'node:path'
 
 /**
- * All `- id:` rows of a cordis patch, split into referenced vs inserted.
+ * All `- id:` rows of a cordis patch, split into referenced vs inserted, and
+ * every package an inserted row (or a preset's child row) loads.
  * @param {string} file - path to a cordis.patch.yml.
  * @returns {{ referenced: Set<string>, inserted: Set<string>, names: Set<string> }}
  */
@@ -30,10 +31,29 @@ export function parsePatchIds(file) {
     if (!inInsert) continue
     const m = /^\s*- id:\s*(\S+)/.exec(t)
     if (m) inserted.add(m[1])
-    const n = /^\s*- name:\s*['"]?([^'"]+)['"]?\s*$/.exec(t)
-    if (n) names.add(n[1])
+    // `name:` is usually the second key of a row, so it carries no `- `.
+    // `cordis:group` and the like are loader built-ins, not packages.
+    const n = /^(?:- )?name:\s*['"]?([^'"\s]+)['"]?$/.exec(t)
+    if (n && !n[1].startsWith('cordis:')) names.add(n[1])
   }
   return { referenced, inserted, names }
+}
+
+/**
+ * The patch files a bundle package composes, in order: its `dsh.bundle.patch`
+ * (a path or a list), else a sibling `cordis.patch.yml`.
+ * @param {string} packageDir - installed package directory.
+ * @returns {string[]} existing patch file paths.
+ */
+export function bundlePatchFiles(packageDir) {
+  let declared
+  try {
+    declared = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')).dsh?.bundle?.patch
+  } catch {
+    declared = undefined
+  }
+  const relative = declared === undefined ? ['cordis.patch.yml'] : [declared].flat()
+  return relative.map((path) => join(packageDir, path)).filter((path) => existsSync(path))
 }
 
 /**
@@ -50,7 +70,40 @@ export function scopeDirs(root) {
 }
 
 /**
- * Every installed `@deepseek-ai` `cordis.patch.yml`, including pnpm's virtual
+ * `@deepseek-ai` store entries (`@deepseek-ai+name@version`) the workspace
+ * lockfile still pins. pnpm can leave a replaced version's directory behind in
+ * `.pnpm`; its old patch would declare every row the bump removed and hide the
+ * drift, so a scan only trusts entries the lockfile names.
+ * @param {string} root - workspace root.
+ * @returns {Set<string> | undefined} pinned entry prefixes, or undefined without a lockfile.
+ */
+function lockedStoreEntries(root) {
+  const lockfile = join(root, 'pnpm-lock.yaml')
+  if (!existsSync(lockfile)) return undefined
+  const locked = new Set()
+  for (const [, name, version] of readFileSync(lockfile, 'utf8').matchAll(/^ {2}'?(@deepseek-ai\/[^@'\s]+)@([^('\s:]+)/gm)) {
+    locked.add(`${name.replace('/', '+')}@${version}`)
+  }
+  return locked
+}
+
+/**
+ * `.pnpm` entry directories for `@deepseek-ai` packages the lockfile pins.
+ * @param {string} root - workspace root.
+ * @returns {string[]} entry names under `node_modules/.pnpm`.
+ */
+function storeEntries(root) {
+  const store = join(root, 'node_modules', '.pnpm')
+  if (!existsSync(store)) return []
+  const locked = lockedStoreEntries(root)
+  // A peer-resolved entry appends `_<peers or hash>`; versions never contain `_`.
+  return readdirSync(store)
+    .filter((entry) => entry.startsWith('@deepseek-ai+'))
+    .filter((entry) => locked === undefined || locked.has(entry.split('_')[0]))
+}
+
+/**
+ * Every installed `@deepseek-ai` bundle patch, including pnpm's virtual
  * store. pnpm 10 with shamefully-hoist puts dsh-base in the root scope; pnpm 12
  * may leave it only under `.pnpm`, and a scan that misses that copy reports
  * every host row as dead.
@@ -60,21 +113,21 @@ export function scopeDirs(root) {
 export function installedPatchFiles(root) {
   const files = []
   const seen = new Set()
-  const add = (file) => {
-    if (seen.has(file) || !existsSync(file)) return
-    seen.add(file)
-    files.push(file)
+  const addPackage = (packageDir) => {
+    for (const file of bundlePatchFiles(packageDir)) {
+      if (seen.has(file)) continue
+      seen.add(file)
+      files.push(file)
+    }
   }
   for (const scopeDir of scopeDirs(root)) {
-    for (const dir of readdirSync(scopeDir)) add(join(scopeDir, dir, 'cordis.patch.yml'))
+    for (const dir of readdirSync(scopeDir)) addPackage(join(scopeDir, dir))
   }
   const store = join(root, 'node_modules', '.pnpm')
-  if (!existsSync(store)) return files
-  for (const entry of readdirSync(store)) {
-    if (!entry.startsWith('@deepseek-ai+')) continue
+  for (const entry of storeEntries(root)) {
     const scopeDir = join(store, entry, 'node_modules', '@deepseek-ai')
     if (!existsSync(scopeDir)) continue
-    for (const dir of readdirSync(scopeDir)) add(join(scopeDir, dir, 'cordis.patch.yml'))
+    for (const dir of readdirSync(scopeDir)) addPackage(join(scopeDir, dir))
   }
   return files
 }
@@ -97,41 +150,43 @@ export function declaredPluginIds(root) {
 /**
  * Whether an inserted package name is present anywhere the loader could resolve it.
  * @param {string} root - workspace root.
- * @param {string} name - package name such as `@deepseek-ai/dsh-agent-presets`.
+ * @param {string} name - row name such as `@deepseek-ai/dsh-agent-preset` or `@deepseek-ai/dsh-plugin-manager/tools`.
  * @returns {boolean} true when the package exists in a scope or the virtual store.
  */
 export function insertedPackageInstalled(root, name) {
-  const resolved = name.replace('/', '/node_modules/')
-  if (scopeDirs(root).some((dir) => existsSync(join(dirname(dir), resolved)))) return true
+  const [scope, base] = name.split('/')
+  const packageName = `${scope}/${base}`
+  if (scopeDirs(root).some((dir) => existsSync(join(dir, base, 'package.json')))) return true
+  const prefix = `${packageName.replace('/', '+')}@`
   const store = join(root, 'node_modules', '.pnpm')
-  if (!existsSync(store)) return false
-  const prefix = `${name.replace('/', '+')}@`
-  return readdirSync(store).some((entry) => {
-    if (!entry.startsWith(prefix)) return false
-    return existsSync(join(store, entry, 'node_modules', name))
-  })
+  return storeEntries(root).some((entry) =>
+    entry.startsWith(prefix) && existsSync(join(store, entry, 'node_modules', packageName, 'package.json')))
 }
 
 /**
- * Drift between the bundle patch and the installed harness composition.
- * @param {{ root: string, patchPath: string }} options - workspace and patch paths.
- * @returns {string[]} problem descriptions; empty when the patch still matches.
+ * Drift between the bundle's own patches and the installed harness composition.
+ * @param {{ root: string, bundleDir: string }} options - workspace root and the bundle package directory.
+ * @returns {string[]} problem descriptions; empty when the patches still match.
  */
-export function patchDriftProblems({ root, patchPath }) {
+export function patchDriftProblems({ root, bundleDir }) {
   const problems = []
-  const { referenced, names } = parsePatchIds(patchPath)
   const declared = declaredPluginIds(root)
-  for (const id of referenced) {
-    if (!declared.has(id)) {
-      problems.push(
-        `cordis.patch.yml references plugin id "${id}", but no installed ` +
-          `@deepseek-ai bundle declares it — the row is dead or the id was renamed upstream.`,
-      )
+  for (const patchPath of bundlePatchFiles(bundleDir)) {
+    const file = relative(bundleDir, patchPath)
+    const { referenced, names } = parsePatchIds(patchPath)
+    for (const id of referenced) {
+      if (!declared.has(id)) {
+        problems.push(
+          `${file} references plugin id "${id}", but no installed ` +
+            `@deepseek-ai bundle declares it — the row is dead or the id was renamed upstream.`,
+        )
+      }
     }
-  }
-  for (const name of names) {
-    if (!insertedPackageInstalled(root, name)) {
-      problems.push(`cordis.patch.yml inserts package "${name}", but it is not installed.`)
+    for (const name of names) {
+      if (!name.startsWith('@deepseek-ai/')) continue
+      if (!insertedPackageInstalled(root, name)) {
+        problems.push(`${file} inserts package "${name}", but it is not installed.`)
+      }
     }
   }
   return problems

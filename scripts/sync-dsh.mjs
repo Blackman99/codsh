@@ -25,7 +25,7 @@ import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { maxSatisfying } from 'semver'
 import { compareVersions, selectDshTarget } from './dsh-release-policy.mjs'
-import { parsePatchIds, patchDriftProblems } from './dsh-patch-drift.mjs'
+import { bundlePatchFiles, parsePatchIds, patchDriftProblems } from './dsh-patch-drift.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -45,8 +45,8 @@ const manifestPaths = [
     .filter((path) => existsSync(path)),
 ]
 
-/** The patch belongs to the bundle, which is the package that composes dsh. */
-const patchPath = join(root, 'packages', 'bundle', 'cordis.patch.yml')
+/** The patches belong to the bundle, which is the package that composes dsh. */
+const bundleDir = join(root, 'packages', 'bundle')
 
 const args = new Set(process.argv.slice(2))
 const checkOnly = args.has('--check')
@@ -64,21 +64,22 @@ const registry = (name) =>
 
 const stripRange = (range) => (range.startsWith('^') ? range.slice(1) : range)
 
-/** Verify codsh's own patch still matches the installed bundles. */
+/** Verify codsh's own patches still match the installed bundles. */
 function verifyPatchDrift() {
-  const problems = patchDriftProblems({ root, patchPath })
+  const problems = patchDriftProblems({ root, bundleDir })
   if (problems.length) {
     console.error('\n✗ dsh bundle patch drift:\n')
     for (const p of problems) console.error(`  - ${p}`)
     console.error(
-      '\n  Update cordis.patch.yml to match the new harness composition, then rerun.',
+      '\n  Update the bundle patches to match the new harness composition, then rerun.',
     )
     process.exit(1)
   }
-  const { referenced, inserted } = parsePatchIds(patchPath)
+  const ids = bundlePatchFiles(bundleDir).map(parsePatchIds)
+  const count = (key) => ids.reduce((sum, parsed) => sum + parsed[key].size, 0)
   console.log(
-    `✓ patch ok: ${referenced.size} referenced ids all declared, ` +
-      `${inserted.size} inserted rows resolve`,
+    `✓ patch ok: ${count('referenced')} referenced ids all declared, ` +
+      `${count('names')} inserted packages installed`,
   )
 }
 
