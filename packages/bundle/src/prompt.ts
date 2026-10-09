@@ -26,7 +26,8 @@ import { FullscreenViewer } from './viewer.ts'
 import { DEFAULT_DENSITY, type Density } from './density.ts'
 import { columnIndex, displayWidth, markSpan, truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
-import { MessageQueue } from './queue.ts'
+import { MessageQueue, classify } from './queue.ts'
+import { commandName } from './immediate.ts'
 import { QueuePanel, queueRow, steerRefusal, steeringRow } from './queue-panel.ts'
 import type { QueueItem } from './queue.ts'
 import type { PanelAction, PanelTarget } from './queue-panel.ts'
@@ -90,6 +91,17 @@ export interface PromptHandlers {
    * @returns 'steered' once the agent holds it; 'idle' when no turn was running to take it.
    */
   steer?(item: QueueItem): Promise<'steered' | 'idle'>
+  /**
+   * A `/` line submitted while nothing is asking for one — a turn running,
+   * or another command — offered to the owner before it joins the Queue.
+   *
+   * The owner runs a command that only works the surface or a setting at
+   * once and says so; anything else is declined and queues as before.
+   * @param text - the submission, as typed.
+   * @param images - the images its tokens claimed.
+   * @returns true when the owner took the line and it must not be queued.
+   */
+  immediate?(text: string, images: PendingImage[]): boolean
   /**
    * Enter or a click in the subagents panel: open that child's view.
    * @param id - the child Session the row named.
@@ -192,6 +204,8 @@ export class Prompt {
   private readonly editor: Editor
   private pending: Pending | undefined
   private select_: ActiveSelect | undefined
+  /** Selections asked for while another was open, in the order they asked. */
+  private readonly selectWaiting: (() => void)[] = []
   private view_: ActiveView | undefined
   private gate_: ActiveGate | undefined
   private frontier_: ActiveFrontier | undefined
@@ -661,12 +675,32 @@ export class Prompt {
     if (this.console.finished || signal?.aborted === true) {
       return Promise.resolve({ kind: 'cancelled' })
     }
+    // One selection owns the box at a time. A second — an approval raised
+    // by the turn while an immediate command's picker is open — waits for the
+    // first to settle instead of replacing it and leaving its caller hanging.
+    if (this.select_ !== undefined) {
+      return new Promise<SelectOutcome>((resolve) => {
+        const open = (): void => {
+          signal?.removeEventListener('abort', onAbort)
+          void this.select(spec, signal, preview, settled).then(resolve)
+        }
+        const onAbort = (): void => {
+          const at = this.selectWaiting.indexOf(open)
+          if (at >= 0) this.selectWaiting.splice(at, 1)
+          resolve({ kind: 'cancelled' })
+        }
+        this.selectWaiting.push(open)
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    }
     return new Promise<SelectOutcome>((resolve) => {
       const settle = (outcome: SelectOutcome): void => {
         this.select_ = undefined
         settled?.(outcome)
         resolve(outcome)
-        this.render()
+        const next = this.selectWaiting.shift()
+        if (next !== undefined) next()
+        else this.render()
       }
       const onAbort = (): void => { settle({ kind: 'cancelled' }) }
       const selector = new Selector(spec)
@@ -776,6 +810,16 @@ export class Prompt {
   clear(): void {
     this.reading = false
     this.console.clearRegion()
+  }
+
+  /**
+   * Whether the Queue already holds a command of the same name as this line.
+   * @param text - the submission, as typed.
+   */
+  private queuesCommand(text: string): boolean {
+    const name = commandName(text)
+    if (name === undefined) return false
+    return this.queue.items.some(item => item.kind === 'command' && commandName(item.text) === name)
   }
 
   /**
@@ -1132,11 +1176,20 @@ export class Prompt {
         // the keystrokes. Its images are claimed now: a paste made after this
         // submission belongs to the next line, not retroactively to this one.
         const images = this.claimImages(action.text)
+        // A command that only works the chrome or a setting has nothing to
+        // wait for: it runs now, turn or no turn, and never enters the Queue.
+        // One exception keeps the order typed: a command of a kind already
+        // waiting in the Queue waits behind it, so `/plan off` cannot run ahead
+        // of a queued `/plan <message>` and be undone by it.
+        const isCommand = classify(action.text) === 'command'
+        if (isCommand && !this.queuesCommand(action.text) && this.handlers.immediate?.(action.text, images) === true) break
         if (steer) {
           void this.requestSteer(this.queue.make(action.text, images))
           break
         }
         this.queue.push(action.text, images)
+        // A `/` line that did not run says so, so it is not taken as applied.
+        if (isCommand) this.setFlash(this.theme.dim('  queued · runs when this turn ends'))
         break
       }
       case 'escape':

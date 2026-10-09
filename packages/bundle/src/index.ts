@@ -58,6 +58,8 @@ import { bannerLines, resolveWelcomeKind } from './banner.ts'
 import type { BannerFacts } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
+import { HARNESS_IMMEDIATE, ImmediateCommands, normalizeCommandLine, splitSurfaceCommand } from './immediate.ts'
+import type { SurfaceCommand } from './immediate.ts'
 import { styleDiffLine } from './diff.ts'
 import type { CompletableCommand } from './completion.ts'
 import { indexConversationContent, newestCopyTargets, resolveCopyTarget } from './content-index.ts'
@@ -482,6 +484,12 @@ async function runCommand(ctx: Context, agent: Agent, line: string, io: CliIo, t
   io.console.write('', blockRules(theme).meta)
 }
 
+/**
+ * Commands that only work the Chrome: they answer with a flash or a full-screen
+ * reader and echo nothing — /theme's repaint would wipe an echo anyway.
+ */
+const SURFACE_ONLY_COMMAND = /^\/(?:view|theme)(?:\s|$)/u
+
 /** How long the second Escape has to arrive to recall the previous message. */
 const RECALL_WINDOW_MS = 1500
 
@@ -903,6 +911,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   )
   for (const warning of custom.warnings) io.console.write(theme.dim(`  skipped ${warning}`), blockRules(theme).meta)
   const customByName = new Map(custom.commands.map(command => [command.name, command]))
+  // Which `/` lines run at Enter instead of waiting in the Queue. Surface
+  // commands mark themselves as they register below; `/help` is answered by
+  // `runCommand` itself.
+  const immediateCommands = new ImmediateCommands({ ...HARNESS_IMMEDIATE, help: true })
   // Read on each keystroke, not captured: the registry is scoped and changes
   // with the session's mode, and `/exit` is this surface's own.
   const completable = (): readonly CompletableCommand[] => [
@@ -977,6 +989,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   let onInterruptKey: () => void = () => {}
   let onShipGate: (gate: 1 | 2 | undefined) => void = () => {}
   let onSteer: (item: QueueItem) => Promise<'steered' | 'idle'> = () => Promise.resolve('idle')
+  let onImmediate: (text: string, images: PendingImage[]) => boolean = () => false
   let onEnterSubagent: (id: string) => void = () => {}
   const prompt = new Prompt(io.console, theme, {
     commands: completable,
@@ -987,6 +1000,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     interrupt: () => { onInterruptKey() },
     escape: () => { onEscapeKey() },
     steer: item => onSteer(item),
+    immediate: (text, images) => onImmediate(text, images),
     // Enter or a click in the subagents panel: open that child's view.
     enterSubagent: (id) => { onEnterSubagent(id) },
     now: () => performance.now(),
@@ -1261,15 +1275,24 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   if (commands !== undefined) {
     // `register` returns its own effect disposer, which is this registration's
     // lifetime: this runner owns the process, and `ctx.effect` would tie it to an
-    // effect scope the detached driver has already left.
-    disposers.push(commands.register({
+    // effect scope the detached driver has already left. `immediate` is this
+    // surface's flag, not the registry's: it decides whether a line typed while
+    // a turn runs executes at Enter or waits in the Queue.
+    const register = (command: SurfaceCommand): (() => void) => {
+      const { definition, immediate } = splitSurfaceCommand(command)
+      immediateCommands.mark(definition.name, immediate)
+      return commands.register(definition)
+    }
+    disposers.push(register({
       name: 'status',
       description: 'model · permissions · tokens · context',
+      immediate: true,
       handler: () => ({ kind: 'success', text: statusReport(facts(branch), live.agent.session.id) }),
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'ui',
       description: 'set transcript density: compact (default) or comfortable',
+      immediate: true,
       input: { hint: '[compact|comfortable]' },
       handler: async ({ rawInput }) => {
         const typed = rawInput.trim()
@@ -1285,9 +1308,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success', text: densityReport(next) }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'theme',
       description: 'colour theme: auto (default), deepseek, deepseek-light, terminal',
+      immediate: true,
       input: { hint: '[auto|deepseek|deepseek-light|terminal]' },
       handler: async ({ rawInput, signal }) => {
         const typed = rawInput.trim()
@@ -1328,7 +1352,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return report()
       },
     }))
-    disposers.push(commands.register({
+    // Queued: it takes the working line over and installs, which is no moment
+    // to share with a running turn.
+    disposers.push(register({
       name: 'update',
       description: 'check for a newer codsh and install it',
       handler: async ({ signal }) => {
@@ -1393,7 +1419,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         }
       },
     }))
-    disposers.push(commands.register({
+    // Queued: it forks the conversation, which a running turn is still writing.
+    disposers.push(register({
       name: 'rewind',
       description: 'fork the conversation from before an earlier turn',
       input: { hint: '[turn]' },
@@ -1438,9 +1465,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success', text: `↶ rewound to before turn ${String(point.turn)} · now on ${next.agent.session.id} · ${source.id} stays in /resume` }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'jump',
       description: 'jump to a real user turn',
+      immediate: true,
       input: { hint: '[turn]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/jump requires an interactive terminal' }
@@ -1478,9 +1506,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success' }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'copy',
       description: 'copy a raw assistant answer or fenced code block',
+      immediate: true,
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/copy requires an interactive terminal' }
@@ -1512,9 +1541,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success', text: `copied ${target.kind} ${target.address}` }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'view',
       description: 'open an assistant answer or fenced code block full-screen',
+      immediate: true,
       input: { hint: '[answer[:code]]' },
       handler: async ({ rawInput, signal }) => {
         if (!io.console.readsKeys) return { kind: 'error', text: '/view requires an interactive terminal' }
@@ -1551,9 +1581,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success' }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'todos',
       description: 'print the agent\'s todo list as it now stands',
+      immediate: true,
       handler: () => {
         // The readout answers this at a glance on a terminal; this is the same
         // list for the pipe shape, which has no chrome and no keys to open it.
@@ -1563,9 +1594,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           : { kind: 'success', text: lines.join('\n') }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'subagents',
       description: 'print the subagents this session started, and how they are doing',
+      immediate: true,
       handler: () => {
         // The readout and the panel answer this on a terminal; this is the
         // same roster for the pipe shape, which has no chrome to open.
@@ -1575,7 +1607,9 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           : { kind: 'success', text: lines.join('\n') }
       },
     }))
-    disposers.push(commands.register({
+    // Queued, like /resume: swapping the session under a running turn would
+    // orphan it.
+    disposers.push(register({
       name: 'clear',
       description: 'start a fresh session in place',
       handler: async () => {
@@ -1596,7 +1630,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         return { kind: 'success', text: `new session ${live.agent.session.id}` }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'resume',
       description: 'switch to an earlier session',
       input: { hint: '[session-id]' },
@@ -1693,9 +1727,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
           : offer(hereRecords, otherRecords)
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'diff',
       description: 'show uncommitted workspace changes',
+      immediate: true,
       handler: async ({ signal }) => {
         // HEAD covers staged and unstaged both; a repo with no commits yet
         // falls back to the plain working-tree diff.
@@ -1738,6 +1773,13 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       await refreshReasoning()
       refreshStatus()
     }
+    /**
+     * How a switch made mid-turn reads. The harness snapshots the selection
+     * when it assembles each request, so a step already in flight finishes on
+     * the route it started with and the switch takes the next one; a model
+     * change also lands a notice in the conversation so the new model knows.
+     */
+    const fromNextStep = (): string => live.agent.status === 'running' ? ' · from the next step' : ''
     const applyThinking = async (effort: ReasoningEffortId): Promise<void> => {
       const current = selection.current
       if (current === undefined) return
@@ -1754,7 +1796,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       refreshStatus()
     }
-    const handleThinking = async (rawInput: string) => {
+    const handleThinking = async (rawInput: string, signal?: AbortSignal) => {
       if (activeReasoning === undefined) {
         await refreshReasoning()
       }
@@ -1770,25 +1812,26 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const outcome = await prompt.select({
           title: 'Thinking level',
           options: buildThinkingOptions(activeReasoning, currentEffort),
-        })
+        }, signal)
         if (outcome.kind !== 'chosen') return { kind: 'success' as const, text: 'thinking unchanged' }
         const picked = activeReasoning.efforts[outcome.indices[0] ?? -1]
         if (picked === undefined) return { kind: 'success' as const, text: 'thinking unchanged' }
         await applyThinking(picked.id)
-        return { kind: 'success' as const, text: `thinking ${picked.id}` }
+        return { kind: 'success' as const, text: `thinking ${picked.id}${fromNextStep()}` }
       }
       const resolved = resolveEffortChoice(typed, activeReasoning)
       if (!resolved.ok) {
         return { kind: 'error' as const, text: resolved.error }
       }
       await applyThinking(resolved.effort)
-      return { kind: 'success' as const, text: `thinking ${resolved.effort}` }
+      return { kind: 'success' as const, text: `thinking ${resolved.effort}${fromNextStep()}` }
     }
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'model',
       description: 'switch the model answering this session',
+      immediate: true,
       input: { hint: '[model|provider/model]' },
-      handler: async ({ rawInput }) => {
+      handler: async ({ rawInput, signal }) => {
         const typed = rawInput.trim()
         if (typed === '') {
           await refreshModelCatalog()
@@ -1812,12 +1855,12 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
               return { label: `${entry.provider}/${entry.id}`, detail: active ? `${entry.name} · current` : entry.name }
             }),
             filterable: true,
-          })
+          }, signal)
           if (outcome.kind !== 'chosen') return { kind: 'success', text: 'model unchanged' }
           const picked = modelCatalog[outcome.indices[0] ?? -1]
           if (picked === undefined) return { kind: 'success', text: 'model unchanged' }
           await applyModel(picked.provider, picked.id)
-          return { kind: 'success', text: `model ${picked.provider}/${picked.id}` }
+          return { kind: 'success', text: `model ${picked.provider}/${picked.id}${fromNextStep()}` }
         }
         // The catalog resolves bare ids; fetch it if the background load has
         // not landed yet rather than answering "no catalog".
@@ -1825,20 +1868,22 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const resolved = resolveModelArgument(typed)
         if (typeof resolved === 'string') return { kind: 'error', text: resolved }
         await applyModel(resolved.provider, resolved.model)
-        return { kind: 'success', text: `model ${resolved.provider}/${resolved.model}` }
+        return { kind: 'success', text: `model ${resolved.provider}/${resolved.model}${fromNextStep()}` }
       },
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'thinking',
       description: 'configure reasoning effort for the current model',
+      immediate: true,
       input: { hint: '[off|on|level]' },
-      handler: async ({ rawInput }) => handleThinking(rawInput),
+      handler: async ({ rawInput, signal }) => handleThinking(rawInput, signal),
     }))
-    disposers.push(commands.register({
+    disposers.push(register({
       name: 'effort',
       description: 'configure reasoning effort for the current model',
+      immediate: true,
       input: { hint: '[off|on|level]' },
-      handler: async ({ rawInput }) => handleThinking(rawInput),
+      handler: async ({ rawInput, signal }) => handleThinking(rawInput, signal),
     }))
   }
 
@@ -2840,6 +2885,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // The controller in flight belongs to the slash command being executed, so
   // one interrupt reaches whichever kind of work is running.
   let running: AbortController | undefined
+  /** Immediate commands in flight, run off the key while the loop may be in a turn. */
+  const immediateRuns = new Set<AbortController>()
   /**
    * Steers handed to the agent and not yet claimed, by the message id dsh
    * knows them by. The queue itself stays in the prompt; only what has left
@@ -2881,13 +2928,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
    * @returns whether anything was running.
    */
   const interrupt = (): boolean => {
-    const busy = live.agent.status === 'running' || running !== undefined
+    const busy = live.agent.status === 'running' || running !== undefined || immediateRuns.size > 0
     // The work is being cancelled, so the working indicator goes first: it owns
     // the live region, and anything written under it would be followed by the
     // indicator redrawing itself as though the turn were still going.
     spinner.stop()
     stopThinkingPulse()
     running?.abort()
+    for (const run of immediateRuns) run.abort()
     ship.abort()
     // A steer in flight comes back to the queue first; the inbox is kept so
     // dsh logs no canceled splice for what the surface already took back.
@@ -2959,6 +3007,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // does not end a session mid-turn, and it is the only interrupt — on a
   // terminal and off one, where Escape cannot arrive before its line.
   onInterruptKey = () => {
+    // An immediate command in flight — a /model picker opened mid-turn, say —
+    // is what the press is aimed at: it closes alone and the turn runs on. A
+    // second press is a fresh interrupt, not the exit's repeat.
+    if (immediateRuns.size > 0) {
+      for (const run of immediateRuns) run.abort()
+      // Forgotten at once, so a handler deaf to its signal cannot also make
+      // the turn unstoppable: the next press reaches it.
+      immediateRuns.clear()
+      return
+    }
     const now = performance.now()
     const repeated = now - lastInterrupt < INTERRUPT_EXIT_WINDOW_MS
     lastInterrupt = now
@@ -3151,6 +3209,50 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     return 'steered'
   }
 
+  /**
+   * Echo one immediate registry command and run it, the way the loop does.
+   * @param line - the trimmed `/` line.
+   * @param signal - cancels it on Ctrl-C.
+   */
+  const runRegistryCommand = async (line: string, signal: AbortSignal): Promise<void> => {
+    const surfaceOnly = SURFACE_ONLY_COMMAND.test(line)
+    // A command produces no session event, so nothing else would show what
+    // was run above its result. It sits on the tool rail: it is not a turn
+    // header, and a chrome-only command echoes nothing at all.
+    if (!surfaceOnly) prompt.write(`  ${line}`, blockRules(theme).tool)
+    await runCommand(ctx, live.agent, line, io, theme, signal, [], surfaceOnly)
+  }
+
+  // A command that only works the chrome or a setting runs at Enter, turn or
+  // no turn, instead of waiting in the Queue behind the work it would not
+  // disturb. The loop may be blocked in a turn, so this runs off the key, like
+  // a steer; immediate commands still go one at a time, in the order typed.
+  let immediateChain: Promise<void> = Promise.resolve()
+  onImmediate = (text, images) => {
+    const line = normalizeCommandLine(text.trim())
+    if (!immediateCommands.test(line)) return false
+    // Images ride the loop's path, which admits them or says why it dropped them.
+    if (images.length > 0) return false
+    // A Child view takes no commands; the line keeps its place in the Queue
+    // rather than being dropped, and runs once the parent is back.
+    if (childViews.current !== undefined) return false
+    immediateChain = immediateChain.then(async () => {
+      const controller = new AbortController()
+      immediateRuns.add(controller)
+      try {
+        await runRegistryCommand(line, controller.signal)
+      } catch (error) {
+        // Closed by Ctrl-C: the press was the answer, not a failure to report.
+        if (!controller.signal.aborted) throw error
+      } finally {
+        immediateRuns.delete(controller)
+      }
+    }).catch((error: unknown) => {
+      prompt.write(theme.error(`  ${line}: ${error instanceof Error ? error.message : String(error)}`), blockRules(theme).error)
+    })
+    return true
+  }
+
   if (config.print) {
     // No viewport in print mode: the caller wants the answer on stdout.
     await turn(live.agent, config.task, spinner)
@@ -3246,10 +3348,10 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (line === undefined) break
     // The line's pasted images, drained exactly once beside it.
     const images = prompt.takeAttachments()
-    const trimmed = line.trim()
+    const trimmed = normalizeCommandLine(line.trim())
     // Chrome-only commands answer with a flash and echo nothing: /theme's
     // repaint would wipe an echo anyway.
-    const surfaceOnlyView = /^\/(?:view|theme)(?:\s|$)/u.test(trimmed)
+    const surfaceOnlyView = SURFACE_ONLY_COMMAND.test(trimmed)
     if (trimmed === '') continue
     if (trimmed === '/exit' || trimmed === '/quit') break
     if (childViews.current !== undefined) {

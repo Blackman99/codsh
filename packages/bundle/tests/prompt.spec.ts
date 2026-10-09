@@ -227,6 +227,135 @@ describe('reading on a terminal', () => {
   })
 })
 
+describe('immediate commands', () => {
+  /**
+   * A prompt whose owner runs `/theme`-like lines at once.
+   * @returns the prompt, its console, and the lines the owner ran.
+   */
+  function withImmediate() {
+    const console = fakeConsole(true)
+    const ran: { text: string; images: number }[] = []
+    const prompt = new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+      immediate: (text, images) => {
+        if (!/^\/(?:theme|model|effort)\b/u.test(text.trim())) return false
+        ran.push({ text, images: images.length })
+        return true
+      },
+    })
+    return { prompt, console, ran }
+  }
+
+  it('runs a settings command typed while the agent works, and never queues it', () => {
+    const { prompt, console, ran } = withImmediate()
+    // Nothing is reading: a turn is running.
+    submit(console, '/theme deepseek-light')
+    submit(console, '/model deepseek-v4-pro')
+    submit(console, '/effort high')
+    expect(ran.map(entry => entry.text)).toEqual(['/theme deepseek-light', '/model deepseek-v4-pro', '/effort high'])
+    expect(prompt.queued).toEqual([])
+    expect(drawn(console)).not.toContain('queued')
+  })
+
+  it('still queues a command that needs the agent, in its place among prompts', async () => {
+    const { prompt, console, ran } = withImmediate()
+    submit(console, 'first')
+    submit(console, '/compact')
+    submit(console, '/theme terminal')
+    submit(console, 'second')
+    expect(ran.map(entry => entry.text)).toEqual(['/theme terminal'])
+    expect(prompt.queued.map(item => item.text)).toEqual(['first', '/compact', 'second'])
+    expect(await prompt.read()).toBe('first')
+    expect(await prompt.read()).toBe('/compact')
+    expect(await prompt.read()).toBe('second')
+  })
+
+  it('leaves an idle prompt to the loop, which dispatches it as before', async () => {
+    const { prompt, console, ran } = withImmediate()
+    const reading = prompt.read()
+    submit(console, '/theme auto')
+    expect(await reading).toBe('/theme auto')
+    expect(ran).toEqual([])
+  })
+
+  it('never offers a prompt or a ! line to the owner', () => {
+    const { prompt, console, ran } = withImmediate()
+    submit(console, 'theme please')
+    submit(console, '!echo /theme')
+    expect(ran).toEqual([])
+    expect(prompt.queued.map(item => item.text)).toEqual(['theme please', '!echo /theme'])
+  })
+
+  it('keeps a command behind one of its kind already queued, so the order typed holds', () => {
+    const console = fakeConsole(true)
+    const ran: string[] = []
+    const prompt = new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+      // `/plan` the way the harness table reads it: bare or `off` is a setting.
+      immediate: (text) => {
+        const match = /^\/plan(?:\s+(.*))?$/u.exec(text.trim())
+        if (match === null) return false
+        const rest = (match[1] ?? '').trim().toLowerCase()
+        if (rest !== '' && rest !== 'off') return false
+        ran.push(text)
+        return true
+      },
+    })
+    submit(console, '/plan sketch the migration')
+    submit(console, '/plan off')
+    // Run at once, it would leave plan mode before the queued line entered it.
+    expect(ran).toEqual([])
+    expect(prompt.queued.map(item => item.text)).toEqual(['/plan sketch the migration', '/plan off'])
+  })
+
+  it('says a queued command waits for the turn, and stays quiet for one that ran', () => {
+    const { console } = withImmediate()
+    submit(console, '/theme terminal')
+    expect(drawn(console)).not.toContain('runs when this turn ends')
+    submit(console, '/compact')
+    expect(drawn(console)).toContain('queued · runs when this turn ends')
+  })
+
+  it('does not flag a queued prompt as a command', () => {
+    const { console } = withImmediate()
+    submit(console, 'just a message')
+    expect(drawn(console)).not.toContain('runs when this turn ends')
+  })
+
+  it('runs an immediate command on Ctrl-Enter instead of refusing to steer it', () => {
+    const { steer, items } = steerFixture()
+    const console = fakeConsole(true)
+    const ran: string[] = []
+    const prompt = new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+      steer,
+      immediate: (text) => {
+        ran.push(text)
+        return true
+      },
+    })
+    console.press({ kind: 'text', text: '/model deepseek-v4-flash' })
+    console.press({ kind: 'steer' })
+    expect(ran).toEqual(['/model deepseek-v4-flash'])
+    expect(items).toEqual([])
+    expect(prompt.queued).toEqual([])
+  })
+
+  it('answers an open question rather than running the line', async () => {
+    const { prompt, console, ran } = withImmediate()
+    const answer = prompt.readAnswer()
+    submit(console, '/theme')
+    expect(await answer).toBe('/theme')
+    expect(ran).toEqual([])
+  })
+})
+
 describe('reading off a terminal', () => {
   it('delegates to the line reader', async () => {
     const { prompt, console } = build(false)
@@ -358,6 +487,34 @@ describe('selection', () => {
     expect(console.draws.length).toBeGreaterThan(drawsAtSettle)
     expect(console.draws[drawsAtSettle - 1]?.rows[0]).toBe('Theme')
     expect(console.draws.at(-1)?.rows[0]).not.toBe('Theme')
+  })
+
+  it('opens a second selection only once the first settles', async () => {
+    const { prompt, console } = build()
+    // An immediate /model picker is open when the turn asks for an approval.
+    const picking = prompt.select({ title: 'Switch model', options: [{ label: 'flash' }, { label: 'pro' }] })
+    const approving = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }, { label: 'No' }] })
+    expect(console.draws.at(-1)?.rows[0]).toBe('Switch model')
+    console.press({ kind: 'down' })
+    console.press({ kind: 'enter' })
+    expect(await picking).toEqual({ kind: 'chosen', indices: [1] })
+    // The approval took the box next, rather than having replaced the picker.
+    expect(console.draws.at(-1)?.rows[0]).toBe('Allow?')
+    console.press({ kind: 'enter' })
+    expect(await approving).toEqual({ kind: 'chosen', indices: [0] })
+  })
+
+  it('cancels a waiting selection whose signal aborts before its turn', async () => {
+    const { prompt, console } = build()
+    const first = prompt.select({ title: 'Theme', options: [{ label: 'auto' }] })
+    const controller = new AbortController()
+    const waiting = prompt.select({ title: 'Allow?', options: [{ label: 'Yes' }] }, controller.signal)
+    controller.abort()
+    expect(await waiting).toEqual({ kind: 'cancelled' })
+    console.press({ kind: 'escape' })
+    expect(await first).toEqual({ kind: 'cancelled' })
+    // Nothing was left waiting to take the box.
+    expect(console.draws.at(-1)?.rows[0]).not.toBe('Allow?')
   })
 
   it('settles on a row pressed and released in the same place', async () => {

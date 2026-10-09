@@ -1079,13 +1079,15 @@ class CodeCliMockAdapter extends LlmAdapter {
     }
     if (MOCK_MODE === 'steer') {
       // A second `$ sleep` card would mean a second turn; `seen=yes` with only
-      // one card proves the steer message arrived mid-turn.
+      // one card proves the steer message arrived mid-turn. The serving model
+      // is named too, so a /model typed mid-turn can be shown to reach the
+      // turn's next step.
       const userMessages = options.messages.filter(message => message.role === 'user')
       const seen = userMessages.some(message => message.content.some(block =>
         block.type === 'text' && block.text.includes('CODE_CLI_STEER_MARK')))
       const users = userMessages.filter(message => message.content.some(block =>
         block.type === 'text' && !block.text.startsWith('<'))).length
-      const reply = `CODE_CLI_STEER seen=${seen ? 'yes' : 'no'} users=${users}`
+      const reply = `CODE_CLI_STEER seen=${seen ? 'yes' : 'no'} users=${users} via ${options.model}`
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: reply }
       yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
