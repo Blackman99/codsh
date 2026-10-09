@@ -75,6 +75,7 @@ Designed for high-efficiency, keyboard-driven terminal development:
 - **DeepSeek Blue Themes**: `/theme` opens a picker that previews each theme live (arrows preview, `Enter` saves, `Esc` reverts); `/theme <name>` switches directly. `auto` (default) follows the terminal's light or dark background with `deepseek` / `deepseek-light`; `terminal` paints only your terminal's own sixteen colours, with no backgrounds. The choice is saved in `$DSH_HOME/code-cli-ui.json`; `CODSH_THEME=<name>` overrides it for one launch.
 - **Foldable Reasoning**: Streaming thoughts collapse into a single line (`Ctrl+O` or click to expand/collapse).
 - **Subagent Matrix**: Background and parallel subagents run in isolated views (`Ctrl+H` to list, click/enter to inspect, `Esc` to return).
+- **Todos That Keep Up**: The agent's todo list stays pinned above the status row (`Ctrl+T` or a click opens it whole). When the agent makes 20 tool calls with an open list unchanged, or a compaction drops the list from its context, codsh shows the model its list again so the pinned item follows the real work. `CODSH_TODO_REMINDER=<calls>` changes the count for one launch; `off` turns the reminder off.
 - **Timeline Navigation**: Jump between dialogue turns (`Shift+←/→`, `/jump`) or branch off from an earlier turn (`/rewind`).
 - **Shortcuts & Controls**:
   - `Shift+Tab`: Toggle plan mode

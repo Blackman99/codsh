@@ -24,7 +24,9 @@ pnpm run site:screens         # re-shoot the site's terminals from the real bina
 `steer` (holds a turn 3s and reports whether a mid-turn message arrived),
 `tall`, `spec`, `markdown`, `reasoning`, `reasoning-slow` (a thought long
 enough to interrupt), `reason-write` (a thought, a write, a second thought,
-an answer), `echo`, `todo`, `questions`, `workflow`, `subagents` (two
+an answer), `echo`, `todo`, `todo-stale` (writes an open list, then keeps
+calling `glob` until a todo reminder arrives and says after how many calls),
+`questions`, `workflow`, `subagents` (two
 background children, one of which fails),
 `context` (32k input usage against a 128k window; 64k on `cli-mock-pro`),
 `ship-wayfinder` (`/ship SMALL_WAYFINDER` exercises the confirmed grill handoff;

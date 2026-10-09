@@ -20,7 +20,7 @@ import { E2E_TEST_TIMEOUT_MS, fakeRegistry, makeHome, overlayText, resolveLaunch
  * What the mocked model does: `write` needs no approval, `bash` escalates and so
  * asks for one, and `markdown` answers in prose instead of calling anything.
  */
-type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo' | 'todo' | 'subagents'
+type MockTool = 'write' | 'bash' | 'markdown' | 'reasoning' | 'echo' | 'todo' | 'todo-stale' | 'subagents'
 
 /** One completed run of the terminal surface. */
 interface Run {
@@ -372,6 +372,18 @@ describe('dsh code (real profile, keyless model)', () => {
     expect(run.stdout.split(header)).toHaveLength(3)
     expect(run.stdout).toContain('▶ write the fix')
     expect(run.stdout).not.toContain('unknown command')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('puts a stale todo list back in front of the model, out of the person\'s transcript', async () => {
+    const run = await runCodeCli({ tool: 'todo-stale', input: 'plan the work\n/exit\n' })
+
+    // The mock writes an open list, then calls `glob` until a reminder shows
+    // up in its request: it must come after exactly the default 20 calls, and
+    // quote the list so a model that lost it can rewrite it whole.
+    expect(run.stdout).toContain('CODE_CLI_TODO_REMINDED after=20 listed=yes')
+    // The reminder is the model's context, not the person's: no transcript row.
+    expect(run.stdout).not.toContain('system-reminder')
+    expect(run.stdout).not.toContain('since your todo list last changed')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('runs /ship as a built-in canned prompt carrying the typed idea', async () => {

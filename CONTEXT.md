@@ -490,6 +490,16 @@ closes it again, the way a Fold works. Read from the `todos` projection and
 the spec file, never remembered from the write.
 _Avoid_: todo panel, task bar, progress bar
 
+**Todo reminder**:
+Context the runner attaches after a tool result — never a transcript row —
+that quotes an agent's open todo list back to it and asks it to bring the
+list up to date. Due after 20 tool calls (`CODSH_TODO_REMINDER`) with the
+list unchanged, and on the first call after a compaction, whose summary does
+not carry the list. Held in plan mode; each agent, child or parent, is
+counted on its own list. The Todo readout is only as current as the model's
+writes; this is what keeps them coming.
+_Avoid_: todo nag, nudge
+
 **Queue**:
 The lines submitted while nothing was asking for one — a turn running, a
 question open — held by the Prompt in the order they were typed, each a

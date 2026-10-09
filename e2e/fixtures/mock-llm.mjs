@@ -169,6 +169,9 @@ const HEREDOC_COMMAND = [
   'EOF',
 ].join('\n')
 
+/** Most calls `todo-stale` makes after its write before it gives up on a todo reminder. */
+const STALE_CALL_LIMIT = 30
+
 /** Call arguments per `DSH_CODE_CLI_MOCK_TOOL` mode. */
 const ARGUMENTS                                                              = {
   questions: { questions: [
@@ -1057,6 +1060,37 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'block-end', index: 0, block: { type: 'text', text: MARKDOWN } }
       yield { type: 'usage', usage: { inputTokens: 4, outputTokens: 9 } }
       yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
+    if (MOCK_MODE === 'todo-stale') {
+      // An open list written once, then a run of calls that never touches it:
+      // the shape a real session goes stale in. The answer names how many
+      // calls ran before a todo reminder reached the request, which proves it
+      // fires on its count and arrives as context the model reads.
+      const texts = options.messages.flatMap(message => message.role === 'user'
+        ? message.content.filter(block => block.type === 'text').map(block => block.text)
+        : [])
+      // Every tool-role message but the todo_write's own result.
+      const calls = options.messages.filter(message => message.role === 'tool').length - 1
+      const reminder = texts.find(text => text.includes('since your todo list last changed'))
+      if (reminder !== undefined || calls >= STALE_CALL_LIMIT) {
+        const listed = reminder?.includes('- [in_progress] write the fix') === true ? 'yes' : 'no'
+        const reply = `CODE_CLI_TODO_REMINDED after=${reminder === undefined ? 'none' : String(calls)} listed=${listed}`
+        yield { type: 'block-start', index: 0, blockType: 'text' }
+        yield { type: 'text-delta', index: 0, text: reply }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: reply } }
+        yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 6 } }
+        yield { type: 'finish', reason: { kind: 'stop' } }
+        return
+      }
+      const tool = calls < 0 ? 'todo_write' : 'glob'
+      const args = JSON.stringify(calls < 0 ? ARGUMENTS.todo : { pattern: 'code-cli-no-such-file-*' })
+      const id = ToolCallId(`code-cli-${tool}-${String(calls)}`)
+      yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+      yield { type: 'tool-call-delta', index: 0, id, name: tool, argumentsDelta: args }
+      yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: tool, arguments: args } }
+      yield { type: 'usage', usage: { inputTokens: 11, outputTokens: 3 } }
+      yield { type: 'finish', reason: { kind: 'tool-calls' } }
       return
     }
     const toolResult = lastToolResult(options)

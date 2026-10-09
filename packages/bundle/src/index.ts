@@ -111,6 +111,7 @@ import {
   thinkingArgumentCandidates,
 } from './thinking.ts'
 import { todoReport } from './todos.ts'
+import { TodoReminder, todoReminderCalls } from './todo-reminder.ts'
 import type { PendingImage } from './prompt.ts'
 import type { TodoList } from './todos.ts'
 import type { StatusFacts } from './status.ts'
@@ -2395,7 +2396,26 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     void prompt.view({ title: 'Changes', kind: 'diff', text })
   })
 
+  // The Todo readout is only as current as the model's last todo_write. A
+  // long run of calls without one, or a compaction that drops the list from
+  // context, puts the list back in front of the model after a tool result.
+  // Every agent is watched, children included: each owns its own list.
+  const todoReminder = new TodoReminder(todoReminderCalls())
+  ctx.on('tools/post-execute', async (exec, _result, next) => {
+    const downstream = await next()
+    const agent = exec.agent
+    if (agent === undefined) return downstream
+    const notice = todoReminder.observe(agent.session, todoList(ctx, agent), exec.name)
+    if (notice === undefined) return downstream
+    const reminder = createUserMessage({
+      content: [{ type: 'text', text: notice.text }],
+      source: { kind: 'todo-reminder', form: 'notice', summary: notice.summary },
+    })
+    return { ...downstream, additionalContexts: [...downstream.additionalContexts ?? [], reminder] }
+  })
+
   ctx.on('session/event', (session: Session, event: SessionEvent) => {
+    todoReminder.follow(session, event)
     // The roster follows each direct child's own log: the calls it makes,
     // and the turns it starts and ends. Before anything else, so a child's
     // row moves whether or not its transcript is the one on screen.

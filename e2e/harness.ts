@@ -277,6 +277,9 @@ export function resolveLaunch(options: {
       // Pinned: a suite must not depend on what npm currently publishes. The
       // update tests point the check at a local registry and turn it back on.
       CODSH_UPDATE_CHECK: 'off',
+      // Pinned: the todo reminder's count is asserted exactly, so a person's
+      // own setting must not move it.
+      CODSH_TODO_REMINDER: '',
       DSH_CODE_CLI_MOCK_TOOL: options.mode,
       DEEPSEEK_API_KEY: '',
       // The escape sequence only: a test run must never overwrite the real
