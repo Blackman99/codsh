@@ -288,6 +288,44 @@ describe('immediate commands', () => {
     expect(prompt.queued.map(item => item.text)).toEqual(['theme please', '!echo /theme'])
   })
 
+  it('keeps a command behind one of its kind already queued, so the order typed holds', () => {
+    const console = fakeConsole(true)
+    const ran: string[] = []
+    const prompt = new Prompt(console as never, theme, sources, {
+      interrupt: () => {},
+      escape: () => {},
+      eof: () => {},
+      // `/plan` the way the harness table reads it: bare or `off` is a setting.
+      immediate: (text) => {
+        const match = /^\/plan(?:\s+(.*))?$/u.exec(text.trim())
+        if (match === null) return false
+        const rest = (match[1] ?? '').trim().toLowerCase()
+        if (rest !== '' && rest !== 'off') return false
+        ran.push(text)
+        return true
+      },
+    })
+    submit(console, '/plan sketch the migration')
+    submit(console, '/plan off')
+    // Run at once, it would leave plan mode before the queued line entered it.
+    expect(ran).toEqual([])
+    expect(prompt.queued.map(item => item.text)).toEqual(['/plan sketch the migration', '/plan off'])
+  })
+
+  it('says a queued command waits for the turn, and stays quiet for one that ran', () => {
+    const { console } = withImmediate()
+    submit(console, '/theme terminal')
+    expect(drawn(console)).not.toContain('runs when this turn ends')
+    submit(console, '/compact')
+    expect(drawn(console)).toContain('queued · runs when this turn ends')
+  })
+
+  it('does not flag a queued prompt as a command', () => {
+    const { console } = withImmediate()
+    submit(console, 'just a message')
+    expect(drawn(console)).not.toContain('runs when this turn ends')
+  })
+
   it('runs an immediate command on Ctrl-Enter instead of refusing to steer it', () => {
     const { steer, items } = steerFixture()
     const console = fakeConsole(true)

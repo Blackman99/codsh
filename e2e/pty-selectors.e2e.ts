@@ -10,7 +10,7 @@ import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
 import { drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
-import { ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
+import { CTRL_C, ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
 
 describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY)', () => {
   it('puts an approval to the arrow keys and accepts on Enter', async () => {
@@ -99,6 +99,23 @@ describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY
     // One reply: the switch joined the running turn instead of starting one.
     expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
     expect(final.some(row => row.includes('via cli-mock-pro'))).toBe(true)
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('closes a /model picker opened mid-turn on Ctrl-C, and leaves the turn running', async () => {
+    const output = await drivePty('steer', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      ['re:●[^\\r\\n]{0,40}sleep 3', `/model${ENTER}`, 200],
+      // The press is aimed at the picker: it closes, and the turn is untouched.
+      ['Switch model', CTRL_C, 200],
+      ['CODE_CLI_STEER seen=', `/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).not.toContain('interrupted')
+    expect(plain).not.toContain('aborted')
+    expect(plain).not.toContain('Ctrl-C again to exit')
+    expect(plain).toContain('via cli-mock')
+    expect(plain).not.toContain('via cli-mock-pro')
   }, E2E_TEST_TIMEOUT_MS)
 
   it('offers this folder first, and folds the other folders behind one row', async () => {

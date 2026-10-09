@@ -58,7 +58,7 @@ import { bannerLines, resolveWelcomeKind } from './banner.ts'
 import type { BannerFacts } from './banner.ts'
 import { createCompleter, expandSkillGestures, fuzzyScore } from './completion.ts'
 import { expandTemplate, loadCustomCommands } from './custom-commands.ts'
-import { HARNESS_IMMEDIATE, ImmediateCommands, splitSurfaceCommand } from './immediate.ts'
+import { HARNESS_IMMEDIATE, ImmediateCommands, normalizeCommandLine, splitSurfaceCommand } from './immediate.ts'
 import type { SurfaceCommand } from './immediate.ts'
 import { styleDiffLine } from './diff.ts'
 import type { CompletableCommand } from './completion.ts'
@@ -1796,7 +1796,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       }
       refreshStatus()
     }
-    const handleThinking = async (rawInput: string) => {
+    const handleThinking = async (rawInput: string, signal?: AbortSignal) => {
       if (activeReasoning === undefined) {
         await refreshReasoning()
       }
@@ -1812,7 +1812,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         const outcome = await prompt.select({
           title: 'Thinking level',
           options: buildThinkingOptions(activeReasoning, currentEffort),
-        })
+        }, signal)
         if (outcome.kind !== 'chosen') return { kind: 'success' as const, text: 'thinking unchanged' }
         const picked = activeReasoning.efforts[outcome.indices[0] ?? -1]
         if (picked === undefined) return { kind: 'success' as const, text: 'thinking unchanged' }
@@ -1831,7 +1831,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       description: 'switch the model answering this session',
       immediate: true,
       input: { hint: '[model|provider/model]' },
-      handler: async ({ rawInput }) => {
+      handler: async ({ rawInput, signal }) => {
         const typed = rawInput.trim()
         if (typed === '') {
           await refreshModelCatalog()
@@ -1855,7 +1855,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
               return { label: `${entry.provider}/${entry.id}`, detail: active ? `${entry.name} · current` : entry.name }
             }),
             filterable: true,
-          })
+          }, signal)
           if (outcome.kind !== 'chosen') return { kind: 'success', text: 'model unchanged' }
           const picked = modelCatalog[outcome.indices[0] ?? -1]
           if (picked === undefined) return { kind: 'success', text: 'model unchanged' }
@@ -1876,14 +1876,14 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       description: 'configure reasoning effort for the current model',
       immediate: true,
       input: { hint: '[off|on|level]' },
-      handler: async ({ rawInput }) => handleThinking(rawInput),
+      handler: async ({ rawInput, signal }) => handleThinking(rawInput, signal),
     }))
     disposers.push(register({
       name: 'effort',
       description: 'configure reasoning effort for the current model',
       immediate: true,
       input: { hint: '[off|on|level]' },
-      handler: async ({ rawInput }) => handleThinking(rawInput),
+      handler: async ({ rawInput, signal }) => handleThinking(rawInput, signal),
     }))
   }
 
@@ -3007,6 +3007,16 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // does not end a session mid-turn, and it is the only interrupt — on a
   // terminal and off one, where Escape cannot arrive before its line.
   onInterruptKey = () => {
+    // An immediate command in flight — a /model picker opened mid-turn, say —
+    // is what the press is aimed at: it closes alone and the turn runs on. A
+    // second press is a fresh interrupt, not the exit's repeat.
+    if (immediateRuns.size > 0) {
+      for (const run of immediateRuns) run.abort()
+      // Forgotten at once, so a handler deaf to its signal cannot also make
+      // the turn unstoppable: the next press reaches it.
+      immediateRuns.clear()
+      return
+    }
     const now = performance.now()
     const repeated = now - lastInterrupt < INTERRUPT_EXIT_WINDOW_MS
     lastInterrupt = now
@@ -3219,19 +3229,21 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   // a steer; immediate commands still go one at a time, in the order typed.
   let immediateChain: Promise<void> = Promise.resolve()
   onImmediate = (text, images) => {
-    const line = text.trim()
+    const line = normalizeCommandLine(text.trim())
     if (!immediateCommands.test(line)) return false
     // Images ride the loop's path, which admits them or says why it dropped them.
     if (images.length > 0) return false
-    if (childViews.current !== undefined) {
-      prompt.setFlash(theme.dim('  Esc returns to the parent'))
-      return true
-    }
+    // A Child view takes no commands; the line keeps its place in the Queue
+    // rather than being dropped, and runs once the parent is back.
+    if (childViews.current !== undefined) return false
     immediateChain = immediateChain.then(async () => {
       const controller = new AbortController()
       immediateRuns.add(controller)
       try {
         await runRegistryCommand(line, controller.signal)
+      } catch (error) {
+        // Closed by Ctrl-C: the press was the answer, not a failure to report.
+        if (!controller.signal.aborted) throw error
       } finally {
         immediateRuns.delete(controller)
       }
@@ -3336,7 +3348,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (line === undefined) break
     // The line's pasted images, drained exactly once beside it.
     const images = prompt.takeAttachments()
-    const trimmed = line.trim()
+    const trimmed = normalizeCommandLine(line.trim())
     // Chrome-only commands answer with a flash and echo nothing: /theme's
     // repaint would wipe an echo anyway.
     const surfaceOnlyView = SURFACE_ONLY_COMMAND.test(trimmed)

@@ -44,7 +44,7 @@ export type SurfaceCommand = CommandDefinition & {
  */
 export const HARNESS_IMMEDIATE: Readonly<Record<string, Immediacy>> = {
   permission: true,
-  plan: rawInput => rawInput === '' || rawInput === 'off',
+  plan: rawInput => rawInput === '' || rawInput.toLowerCase() === 'off',
 }
 
 /** The table the submission path consults, filled as commands register. */
@@ -88,4 +88,25 @@ export class ImmediateCommands {
 export function splitSurfaceCommand(command: SurfaceCommand): { definition: CommandDefinition; immediate: Immediacy } {
   const { immediate = false, ...definition } = command
   return { definition, immediate }
+}
+
+/**
+ * Spell a `/plan off` typed in any case the way the harness reads it.
+ *
+ * The harness compares the argument exactly, so `/plan OFF` would otherwise
+ * reach the agent as a plan-mode message reading "OFF" instead of leaving
+ * plan mode.
+ * @param line - the submission, as typed.
+ * @returns the line, with a `/plan off` in any case lowered.
+ */
+export function normalizeCommandLine(line: string): string {
+  return /^\s*\/plan\s+off\s*$/iu.test(line) ? '/plan off' : line
+}
+
+/**
+ * The command a `/` line names, lowered, or undefined for anything else.
+ * @param line - the submission, as typed.
+ */
+export function commandName(line: string): string | undefined {
+  return /^\s*\/(\S+)/u.exec(line)?.[1]?.toLowerCase()
 }

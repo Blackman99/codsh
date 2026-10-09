@@ -27,6 +27,7 @@ import { DEFAULT_DENSITY, type Density } from './density.ts'
 import { columnIndex, displayWidth, markSpan, truncate } from './theme.ts'
 import { todoReport, todoRow } from './todos.ts'
 import { MessageQueue, classify } from './queue.ts'
+import { commandName } from './immediate.ts'
 import { QueuePanel, queueRow, steerRefusal, steeringRow } from './queue-panel.ts'
 import type { QueueItem } from './queue.ts'
 import type { PanelAction, PanelTarget } from './queue-panel.ts'
@@ -812,6 +813,16 @@ export class Prompt {
   }
 
   /**
+   * Whether the Queue already holds a command of the same name as this line.
+   * @param text - the submission, as typed.
+   */
+  private queuesCommand(text: string): boolean {
+    const name = commandName(text)
+    if (name === undefined) return false
+    return this.queue.items.some(item => item.kind === 'command' && commandName(item.text) === name)
+  }
+
+  /**
    * Apply one key: control keys to the owner, a selection's keys to the
    * selector, everything else to the editor.
    * @param key - the decoded keystroke.
@@ -1167,12 +1178,18 @@ export class Prompt {
         const images = this.claimImages(action.text)
         // A command that only works the chrome or a setting has nothing to
         // wait for: it runs now, turn or no turn, and never enters the Queue.
-        if (classify(action.text) === 'command' && this.handlers.immediate?.(action.text, images) === true) break
+        // One exception keeps the order typed: a command of a kind already
+        // waiting in the Queue waits behind it, so `/plan off` cannot run ahead
+        // of a queued `/plan <message>` and be undone by it.
+        const isCommand = classify(action.text) === 'command'
+        if (isCommand && !this.queuesCommand(action.text) && this.handlers.immediate?.(action.text, images) === true) break
         if (steer) {
           void this.requestSteer(this.queue.make(action.text, images))
           break
         }
         this.queue.push(action.text, images)
+        // A `/` line that did not run says so, so it is not taken as applied.
+        if (isCommand) this.setFlash(this.theme.dim('  queued · runs when this turn ends'))
         break
       }
       case 'escape':

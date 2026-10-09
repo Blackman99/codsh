@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { HARNESS_IMMEDIATE, ImmediateCommands, splitSurfaceCommand } from '../src/immediate.ts'
+import { HARNESS_IMMEDIATE, ImmediateCommands, commandName, normalizeCommandLine, splitSurfaceCommand } from '../src/immediate.ts'
 
 describe('ImmediateCommands', () => {
   it('runs a marked command at Enter, with or without arguments', () => {
@@ -60,5 +60,30 @@ describe('splitSurfaceCommand', () => {
 
   it('defaults to queued', () => {
     expect(splitSurfaceCommand({ name: 'clear', description: 'fresh session', handler }).immediate).toBe(false)
+  })
+})
+
+describe('/plan off in any case', () => {
+  it('runs at once however it is cased', () => {
+    const table = new ImmediateCommands(HARNESS_IMMEDIATE)
+    expect(table.test('/plan OFF')).toBe(true)
+    expect(table.test('/plan Off')).toBe(true)
+  })
+
+  it('is spelled the way the harness reads it', () => {
+    expect(normalizeCommandLine('/plan OFF')).toBe('/plan off')
+    expect(normalizeCommandLine('  /Plan  off ')).toBe('/plan off')
+    // A message that only starts with "off" is still a message.
+    expect(normalizeCommandLine('/plan OFF the record')).toBe('/plan OFF the record')
+    expect(normalizeCommandLine('/theme OFF')).toBe('/theme OFF')
+  })
+})
+
+describe('commandName', () => {
+  it('names the command a / line runs, lowered', () => {
+    expect(commandName('/PLAN off')).toBe('plan')
+    expect(commandName('  /theme')).toBe('theme')
+    expect(commandName('plan')).toBeUndefined()
+    expect(commandName('!ls')).toBeUndefined()
   })
 })

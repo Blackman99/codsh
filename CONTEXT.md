@@ -519,7 +519,12 @@ Canned commands, `/compact`, `/goal`, `/plan <message>`), swap the session
 keep their place in the Queue, as does `/exit`. A line carrying images takes
 the Queue's path, which admits them. One selector owns the box at a time: an
 approval the turn raises while an Immediate command's picker is open waits
-for the picker to settle.
+for the picker to settle. Ctrl-C while an Immediate command is in flight
+closes that command alone and the turn runs on; the next press interrupts.
+In a Child view an Immediate command keeps its place in the Queue.
+So does one whose command already waits there (`/plan off` behind a
+queued `/plan <message>`), so the order typed holds; a queued `/` line
+flashes `queued · runs when this turn ends`. `/plan off` is read in any case.
 _Avoid_: instant command, bypass
 
 **Queue panel**:
