@@ -494,6 +494,7 @@ _Avoid_: todo panel, task bar, progress bar
 The lines submitted while nothing was asking for one — a turn running, a
 question open — held by the Prompt in the order they were typed, each a
 Prompt, a `!` line, or a `/` command with the images its tokens claimed.
+An Immediate command never joins it.
 Adjacent Prompts leave as ONE message, a blank line between them; a `!` or
 `/` line is a boundary that keeps its place and leaves alone, so shell output
 lands between the thoughts it separated. Shown as the `↳ queued:` chrome row
@@ -502,6 +503,24 @@ the inbox holds only Steers. An interrupt leaves it alone, and it goes as the
 next message; Ctrl-C is always the interrupt. Escape dismisses overlays and
 Child views and does not stop the turn.
 _Avoid_: inbox, backlog, type-ahead buffer
+
+**Immediate command**:
+A `/` command that only works the Chrome or a session setting — `/theme`,
+`/ui`, `/model`, `/thinking`, `/effort`, `/permission`, bare `/plan` and
+`/plan off`, `/status`, `/todos`, `/subagents`, `/jump`, `/copy`, `/view`,
+`/diff`, `/help` — and so runs at Enter whether or not a turn is running,
+off the key the way a Steer does, one at a time in the order typed. Each
+surface registration carries the flag; harness commands are classified in
+`immediate.ts`. A model or thinking switch made mid-turn takes the turn's
+next step: the harness snapshots the selection per request, so the step in
+flight finishes on its route. Commands that spend a turn (`/init`, `/ship`,
+Canned commands, `/compact`, `/goal`, `/plan <message>`), swap the session
+(`/clear`, `/resume`, `/rewind`), or occupy the working line (`/update`)
+keep their place in the Queue, as does `/exit`. A line carrying images takes
+the Queue's path, which admits them. One selector owns the box at a time: an
+approval the turn raises while an Immediate command's picker is open waits
+for the picker to settle.
+_Avoid_: instant command, bypass
 
 **Queue panel**:
 The Queue opened in its row's place — Ctrl+Q, or a click on the readout — as
@@ -520,7 +539,8 @@ the agent's `steer`, which delivers it at the next step boundary. Shown as the
 `↳ steering:` chrome row until the agent claims it, when it renders as a
 Prompt block like any other. A turn that ends without taking it, an interrupt,
 or a session switch reclaims it to the head of the Queue, so nothing typed is
-lost. A `!` or `/` line cannot Steer; it joins the Queue.
+lost. A `!` or `/` line cannot Steer; it joins the Queue — unless it is an
+Immediate command, which runs.
 _Avoid_: inject (dsh's model-facing context), interrupt, follow-up
 
 ### Workflows

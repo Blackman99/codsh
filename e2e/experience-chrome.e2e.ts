@@ -136,6 +136,30 @@ describe.skipIf(process.platform === 'win32')('the first five minutes: menus, se
     expect(final.slice(head, head + 4).some(row => row.includes('second queued') && !row.includes('queued:'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
+  it('runs a settings command typed mid-turn at once, and still queues one that spends a turn', async () => {
+    const output = await drivePty('slow', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      // /status only reads the session: it answers while the turn still runs.
+      ['re:●[^\\r\\n]{0,40}sleep 3', `/status${ENTER}`, 400],
+      ['workspace', `/init${ENTER}`, 400],
+      // /init is a canned prompt, so it waits for the turn like any message.
+      ['re:queued:[^\\r\\n]{0,40}/init', CTRL_C, 400],
+      ['interrupted', '', 0],
+      // The queued /init starts the next turn; a second Ctrl-C inside the exit
+      // window would leave, so wait it out.
+      ['re:●[^\\r\\n]{0,40}sleep 3', CTRL_C, 2200],
+      ['interrupted', `/exit${ENTER}`, 400],
+    ])
+    const answered = screenAt(output, 'workspace').alternate
+    expect(answered.some(row => row.includes('/status'))).toBe(true)
+    expect(answered.some(row => row.includes('queued:'))).toBe(false)
+    // Still mid-turn when the report landed: nothing had been interrupted yet.
+    expect(answered.some(row => row.includes('interrupted'))).toBe(false)
+    const queued = screenAt(output, 'queued:').alternate
+    expect(queued.some(row => row.includes('queued: /init'))).toBe(true)
+    expect(queued.some(row => row.includes('queued: /status'))).toBe(false)
+  }, E2E_TEST_TIMEOUT_MS)
+
   it('opens the queue panel on a click on its row', async () => {
     const clickOn = (line: string): string => `\u001B[<0;6;{row:${line}}M\u001B[<0;6;{row:${line}}m`
     const output = await drivePty('slow', [

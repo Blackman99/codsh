@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { E2E_TEST_TIMEOUT_MS, makeHome } from './harness.ts'
-import { drivePty, drivePtySteps, screenOf } from './pty-driver.ts'
+import { drivePty, drivePtySteps, finalScreen, screenOf } from './pty-driver.ts'
 import { ENTER, ESCAPE, screenAt } from './pty-helpers.ts'
 
 describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY)', () => {
@@ -80,6 +80,25 @@ describe.skipIf(process.platform === 'win32')('approvals and selectors (real PTY
     expect(plain).toContain('via cli-mock-pro')
     // The status row reads the live selection.
     expect(plain).toContain('cli-mock-pro')
+  }, E2E_TEST_TIMEOUT_MS)
+
+  it('switches the model typed mid-turn at once, from the turn\'s next step', async () => {
+    const output = await drivePty('steer', [
+      ['Welcome to codsh', `take your time${ENTER}`, 300],
+      // Typed while the tool runs: it neither waits in the queue nor stops
+      // the turn, and the step after the tool is served by the new model.
+      ['re:●[^\\r\\n]{0,40}sleep 3', `/model cli-mock/cli-mock-pro${ENTER}`, 200],
+      ['from the next step', '', 0],
+      ['via cli-mock-pro', `/exit${ENTER}`, 400],
+    ])
+
+    const plain = output.replaceAll(/\u001B\[[0-9;?]*[A-Za-z]/gu, '')
+    expect(plain).toContain('model cli-mock/cli-mock-pro · from the next step')
+    expect(plain).not.toContain('queued: /model')
+    const final = finalScreen(output).alternate
+    // One reply: the switch joined the running turn instead of starting one.
+    expect(final.filter(row => row.includes('CODE_CLI_STEER seen='))).toHaveLength(1)
+    expect(final.some(row => row.includes('via cli-mock-pro'))).toBe(true)
   }, E2E_TEST_TIMEOUT_MS)
 
   it('offers this folder first, and folds the other folders behind one row', async () => {

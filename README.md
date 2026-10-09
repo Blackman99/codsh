@@ -79,6 +79,7 @@ Designed for high-efficiency, keyboard-driven terminal development:
 - **Shortcuts & Controls**:
   - `Shift+Tab`: Toggle plan mode
   - `Ctrl+Q`: Queue input while the agent is running
+  - Settings and view commands (`/theme`, `/model`, `/effort`, `/thinking`, `/ui`, `/permission`, `/plan`, `/status`, `/view`, `/diff`, `/copy`, `/jump`, …) take effect at once, even mid-turn — they are never queued; a model or thinking switch applies from the running turn's next step
   - `Ctrl+C`: Interrupt current execution
   - `Ctrl+V`: Paste images directly from clipboard
   - `/view`, `/diff`, `/copy`: Inspect files, uncommitted changes, or code blocks in a dedicated pager

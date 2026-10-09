@@ -79,6 +79,7 @@ codsh
 - **快捷交互与操作**：
   - `Shift+Tab`：切换 Plan 模式
   - `Ctrl+Q`：Agent 响应时继续打字排队
+  - 设置与查看类命令（`/theme`、`/model`、`/effort`、`/thinking`、`/ui`、`/permission`、`/plan`、`/status`、`/view`、`/diff`、`/copy`、`/jump` 等）即使 Agent 正在工作也立即生效，从不进入排队；切换模型或思考强度从当前轮的下一步开始生效
   - `Ctrl+C`：快速中断当前操作
   - `Ctrl+V`：直接从剪贴板粘贴图片
   - `/view`、`/diff`、`/copy`：在内置阅读器中查看文件、未提交改动或代码块
