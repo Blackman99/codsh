@@ -24,7 +24,8 @@ Bundle and its resolved dependencies. The unit a machine installs codsh into.
 
 **Preset**:
 The `code-cli` agent composition the Bundle ships; what a session mounts to
-decide the model-facing toolset.
+decide the model-facing toolset. Declared as one `dsh-agent-preset` row in
+`presets/code-cli.patch.yml`; the host's preset registry names it the default.
 
 ### Surface
 
@@ -211,8 +212,8 @@ What a `tool-workflow/*` record becomes on screen. A run opens with its name,
 each round prints one line as it settles, and the stop reason closes it. The
 round still running is named in the working line instead, because the
 transcript is append-only and cannot unprint a line when it ends. The line is
-all a round gets: a workflow's children run in a worker thread, so their
-sessions are never in this process and no click could enter one.
+all a round gets: a workflow's children are the workflow engine's, started by
+no tool call this transcript renders, so none is offered to enter.
 _Avoid_: workflow log, progress bar
 
 **Canned command**:
@@ -310,9 +311,9 @@ inherited parent prefix. A runner-dispatched in-process child is a view
 without a parent tool call — that Fold is not a `subagent` card, not a
 parent-log line, and not in a Card run. A child that has finished and left
 the store — every background child, the moment it idles — opens read-only
-from its persisted log. Worker-thread Workflow children are not views —
-their sessions are never in this process, so the round line never offers
-`click to enter`. Off a TTY there is no Fold.
+from its persisted log. Workflow children are not views — the engine starts
+them outside any tool call the transcript renders, so the round line never
+offers `click to enter`. Off a TTY there is no Fold.
 _Avoid_: catalog, inspector, pager, synthetic tool-call, Claim on the card
 
 **Subagents readout**:

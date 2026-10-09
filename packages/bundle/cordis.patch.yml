@@ -111,7 +111,7 @@
 - id: tool-subagent-fork
   disabled: true
 
-- id: workflow-worker-thread
+- id: workflow-ptc
   disabled: true
 
 - id: tool-workflow
@@ -130,22 +130,13 @@
   disabled: true
 
 - insert:
-    # Code Mode is a core execution capability, not a Web component.
-    - id: code-runtime
-      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
-
-    # The preset roster. `config/agent-presets/` ships with the deployment and
-    # is read-only (its entries carry `system` trust); `$DSH_HOME/.agent-presets`
-    # is where a person — or an agent — authors their own, and carries the same
-    # trust as shell access because a preset IS a composition.
-    #
-    # Only the SHIPPED root is an assembly fact: it sits beside the installed
-    # app's own config, so `apps/cli`'s `composeProfile` resolves and patches it
-    # in. The writable root is `dsh-agent-presets`' own default
-    # (`includeUserRoot`), so a composition that never reaches that patch still
-    # finds a person's presets.
-    - id: agent-presets
-      name: '@deepseek-ai/dsh-agent-presets'
+    # The preset roster. It scans no directory: each preset is a
+    # `@deepseek-ai/dsh-agent-preset` row some bundle patch inserts — this
+    # bundle's own is `presets/code-cli.patch.yml`. A person overrides or adds
+    # one the same way, with a profile patch keyed by that row's id. dsh-base
+    # already inserts the PTC runtime (`ptc-runtime`) Code Mode needs.
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
       config:
         default: code-cli
 

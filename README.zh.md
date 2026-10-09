@@ -85,25 +85,28 @@ codsh
 
 ## 第三方端点
 
-在 `$DSH_HOME/settings.yaml`（默认 `~/.dsh/settings.yaml`）中配置任何 OpenAI 兼容网关：
+在 `code` profile 自己的补丁层 `$DSH_HOME/profiles/code/cordis.patch.yml`（默认 `~/.dsh/profiles/code/cordis.patch.yml`，在所有 bundle 之后生效）中加入 `llm-pi-ai` 条目，即可接入任何 OpenAI 兼容网关：
 
 ```yaml
-llm-pi-ai:
-  providers:
-    acme-gateway:
-      displayName: Acme Gateway
-      apiKeyEnv: ACME_GATEWAY_API_KEY
-      api: openai-completions
-      baseURL: https://gateway.acme.example/v1
-      compat:
-        thinkingFormat: deepseek
-        supportsDeveloperRole: false
-        maxTokensField: max_tokens
-      models:
-        - id: acme-large
-          contextWindow: 65536
-          maxTokens: 4096
+- id: llm-pi-ai
+  config:
+    providers:
+      acme-gateway:
+        displayName: Acme Gateway
+        apiKeyEnv: ACME_GATEWAY_API_KEY
+        api: openai-completions
+        baseURL: https://gateway.acme.example/v1
+        compat:
+          thinkingFormat: deepseek
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: acme-large
+            contextWindow: 65536
+            maxTokens: 4096
 ```
+
+旧版 dsh 留下的 `$DSH_HOME/settings.yaml` 会在下次启动时导入一次，并改名为 `settings.yaml.imported`；之后请改为编辑该 profile 补丁。
 
 切换并设为默认模型：
 ```sh
@@ -115,6 +118,8 @@ llm-pi-ai:
 ## 它怎么跑
 
 `codsh` 是一个零依赖启动器，它定位本机的 `dsh`，将 [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) 注册进 `code` profile，并启动 `dsh --profile code`。
+
+codsh 需要 dsh 0.2.0-rc.2 或更新版本；本机 `dsh` 更旧时，启动器会拒绝启动，并给出安装新版的命令。`code-cli` 智能体预设以 dsh 预设声明的形式随 bundle 发布（`presets/code-cli.patch.yml`）。dsh 0.1.7 起不再从目录读取预设，旧版 codsh 留在 `$DSH_HOME/.agent-presets/code-cli` 的副本不再生效。
 
 也可以直接使用 dsh 命令运行：
 ```sh

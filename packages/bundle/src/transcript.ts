@@ -1224,11 +1224,14 @@ export class Transcript {
   private renderResult(data: SessionEvent<'tool/result'>['data']): string[] {
     const { theme } = this.options
     const { message, meta, error } = data
-    const [block] = message.content
+    // A result is its own tool-role message: its content IS the result, and the
+    // failure flag sits on the message. Session migrates older logs, which
+    // wrapped both in one `tool-result` block, to this shape on load.
+    const block = { content: [...message.content] }
     const callId = message.source.callId
     const pending = this.calls.get(callId)
     this.calls.delete(callId)
-    const reported = error !== undefined || block.isError === true
+    const reported = error !== undefined || message.isError === true
     if (pending === undefined) {
       if (reported) this.rule = blockRules(theme).error
       const bg = reported ? (text: string) => theme.bgError(text) : (text: string) => text

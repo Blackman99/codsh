@@ -42,8 +42,10 @@ function resultEvent(callId: string, text: string, isError = false, meta?: unkno
       turn: 1,
       step: 1,
       message: {
-        role: 'user',
-        content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text }], isError }],
+        role: 'tool',
+        toolCallId: callId,
+        content: [{ type: 'text', text }],
+        isError,
         source: { kind: 'tool', callId },
       },
       ...meta === undefined ? {} : { meta },

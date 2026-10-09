@@ -94,12 +94,6 @@ const plain = (row: Run[]): string => row.map(run => run.text).join('')
 function keepRanges(rows: Run[][], from?: string): [number, number][] {
   const blank = (index: number): boolean => plain(rows[index] ?? []).trim() === ''
   let start = 0
-  // The first-boot notice names a temporary home and wraps at this width, so
-  // it is dropped as a whole — up to the blank row that ends it — rather than
-  // row by row, which would leave the tail of a path behind.
-  if (plain(rows[0] ?? []).includes('installed preset into')) {
-    while (start < rows.length && !blank(start)) start += 1
-  }
   while (start < rows.length && blank(start)) start += 1
   if (from !== undefined) {
     const at = rows.findIndex(row => plain(row).includes(from))

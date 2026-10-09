@@ -21,7 +21,7 @@ import z from '@deepseek-ai/schemastery'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, AgentHandle, AssistantStreamFrame, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { CommandSubmitAttachment } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -77,7 +77,6 @@ import {
   saveDensity,
   type Density,
 } from './density.ts'
-import { installPackagedPreset } from './preset-install.ts'
 import { TerminalQuestions, autoConfirmShipGates, shipAskSettledHitl } from './questions.ts'
 import { userShell } from './bang.ts'
 import { indexReplayTiming } from './replay-timing.ts'
@@ -117,6 +116,7 @@ import { backgroundIsLight, createTheme, truncate } from './theme.ts'
 import { FOLD_LABELS, Transcript, blockRules, opensGap, presentAskUserQuestionResult, promptPad, runnerNotice, thinkingFold, thinkingFoldRules, thinkingOpenRows } from './transcript.ts'
 import type { GapOpening } from './transcript.ts'
 import { RULE_WIDTH } from './gutter.ts'
+import { CLI_SOURCE } from './source.ts'
 import type { Theme, ThemeSetting } from './theme.ts'
 import { HistoryRepaint, pickTheme } from './theme-picker.ts'
 import { THEME_CHOICES, choiceList, loadThemeSetting, parseThemeSetting, saveThemeSetting, startupThemeSetting, themeReport } from './theme-setting.ts'
@@ -393,7 +393,7 @@ function replayEvents(session: ShownSession, transcript: Transcript, io: CliIo, 
 }
 
 /** Where a submitted turn came from: typed by the person, or a canned prompt. */
-type TurnSource = { kind: 'user' } | { kind: 'plugin'; plugin: string }
+type TurnSource = { kind: 'user' } | typeof CLI_SOURCE
 
 /**
  * Run one conversation turn and wait for the agent to go idle.
@@ -688,10 +688,6 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
     if (light !== undefined && theme.setLight(light)) onThemeChanged()
   })
 
-  // Before the roster resolves anything: discovery re-reads its roots on every
-  // call, so a preset placed here is visible to the resolve below.
-  const preset = await installPackagedPreset()
-  if (preset.installed) io.console.write(theme.dim(`installed preset into ${preset.path}`), blockRules(theme).meta)
   if (startTheme.warning !== undefined) io.console.write(theme.dim(`  ${startTheme.warning}`), blockRules(theme).meta)
 
   const composed = await compose(ctx, config, cwd)
@@ -1053,8 +1049,8 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
   /**
    * The round in flight, watched through its child session's log.
    *
-   * The child works in a worker thread this process sees no event from, so
-   * for the minutes a Ralph round takes the working line used to stand still
+   * The child is the workflow engine's, and the surface receives none of its
+   * events, so for the minutes a Ralph round takes the working line used to stand still
    * — and a person read the stillness as a hang, and interrupted a round
    * that had already landed a ticket. The child's log is on disk, though:
    * read once a second it says how many calls the round has made and what
@@ -1163,7 +1159,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         ctx.emit('subagent/start', { id: handle.agent.session.id })
         handle.agent.followup(createUserMessage({
           content: [{ type: 'text', text: request.prompt }],
-          source: { kind: 'plugin', plugin: 'coding-cli' },
+          source: CLI_SOURCE,
         }))
         const started = handle.agent.whenIdle()
         void started.then(
@@ -3210,7 +3206,7 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
       const exit = result.signal !== null ? `killed by ${result.signal}` : String(result.code ?? 0)
       await answer(
         `<bash-input>${command}</bash-input>\n<bash-output>\n${report}\n</bash-output>\n<bash-exit>${exit}</bash-exit>`,
-        { kind: 'plugin', plugin: 'coding-cli' },
+        CLI_SOURCE,
       )
     } finally {
       running = undefined
@@ -3291,20 +3287,20 @@ async function run(ctx: Context, config: Config, io: CliIo): Promise<void> {
         else prompt.write(`  ${trimmed}`, blockRules(theme).tool)
       }
       if (name === 'init') {
-        await answer(INIT_PROMPT, { kind: 'plugin', plugin: 'coding-cli' }, images)
+        await answer(INIT_PROMPT, CLI_SOURCE, images)
         continue
       }
       if (name === 'ship') {
         await ship.run(rest.trim(), async body => {
           shipTurnHitl = false
-          await answer(body, { kind: 'plugin', plugin: 'coding-cli' }, images)
+          await answer(body, CLI_SOURCE, images)
           return shipTurnHitl ? { hitl: true } : undefined
         })
         continue
       }
       const canned = customByName.get(name)
       if (canned !== undefined) {
-        await answer(expandTemplate(canned.template, rest.trim()), { kind: 'plugin', plugin: 'coding-cli' }, images)
+        await answer(expandTemplate(canned.template, rest.trim()), CLI_SOURCE, images)
         continue
       }
       // Registry commands take images only on an image-capable route: their

@@ -84,7 +84,7 @@ if (!existsSync(installed)) {
 } else {
   // Fast path: the profile already carries every dependency; only this
   // package's own artifacts changed.
-  for (const entry of ['lib', 'cordis.patch.yml', 'agent-presets', 'package.json']) {
+  for (const entry of ['lib', 'cordis.patch.yml', 'presets', 'package.json']) {
     rmSync(join(installed, entry), { recursive: true, force: true })
     cpSync(join(bundle, entry), join(installed, entry), { recursive: true })
   }

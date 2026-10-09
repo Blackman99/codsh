@@ -19,6 +19,7 @@ import {
   type LlmModelInfo,
   type LlmResolvedModelInfo,
   type StreamChunk,
+  type ToolResultMessage,
 } from '@deepseek-ai/dsh-llm'
 
 const OFF = ReasoningEffortId('off')
@@ -224,6 +225,15 @@ const ARGUMENTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   },
 }
 
+/**
+ * The tool result the mocked request ends on, if any. Each result is its own
+ * tool-role message since dsh 0.1.7, carrying the call id and failure flag.
+ */
+function lastToolResult(options: GenerateOptions): ToolResultMessage | undefined {
+  const last = options.messages.at(-1)
+  return last?.role === 'tool' ? last : undefined
+}
+
 /** Collect plain text blocks from one mocked request. */
 function textBlocks(options: GenerateOptions): string[] {
   return options.messages.flatMap(message =>
@@ -382,7 +392,7 @@ class CodeCliMockAdapter extends LlmAdapter {
         || text.includes('This turn is final verification only')) ?? ''
       const ticket = landingTicketId(prompt)
       const verification = prompt.includes('This turn is final verification only')
-      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const result = lastToolResult(options)
       const root = process.cwd()
       const ledger = join(root, 'docs', 'specs', 'landing-e2e.md')
       if (ticket !== undefined) {
@@ -434,7 +444,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const ledger = join(process.cwd(), 'docs', 'specs', 'wayfinder-e2e.md')
       const idea = promptIdea([prompt])
       const pending = idea.includes('PENDING_WAYFINDER') || texts.some(text => text.includes('PENDING_WAYFINDER'))
-      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const result = lastToolResult(options)
       const policy = hasSubagentPolicy(texts)
       const recovered = idea !== ''
       let call: { id: string; name: string; args: unknown } | undefined
@@ -493,7 +503,7 @@ class CodeCliMockAdapter extends LlmAdapter {
         return
       }
       const child = texts.some(text => text.includes('SHIP_DELEGATE_CHILD'))
-      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const result = lastToolResult(options)
       if (child) {
         const worked = result
         if (worked === undefined) {
@@ -606,7 +616,7 @@ class CodeCliMockAdapter extends LlmAdapter {
         && !prompt.includes('Strict Red-First Execution')
       const verification = prompt.includes('This turn is final verification only')
       const ticket = landingTicketId(prompt)
-      const result = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const result = lastToolResult(options)
       const root = process.cwd()
       const ledger = 'docs/specs/conflict-e2e.md'
       if (conflict) {
@@ -701,7 +711,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       const texts = textBlocks(options)
       const childOne = texts.some(text => text.includes('SUBAGENT_CHILD_ONE'))
       const childTwo = texts.some(text => text.includes('SUBAGENT_CHILD_TWO'))
-      const settled = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const settled = lastToolResult(options)
       if (childOne || childTwo) {
         if (settled === undefined) {
           // Long enough that the panel and the view open on a child that is
@@ -773,7 +783,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       if (seen.some(text => text.includes('WORKFLOW_CHILD'))) {
         // A round's child does one thing before it answers: a write, so the
         // parent's working line has a call to name while the round runs.
-        const worked = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+        const worked = lastToolResult(options)
         if (worked === undefined) {
           const args = JSON.stringify(ARGUMENTS.write)
           const id = ToolCallId('code-cli-workflow-child-write')
@@ -797,7 +807,7 @@ class CodeCliMockAdapter extends LlmAdapter {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
       }
-      const settled = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const settled = lastToolResult(options)
       if (settled === undefined) {
         const args = JSON.stringify({
           script: WORKFLOW_SCRIPT,
@@ -933,7 +943,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       // A thought, a write, a second thought, an answer — one turn, the way
       // a reasoning model works a tool: what the surface shows while a
       // thought lands folded and the card between two thoughts stays a row.
-      const worked = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+      const worked = lastToolResult(options)
       const thought = worked === undefined ? FIRST_THOUGHT : SECOND_THOUGHT
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
       for (const delta of splitDeltas(thought)) {
@@ -1049,7 +1059,7 @@ class CodeCliMockAdapter extends LlmAdapter {
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }
-    const toolResult = options.messages.at(-1)?.content.find(block => block.type === 'tool-result')
+    const toolResult = lastToolResult(options)
     if (toolResult === undefined) {
       // `write` inside the workspace runs under the default workspace-write
       // preset with nothing to decide. Approval is raised by a sandbox

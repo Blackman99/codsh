@@ -20,6 +20,7 @@ import { BlockAssembler, ReasoningEffortId, createUserMessage } from '@deepseek-
 import type { EncodedImageAttachment, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment/types'
 import type { GenerateOptions, LlmCallConfig, ModelModality, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
+import { CLI_SOURCE } from './source.ts'
 
 /** A vision sidecar: an OpenAI-compatible endpoint that can see. */
 export interface VisionConfig {
@@ -149,7 +150,7 @@ export async function describeImageWithLlm(
       { type: 'image', attachment: image },
       { type: 'text', text: VISION_PROMPT },
     ],
-    source: { kind: 'plugin', plugin: 'coding-cli' },
+    source: CLI_SOURCE,
   })
   for await (const chunk of prepared.stream({
     ...prepared.config,

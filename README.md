@@ -85,25 +85,28 @@ Designed for high-efficiency, keyboard-driven terminal development:
 
 ## Third-party endpoints
 
-Connect to any OpenAI-compatible gateway in `$DSH_HOME/settings.yaml` (default `~/.dsh/settings.yaml`):
+Connect to any OpenAI-compatible gateway by adding an `llm-pi-ai` entry to the `code` profile's own patch layer, `$DSH_HOME/profiles/code/cordis.patch.yml` (default `~/.dsh/profiles/code/cordis.patch.yml`), which applies after every bundle:
 
 ```yaml
-llm-pi-ai:
-  providers:
-    acme-gateway:
-      displayName: Acme Gateway
-      apiKeyEnv: ACME_GATEWAY_API_KEY
-      api: openai-completions
-      baseURL: https://gateway.acme.example/v1
-      compat:
-        thinkingFormat: deepseek
-        supportsDeveloperRole: false
-        maxTokensField: max_tokens
-      models:
-        - id: acme-large
-          contextWindow: 65536
-          maxTokens: 4096
+- id: llm-pi-ai
+  config:
+    providers:
+      acme-gateway:
+        displayName: Acme Gateway
+        apiKeyEnv: ACME_GATEWAY_API_KEY
+        api: openai-completions
+        baseURL: https://gateway.acme.example/v1
+        compat:
+          thinkingFormat: deepseek
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: acme-large
+            contextWindow: 65536
+            maxTokens: 4096
 ```
+
+A `$DSH_HOME/settings.yaml` from an earlier dsh is imported once on the next start and renamed `settings.yaml.imported`; edit the profile patch from then on.
 
 Switch and persist default model:
 ```sh
@@ -115,6 +118,8 @@ API keys resolve in order: specified environment variable → `$DSH_HOME/.creden
 ## How it works
 
 `codsh` is a zero-dependency launcher that finds your local `dsh`, registers [`codsh-bundle`](https://www.npmjs.com/package/codsh-bundle) into a `code` profile, and boots `dsh --profile code`.
+
+codsh needs dsh 0.2.0-rc.2 or newer; the launcher refuses an older `dsh` and prints the command that installs a new enough one. The `code-cli` agent preset ships inside the bundle as a dsh preset declaration (`presets/code-cli.patch.yml`). dsh 0.1.7 stopped reading presets from directories, so a copy an earlier codsh left in `$DSH_HOME/.agent-presets/code-cli` is no longer used.
 
 To run directly via dsh:
 ```sh

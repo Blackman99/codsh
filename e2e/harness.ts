@@ -133,8 +133,7 @@ function currentTemplateStamp(): string {
     join(bundleRoot, 'lib', 'index.js'),
     join(bundleRoot, 'package.json'),
     join(bundleRoot, 'cordis.patch.yml'),
-    join(bundleRoot, 'agent-presets'),
-    fileURLToPath(new URL('./heal-template.mjs', import.meta.url)),
+    join(bundleRoot, 'presets'),
     require.resolve('@deepseek-ai/dsh/package.json'),
   ].map(stampPath).join('\n')
 }
@@ -180,14 +179,6 @@ function installTemplate(): void {
     env: { ...process.env, DSH_HOME: templateHome },
     stdio: 'pipe',
   })
-  // The first real boot is what writes the installation fallback. Per-test
-  // homes share that directory and copy `cordis.yml`, so the fallback has
-  // to exist on the template — a later heal under a cloned home writes to
-  // the clone while Node resolves through the symlink into the template.
-  execFileSync(process.execPath, [fileURLToPath(new URL('./heal-template.mjs', import.meta.url))], {
-    env: { ...process.env, DSH_HOME: templateHome },
-    stdio: 'pipe',
-  })
   // Spell the runtime as a registry version, the way a real install records
   // it. The suites drive the /update registration decision, which — like the
   // launcher — must move a registry version but never clobber a development
@@ -220,8 +211,9 @@ export async function makeHome(): Promise<string> {
 /**
  * Clone a template `profiles` tree: share module directories, copy files.
  *
- * `$DSH_HOME/profiles/node_modules` and each profile's `node_modules` stay
- * linked. Every other file — `cordis.yml` first — is a private copy.
+ * Each profile's `node_modules` stays linked (and a pre-0.1.7 harness's
+ * `$DSH_HOME/profiles/node_modules` fallback, when one exists). Every other
+ * file — `cordis.yml` first — is a private copy.
  * @param templateProfiles - the packed template's `profiles` directory.
  * @param profiles - the per-test `profiles` directory to fill.
  */

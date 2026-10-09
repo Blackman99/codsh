@@ -61,7 +61,7 @@ expect true  'prose alongside a source file'        'README.md packages/bundle/s
 expect true  'a test'                               'packages/bundle/tests/keys.spec.ts'
 expect true  'an end-to-end test'                   'e2e/pty.e2e.ts'
 expect true  'a workflow'                           '.github/workflows/ci.yml'
-expect true  'an agent preset'                      'packages/bundle/agent-presets/code-cli/preset.yml'
+expect true  'an agent preset'                      'packages/bundle/presets/code-cli.patch.yml'
 expect true  'a lockfile'                           'pnpm-lock.yaml'
 expect true  'a manifest changed beyond its version' 'packages/cli/package.json' yes
 
