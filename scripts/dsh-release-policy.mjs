@@ -6,7 +6,7 @@ export const compareVersions = compare
 /**
  * npm abbreviated metadata for one package.
  * @typedef {object} RegistryMetadata
- * @property {Record<string, { dependencies?: Record<string, string> }>} versions
+ * @property {Record<string, { dependencies?: Record<string, string>, peerDependencies?: Record<string, string> }>} versions
  * @property {Record<string, string>} dist-tags
  */
 
@@ -42,7 +42,10 @@ export const compareVersions = compare
  * @param {string} currentRange - current @deepseek-ai/dsh manifest range.
  * @param {(name: string) => Promise<RegistryMetadata>} [loadMetadata] - registry lookup used while walking the closure. Required when a candidate might pull in packages other than `@deepseek-ai/dsh`.
  * @param {Iterable<string>} [required] - harness package names codsh's manifests depend on.
- * @returns {Promise<{ version: string, skipped: SkippedRelease[] }>} selected harness version, and the newer releases passed over.
+ * @returns {Promise<{ version: string, skipped: SkippedRelease[], resolved: Record<string, string> }>}
+ *   selected harness version, the newer releases passed over, and the highest
+ *   version of each `@deepseek-ai/*` package its closure resolves (empty for an
+ *   unchecked pin).
  */
 export async function selectDshTarget(metadata, currentRange, loadMetadata, required = []) {
   const range = validRange(currentRange)
@@ -71,29 +74,38 @@ export async function selectDshTarget(metadata, currentRange, loadMetadata, requ
   /** @type {SkippedRelease[]} */
   const skipped = []
   for (const candidate of candidates) {
-    const unresolved = await unresolvedClosure(cache, candidate, [...required], loadMetadata)
-    if (unresolved.length === 0) return { version: candidate, skipped }
+    const { unresolved, resolved } = await walkClosure(cache, candidate, [...required], loadMetadata)
+    if (unresolved.length === 0) return { version: candidate, skipped, resolved }
     skipped.push({ version: candidate, unresolved })
   }
 
-  if (fallback !== undefined && !candidates.includes(fallback)) return { version: fallback, skipped }
+  if (fallback !== undefined && !candidates.includes(fallback)) return { version: fallback, skipped, resolved: {} }
   throw new Error(`no installable @deepseek-ai/dsh release at or below ${candidates[0]}`)
 }
 
 /**
  * Walk `@deepseek-ai/dsh@version`, plus `^version` of every required package,
- * through their `@deepseek-ai/*` dependencies.
+ * through their `@deepseek-ai/*` dependencies. Peer ranges are not walked and
+ * never block a candidate — pnpm installs past an unmet peer — but they count
+ * toward the versions reported, because codsh's own manifests are what satisfy
+ * them (0.2.0's app-boot peers on cordis-plugin-group ~1.0.4).
  * @param {Map<string, RegistryMetadata>} cache - metadata shared across candidates.
  * @param {string} version
  * @param {string[]} required
  * @param {(name: string) => Promise<RegistryMetadata>} [loadMetadata]
- * @returns {Promise<string[]>} the `name@range` requirements no published version satisfies.
+ * @returns {Promise<{ unresolved: string[], resolved: Record<string, string> }>} the
+ *   `name@range` requirements no published version satisfies, and the highest
+ *   version resolved for each package.
  */
-async function unresolvedClosure(cache, version, required, loadMetadata) {
+async function walkClosure(cache, version, required, loadMetadata) {
   /** @type {Set<string>} */
   const seen = new Set()
   /** @type {string[]} */
   const unresolved = []
+  /** @type {Record<string, string>} */
+  const resolvedVersions = {}
+  /** @type {Array<[string, string]>} */
+  const peers = []
   /** @type {Array<[string, string]>} */
   const pending = [
     ['@deepseek-ai/dsh', version],
@@ -116,14 +128,26 @@ async function unresolvedClosure(cache, version, required, loadMetadata) {
       unresolved.push(key)
       continue
     }
+    const previous = resolvedVersions[name]
+    if (previous === undefined || compare(previous, resolved) < 0) resolvedVersions[name] = resolved
 
     const manifest = metadata.versions[resolved]
     for (const [dependency, dependencyRange] of Object.entries(manifest.dependencies ?? {})) {
       if (!dependency.startsWith('@deepseek-ai/')) continue
       pending.push([dependency, dependencyRange])
     }
+    for (const [peer, peerRange] of Object.entries(manifest.peerDependencies ?? {})) {
+      if (peer.startsWith('@deepseek-ai/') && validRange(peerRange) !== null) peers.push([peer, peerRange])
+    }
   }
-  return unresolved.sort()
+  for (const [name, wanted] of peers) {
+    const metadata = cache.get(name) ?? await load(name, loadMetadata)
+    cache.set(name, metadata)
+    const resolved = maxSatisfying(Object.keys(metadata.versions), wanted)
+    const previous = resolvedVersions[name]
+    if (resolved !== null && (previous === undefined || compare(previous, resolved) < 0)) resolvedVersions[name] = resolved
+  }
+  return { unresolved: unresolved.sort(), resolved: resolvedVersions }
 }
 
 /**

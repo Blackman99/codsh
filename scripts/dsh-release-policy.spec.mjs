@@ -126,7 +126,7 @@ describe('selectDshTarget', () => {
       '^0.1.5-rc.2',
       loadMetadata,
       ['@deepseek-ai/dsh', '@deepseek-ai/dsh-agent-presets', '@deepseek-ai/dsh-tools'],
-    )).resolves.toEqual({
+    )).resolves.toMatchObject({
       version: '0.1.5-rc.3',
       skipped: [{ version: '0.2.0-rc.2', unresolved: ['@deepseek-ai/dsh-agent-presets@^0.2.0-rc.2'] }],
     })
@@ -145,6 +145,7 @@ describe('selectDshTarget', () => {
       '@deepseek-ai/dsh-lsp': lsp,
       '@deepseek-ai/dsh-lsp-protocol': protocol,
     }), ['@deepseek-ai/dsh-lsp'])).resolves.toEqual({
+      resolved: {},
       version: '0.1.5-rc.2',
       skipped: [{ version: '0.1.5-rc.3', unresolved: ['@deepseek-ai/dsh-lsp-protocol@0.1.5-rc.3'] }],
     })
@@ -171,5 +172,40 @@ describe('selectDshTarget', () => {
         unresolved: ['@deepseek-ai/dsh-agent-presets@^0.1.5-rc.3', '@deepseek-ai/dsh-code-runtime@^0.1.5-rc.3'],
       },
     ])
+  })
+
+  it('reports the highest version the selected closure resolves or peers on for each package', async () => {
+    const dsh = metadata(
+      ['0.2.0-rc.2'],
+      '0.2.0-rc.2',
+      { '0.2.0-rc.2': { '@deepseek-ai/cordis': '~4.0.4', '@deepseek-ai/dsh-app-boot': '0.2.0-rc.2' } },
+    )
+    const boot = metadata(['0.2.0-rc.2'], '0.2.0-rc.2', { '0.2.0-rc.2': { '@deepseek-ai/cordis': '^4.0.0' } })
+    // A peer counts toward what codsh must install, though it is never walked.
+    boot.versions['0.2.0-rc.2'].peerDependencies = { '@deepseek-ai/cordis-plugin-group': '~1.0.4' }
+
+    await expect(selectDshTarget(dsh, '^0.2.0-rc.2', registryOf({
+      '@deepseek-ai/dsh-app-boot': boot,
+      '@deepseek-ai/cordis': metadata(['4.0.2', '4.0.4', '4.0.5'], '4.0.5'),
+      '@deepseek-ai/cordis-plugin-group': metadata(['1.0.2', '1.0.4'], '1.0.4'),
+    }))).resolves.toEqual({
+      version: '0.2.0-rc.2',
+      skipped: [],
+      resolved: {
+        '@deepseek-ai/dsh': '0.2.0-rc.2',
+        '@deepseek-ai/dsh-app-boot': '0.2.0-rc.2',
+        '@deepseek-ai/cordis': '4.0.5',
+        '@deepseek-ai/cordis-plugin-group': '1.0.4',
+      },
+    })
+  })
+
+  it('does not pass over a release whose only gap is an unmet peer', async () => {
+    const dsh = metadata(['0.2.0-rc.2'], '0.2.0-rc.2')
+    dsh.versions['0.2.0-rc.2'].peerDependencies = { '@deepseek-ai/cordis-plugin-group': '~9.0.0' }
+
+    await expect(target(dsh, '^0.2.0-rc.2', registryOf({
+      '@deepseek-ai/cordis-plugin-group': metadata(['1.0.4'], '1.0.4'),
+    }))).resolves.toBe('0.2.0-rc.2')
   })
 })

@@ -104,7 +104,7 @@ const requiredDsh = new Set(
 // also track the highest version a lockfile-free install would resolve: the
 // harness has published same-core RCs without moving its tags. An unrelated
 // alpha tag is neither signal and must not silently move codsh onto that line.
-const { version: dshLatest, skipped } = await selectDshTarget(dshMeta, dshRange, registry, requiredDsh)
+const { version: dshLatest, skipped, resolved: dshClosure } = await selectDshTarget(dshMeta, dshRange, registry, requiredDsh)
 if (compareVersions(dshLatest, dshMeta['dist-tags'].latest) > 0) {
   console.log(`note: @deepseek-ai/dsh publishes ${dshLatest}, but its latest tag still reads ${dshMeta['dist-tags'].latest}\n`)
 }
@@ -134,17 +134,23 @@ function writeCliRequiresDsh(latest) {
   console.log(`↑ packages/cli/package.json codsh.requiresDsh → ${latest}`)
   return true
 }
-// Co-released packages move to what the target harness itself resolves, not to
-// their own latest tag: dsh 0.1.5-rc.3 pins cordis 4.0.2 exactly, so a bump to
-// a newer cordis beside it would split the tree. One the target does not name
-// stays where it is.
-const extra = ['@deepseek-ai/cordis', '@deepseek-ai/cordis-plugin-group', '@deepseek-ai/cordis-plugin-loader', '@deepseek-ai/schemastery']
+// Co-released packages (cordis and its plugins, schemastery) move to what the
+// target harness itself resolves, not to their own latest tag. A range dsh
+// names directly wins: 0.1.5-rc.3 pins cordis 4.0.2 exactly, while plugins
+// deeper in its closure float to 4.0.4, and a bump to that beside it would
+// split the tree. A package dsh does not name follows the highest version its
+// closure resolves (0.2.0's app-boot needs cordis-plugin-group ~1.0.4); one the
+// closure never reaches stays where it is.
+const extra = [...new Set(
+  manifests.flatMap(({ pkg }) => SECTIONS.flatMap((section) => Object.keys(pkg[section] ?? {})))
+    .filter((name) => name.startsWith('@deepseek-ai/') && !name.startsWith('@deepseek-ai/dsh')),
+)]
 const dshTargetDeps = dshMeta.versions[dshLatest].dependencies ?? {}
 const extraLatest = Object.fromEntries(
   (await Promise.all(
-    extra
-      .filter((n) => dshTargetDeps[n] !== undefined)
-      .map(async (n) => [n, maxSatisfying(Object.keys((await registry(n)).versions), dshTargetDeps[n])]),
+    extra.map(async (n) => [n, dshTargetDeps[n] === undefined
+      ? dshClosure[n] ?? null
+      : maxSatisfying(Object.keys((await registry(n)).versions), dshTargetDeps[n])]),
   )).filter(([, version]) => version !== null),
 )
 
