@@ -16,10 +16,10 @@
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.0",
-    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/cordis": "^4.0.5",
     "@deepseek-ai/cordis-plugin-group": "^1.0.4",
-    "@deepseek-ai/cordis-plugin-include": "^1.0.9",
-    "@deepseek-ai/cordis-plugin-loader": "^1.0.5",
+    "@deepseek-ai/cordis-plugin-include": "^1.0.10",
+    "@deepseek-ai/cordis-plugin-loader": "^1.0.6",
     "@deepseek-ai/dsh": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-agent": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "^0.2.0-rc.2",
